@@ -48,7 +48,7 @@ int main() {
     std::cout << "Limiting max: " << maxObserved << " at -1 dBFS ceiling\n";
 
     // Two musical 2nd-order shelves: measure *steady-state* response after smoothing.
-    const auto shelfGain = [](double hz, double lo, double hi) {
+    const auto shelfGain = [rate, lookahead](double hz, double lo, double hi) {
         MasteringEngine filter;
         filter.prepare(rate, 2, lookahead);
         MasterParameters eq;
