@@ -11,6 +11,8 @@ jobs:
         run: cmake -S . -B build -A x64
       - name: Build
         run: cmake --build build --config Release --parallel 2
+      - name: Test mastering DSP
+        run: ctest --test-dir build -C Release --output-on-failure
       - name: Package
         shell: pwsh
         run: |
