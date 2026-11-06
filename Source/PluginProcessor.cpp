@@ -1,28 +1,150 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-SkellAudioProcessor::SkellAudioProcessor()
- : AudioProcessor(BusesProperties().withInput("Input",juce::AudioChannelSet::stereo(),true).withOutput("Output",juce::AudioChannelSet::stereo(),true)),
-   parameters(*this,nullptr,"PARAMETERS",createLayout()) {}
-juce::AudioProcessorValueTreeState::ParameterLayout SkellAudioProcessor::createLayout() {
-  juce::AudioProcessorValueTreeState::ParameterLayout layout;
-  layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"gain",1},"Gain",juce::NormalisableRange<float>(0.0f,2.0f,0.001f),1.0f));
-  return layout;
+#include <cmath>
+
+SkellyMasterAudioProcessor::SkellyMasterAudioProcessor()
+    : AudioProcessor(BusesProperties()
+          .withInput("Input", juce::AudioChannelSet::stereo(), true)
+          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+      parameters(*this, nullptr, "SKELLY_MASTER_PARAMETERS", createParameterLayout()) {}
+
+juce::AudioProcessorValueTreeState::ParameterLayout SkellyMasterAudioProcessor::createParameterLayout() {
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+    const auto add = [&](const char* id, const char* name, float min, float max,
+                         float step, float initial, const char* units = "") {
+        auto range = juce::NormalisableRange<float>(min, max, step);
+        auto param = std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{id, 1}, name, range, initial,
+            juce::AudioParameterFloatAttributes().withLabel(units));
+        layout.add(std::move(param));
+    };
+    add("input",      "Input",       -18.0f, 18.0f, 0.1f,   0.0f, "dB");
+    add("drive",      "Drive",         0.0f, 100.0f, 0.1f,  0.0f, "%");
+    add("glue",       "Glue",          0.0f, 100.0f, 0.1f,  0.0f, "%");
+    add("dynamics",   "Dynamics",      0.0f, 100.0f, 0.1f,  0.0f, "%");
+    add("lows",       "Lows",         -6.0f,   6.0f, 0.1f,  0.0f, "dB");
+    add("highs",      "Highs",        -6.0f,   6.0f, 0.1f,  0.0f, "dB");
+    add("sauce",      "Sauce",         0.0f, 100.0f, 0.1f,  0.0f, "%");
+    add("transients", "Transients",    0.0f, 100.0f, 0.1f,  0.0f, "%");
+    add("output",     "Output Trim", -18.0f, 12.0f, 0.1f,  0.0f, "dB");
+    add("ceiling",    "Peak Ceiling", -3.0f, -0.1f, 0.1f, -1.0f, "dBFS");
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"bypass", 1}, "Bypass", false));
+    return layout;
 }
-bool SkellAudioProcessor::isBusesLayoutSupported(const BusesLayout& l) const {
-  auto input=l.getMainInputChannelSet();
-  return (input==juce::AudioChannelSet::mono() || input==juce::AudioChannelSet::stereo()) && input==l.getMainOutputChannelSet();
+
+bool SkellyMasterAudioProcessor::isBusesLayoutSupported(const BusesLayout& layout) const {
+    const auto input = layout.getMainInputChannelSet();
+    return (input == juce::AudioChannelSet::mono() || input == juce::AudioChannelSet::stereo())
+        && input == layout.getMainOutputChannelSet();
 }
-void SkellAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBuffer&) {
-  juce::ScopedNoDenormals guard;
-  auto gain=parameters.getRawParameterValue("gain")->load();
-  buffer.applyGain(gain);
+
+void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) {
+    activeChannels = juce::jlimit(1, 2, getTotalNumInputChannels());
+    oversampler = std::make_unique<juce::dsp::Oversampling<float>>(
+        static_cast<size_t>(activeChannels), 2,
+        juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
+        true, true);
+    oversampler->initProcessing(static_cast<size_t>(juce::jmax(16384, maxBlock)));
+    oversampler->reset();
+
+    // 1.5 ms of lookahead, exactly divisible by 4 to keep host latency integral.
+    const double highRate = sampleRate * static_cast<double>(oversamplingFactor);
+    lookaheadSamples = juce::jmax(4, static_cast<int>(std::ceil(sampleRate * 0.0015)) * oversamplingFactor);
+    engine.prepare(highRate, activeChannels, lookaheadSamples);
+    setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
+                      + lookaheadSamples / oversamplingFactor);
+    peakLeft.store(0); peakRight.store(0); reduction.store(0);
 }
-juce::AudioProcessorEditor* SkellAudioProcessor::createEditor() { return new SkellAudioProcessorEditor(*this); }
-void SkellAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
-  if(auto xml=parameters.copyState().createXml()) copyXmlToBinary(*xml,dest);
+
+void SkellyMasterAudioProcessor::releaseResources() {
+    oversampler.reset();
+    setLatencySamples(0);
 }
-void SkellAudioProcessor::setStateInformation(const void* data,int size) {
-  if(auto xml=getXmlFromBinary(data,size))
-    if(xml->hasTagName(parameters.state.getType())) parameters.replaceState(juce::ValueTree::fromXml(*xml));
+
+void SkellyMasterAudioProcessor::reset() {
+    if (oversampler) oversampler->reset();
+    engine.reset();
+    peakLeft.store(0); peakRight.store(0); reduction.store(0);
 }
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new SkellAudioProcessor(); }
+
+void SkellyMasterAudioProcessor::atomicMax(std::atomic<float>& dest, float next) noexcept {
+    float old = dest.load(std::memory_order_relaxed);
+    while (next > old && !dest.compare_exchange_weak(
+               old, next, std::memory_order_relaxed, std::memory_order_relaxed)) {}
+}
+
+void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) {
+    juce::ScopedNoDenormals noDenormals;
+    const int channels = juce::jmin(activeChannels, buffer.getNumChannels());
+    const int samples = buffer.getNumSamples();
+    for (int c = channels; c < buffer.getNumChannels(); ++c)
+        buffer.clear(c, 0, samples);
+    if (channels < 1 || !oversampler || samples == 0) return;
+
+    skelly::MasterParameters p;
+    p.inputDb = parameters.getRawParameterValue("input")->load(std::memory_order_relaxed);
+    p.drive = parameters.getRawParameterValue("drive")->load(std::memory_order_relaxed) * 0.01;
+    p.glue = parameters.getRawParameterValue("glue")->load(std::memory_order_relaxed) * 0.01;
+    p.dynamics = parameters.getRawParameterValue("dynamics")->load(std::memory_order_relaxed) * 0.01;
+    p.lowsDb = parameters.getRawParameterValue("lows")->load(std::memory_order_relaxed);
+    p.highsDb = parameters.getRawParameterValue("highs")->load(std::memory_order_relaxed);
+    p.sauce = parameters.getRawParameterValue("sauce")->load(std::memory_order_relaxed) * 0.01;
+    p.transients = parameters.getRawParameterValue("transients")->load(std::memory_order_relaxed) * 0.01;
+    p.outputDb = parameters.getRawParameterValue("output")->load(std::memory_order_relaxed);
+    p.ceilingDb = parameters.getRawParameterValue("ceiling")->load(std::memory_order_relaxed);
+    p.bypass = parameters.getRawParameterValue("bypass")->load(std::memory_order_relaxed) >= 0.5f;
+    engine.setParameters(p);
+    engine.beginBlock();
+
+    juce::dsp::AudioBlock<float> original(buffer);
+    auto highRateBlock = oversampler->processSamplesUp(original);
+    float* left = highRateBlock.getChannelPointer(0);
+    float* right = channels == 2 ? highRateBlock.getChannelPointer(1) : nullptr;
+    const size_t highRateFrames = highRateBlock.getNumSamples();
+    for (size_t i = 0; i < highRateFrames; ++i) {
+        const auto out = engine.processFrame(left[i], channels == 2 ? right[i] : left[i]);
+        left[i] = out.left;
+        if (channels == 2) right[i] = out.right;
+    }
+    oversampler->processSamplesDown(original);
+
+    // Final host-rate *sample-peak* safeguard. This does not certify reconstructed
+    // true peaks, but it prevents the downsampler from violating the requested
+    // sample ceiling. Bypass stays unmodified apart from oversampling latency.
+    if (!p.bypass) {
+        const auto ceiling = static_cast<float>(skelly::detail::dbToLinear(p.ceilingDb));
+        for (int c = 0; c < channels; ++c) {
+            auto* samplesOut = buffer.getWritePointer(c);
+            for (int i = 0; i < samples; ++i)
+                samplesOut[i] = juce::jlimit(-ceiling, ceiling, samplesOut[i]);
+        }
+    }
+    float maximumL = 0.0f, maximumR = 0.0f;
+    const auto* readL = buffer.getReadPointer(0);
+    const auto* readR = channels == 2 ? buffer.getReadPointer(1) : readL;
+    for (int i = 0; i < samples; ++i) {
+        maximumL = juce::jmax(maximumL, std::abs(readL[i]));
+        maximumR = juce::jmax(maximumR, std::abs(readR[i]));
+    }
+    atomicMax(peakLeft, maximumL);
+    atomicMax(peakRight, maximumR);
+    atomicMax(reduction, static_cast<float>(engine.getBlockGainReductionDb()));
+}
+
+juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
+    return new SkellyMasterAudioProcessorEditor(*this);
+}
+
+void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
+    if (auto xml = parameters.copyState().createXml()) copyXmlToBinary(*xml, dest);
+}
+
+void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size) {
+    if (auto xml = getXmlFromBinary(data, size)) {
+        if (xml->hasTagName(parameters.state.getType()))
+            parameters.replaceState(juce::ValueTree::fromXml(*xml));
+    }
+}
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new SkellyMasterAudioProcessor(); }

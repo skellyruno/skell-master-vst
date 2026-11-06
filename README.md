@@ -1,29 +1,64 @@
-# Skell VST3 Quickstart Template
+# SKELLY MASTER — M-01
 
-Reusable JUCE 8 / CMake / GitHub Actions Windows VST3 starter derived from the **build structure** of your uploaded skell-key-vst project. Unlike the TONIC-specific project, this is a generic **gain effect** with a working parameter, GUI knob, preset-state serialization, mono/stereo support, and automated GitHub packaging.
+A dark neon-green mastering effect built on your `skell-vst-template-main(1).zip` project: **JUCE 8 / C++17 / VST3 + Windows Standalone**, original vector UI, an automated mastering DSP chain and a Windows GitHub Actions build. No bitmap UI assets or third-party plugin binaries.
 
-## Fast start
+> **Engineering status:** portable C++ DSP tests are included. A successful Windows VST3/Standalone compile, compatibility with every DAW, mastering-quality subjective evaluation, peak compliance to BS.1770, and real-world listening tests must be independently verified before selling or claiming commercial flagship parity.
 
-1. Create a new GitHub repository and upload the **contents** of this folder (including `.github`).
-2. Open **Actions → Build Windows VST3 → Run workflow**.
-3. After a successful build, download the workflow artifact containing the `.vst3` bundle.
-4. Or run `python tools/new_plugin.py "Skell Compressor" ../skell-compressor --code Sk03` to generate a separate renamed project. Use a **different 4-character plugin code** for every released plugin; the manufacturer code should remain stable for your brand.
+## Main controls
 
-## Local build
+| Control | DSP function | Range / default |
+| --- | --- | --- |
+| INPUT | Smoothed pre-chain gain | −18…+18 dB / **0** |
+| DRIVE | Smoothed non-linear harmonic saturation (processed at 4× rate) | 0…100% / **0** |
+| GLUE | Linked slow bus compression, soft knee | 0…100% / **0** |
+| DYNAMICS | Linked faster level control, soft knee | 0…100% / **0** |
+| LOWS | 115 Hz second-order low-shelf | −6…+6 dB / **0** |
+| HIGHS | 8.2 kHz second-order high-shelf | −6…+6 dB / **0** |
+| SAUCE | HF saturation and subtle stereo-side widening | 0…100% / **0** |
+| TRANSIENTS | Dual-envelope attack enhancement | 0…100% / **0** |
+| OUTPUT | Post-chain gain **before** limiter | −18…+12 dB / **0** |
+| CEILING | Oversampled peak limit / safety clamp | −3…−0.1 dBFS / **−1** |
+| BYPASS | 12 ms crossfade to latency-aligned dry audio | off |
 
-`cmake -S . -B build -A x64 -DJUCE_PATH=C:/JUCE`
+The editor includes **dual analog-inspired output peak meters**, peak gain reduction readout, double-click knob reset, global reset, MIDI/DAW automation through APVTS, session state save/restore, mono/stereo operation and resizable fixed-aspect UI. The DAW reports the fixed 4× oversampling-filter latency plus **1.5 ms lookahead** (rounded to host samples), rather than hiding it.
 
-`cmake --build build --config Release --parallel 2`
+## Real DSP architecture
 
-Without `JUCE_PATH`, CMake fetches JUCE 8.0.12 from GitHub.
+1. Input gain → continuously blended odd-harmonic soft saturation → DC cleanup.
+2. Biquad low/high shelves with parameter smoothing.
+3. Separate stereo-linked slow glue and fast dynamics compressors with 6 dB knees.
+4. Stereo-linked transient enhancement from fast and slow onset envelopes.
+5. Band-isolated harmonic coloration and mild mid/side width (SAUCE).
+6. Output trim → 4× oversampled lookahead limiter with 0.2 dB safety margin → sample-safety clamp.
+7. 12 ms crossfaded, latency-matched bypass; never use the audio thread for file access or heap allocation.
 
-## Where to edit
+**True-peak limitation:** 4× oversampling reduces inter-sample peak risk but this is **not yet a certified IEC/ITU true-peak limiter**; additional host-rate sample safeguarding guarantees an output **sample-peak** ceiling when bypass is off, but not mathematical reconstruction-peak compliance between output samples. There is no loudness-normalized automatic makeup, auto-mastering AI, multiband compressor, dithering, or LUFS analyzer in this version. Verify renders and loudness in a dedicated loudness/TP analyzer.
 
-- `Source/PluginProcessor.cpp`: parameters and DSP (the sample multiplies incoming audio by Gain).
-- `Source/PluginEditor.cpp`: GUI and knob layout.
-- `CMakeLists.txt`: company, unique plugin code, bundle ID, plugin format, name.
-- `.github/workflows/build.yml`: CI compilation and artifact packaging.
+## Download-ready Windows compilation via GitHub
 
-## Important
+1. Create a GitHub repository (for example `skelly-master-vst`).
+2. Upload **all of this zip's project contents**, including hidden `.github`.
+3. Select **Actions → Build Skelly Master (Windows VST3 + Standalone) → Run workflow**.
+4. The workflow fetches JUCE 8.0.12, builds on Windows x64, runs DSP regression tests and packages a `Skelly Master.vst3` bundle plus `Skelly Master.exe` in an artifact.
+5. Extract the artifact ZIP. Install the **entire** `.vst3` directory into `C:\Program Files\Common Files\VST3\` and rescan plugins in FL Studio. Standalone runs outside your DAW.
 
-This is **not** a synthesizer template; it is an audio effect. It does not include TONIC's pitch/key detector or third-party graphical assets. The supplied original ZIP was used to guide project layout and the GitHub workflow. No original TONIC code is bundled. A successful GitHub Actions build has not been verified in this environment.
+**Local with installed JUCE 8:**
+```powershell
+cmake -S . -B build -A x64 -DJUCE_PATH="C:/JUCE"
+cmake --build build --config Release --parallel 2
+ctest --test-dir build -C Release --output-on-failure
+```
+
+**Local with automatic JUCE fetch:** remove the `-DJUCE_PATH` option; requires network access to GitHub. `JUCE` licenses and the plugin's own commercial licensing still require review before commercial distribution.
+
+## Notes for mastering
+
+Start with all 8 macro controls at zero. Increase **GLUE** gradually to control dynamics, then **DYNAMICS** for a denser result, use LOWS/HIGHS for subtle ±0.5–1.5 dB corrections, and increase DRIVE/SAUCE/TRANSIENTS only as needed. Use CEILING at −1 dBFS or below and verify exported inter-sample peak externally. **0% GLUE** and **0% DYNAMICS** are bypassed in the detector/gain logic; with all eight macros at zero the audio remains unchanged except for necessary lookahead and oversampling filter characteristics and limiting if the signal exceeds the set ceiling.
+
+## Files
+
+- `Source/PluginProcessor.*` — JUCE host integration, parameters, oversampling, latency, meters.
+- `Source/DSP/MasteringEngine.h` — portable DSP processing core; CPU safe, no allocations in its audio callback.
+- `Source/PluginEditor.*` — original brushed-metal/rack-meter visual GUI drawn in C++.
+- `tests/test_mastering.cpp` — C++ DSP regression smoke tests.
+- `.github/workflows/build.yml` — Windows VST3/Standalone CI and artifact release.
