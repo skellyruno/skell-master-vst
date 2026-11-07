@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
 
+# During rapid UI/DSP iterations, do not waste Windows runners compiling
+# superseded snapshots. Always compile and publish the most recent commit.
+concurrency:
+  group: skell-master-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
