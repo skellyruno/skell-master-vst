@@ -160,7 +160,10 @@ public:
         dcR = std::exp(-2.0 * detail::pi * 5.0 / rate);
         fastAtk = std::exp(-1.0 / (rate * 0.002));
         slowAtk = std::exp(-1.0 / (rate * 0.060));
-        limiterRelease = std::exp(-1.0 / (rate * 0.080));
+        // Two-stage release: fast recovery for small peaks, longer release
+        // after severe attenuation to prevent bass-induced pumping.
+        limiterReleaseFast = std::exp(-1.0 / (rate * 0.065));
+        limiterReleaseSlow = std::exp(-1.0 / (rate * 0.220));
         reset();
     }
 
@@ -274,8 +277,11 @@ public:
         // delaying the programme signal; release is stereo-linked and smooth.
         const double peak = std::max(std::abs(l), std::abs(r));
         const double wanted = peak > targetCeiling ? targetCeiling / peak : 1.0;
+        const double recovery = detail::clamp((1.0 - limiterGain) * 3.0, 0.0, 1.0);
+        const double release = limiterReleaseFast
+                             + (limiterReleaseSlow - limiterReleaseFast) * recovery;
         limiterGain = wanted < limiterGain ? wanted
-            : limiterRelease * limiterGain + (1.0 - limiterRelease) * wanted;
+            : release * limiterGain + (1.0 - release) * wanted;
         const auto pos = static_cast<std::size_t>(writeIndex);
         const double delayedL = programDelay[0][pos];
         const double delayedR = programDelay[1][pos];
@@ -311,7 +317,7 @@ private:
     detail::Compressor glueComp, dynamicsComp;
     std::array<double, 2> dcInput{}, dcOutput{};
     double fastEnv = 0, slowEnv = 0, fastAtk = 0, slowAtk = 0;
-    double limiterGain = 1, limiterRelease = 0;
+    double limiterGain = 1, limiterReleaseFast = 0, limiterReleaseSlow = 0;
     double lastEqLows = 1.0e9, lastEqHighs = 1.0e9;
     double gainReduction = 1, outputPeak = 0;
 };
