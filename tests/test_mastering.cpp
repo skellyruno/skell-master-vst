@@ -14,6 +14,20 @@ int main() {
     using namespace skelly;
     constexpr double rate = 192000;
     const int lookahead = static_cast<int>(rate * 0.0015);
+    // Drive normalization must track the original transfer within audible
+    // precision without repeating tanh(drive) per oversampled stereo frame.
+    detail::DriveShaper shaper;
+    shaper.prepare();
+    for (double amount : {0.0, 0.1, 0.37, 0.69, 1.0}) {
+        for (double sample : {-0.7, -0.2, 0.0, 0.27, 0.75}) {
+            const double a = 1.0 + 4.0 * amount;
+            const double reference = sample + amount *
+                         (std::tanh(sample * a) / std::tanh(a) - sample);
+            require(std::abs(shaper.process(sample, amount) - reference) < 1.e-6,
+                    "drive lookup retains the reference saturation shape");
+        }
+    }
+
     // Host-rate final sample-peak guard regression:
     // both channels must share one gain to preserve image and phase.
     StereoPeakGuard guard;
@@ -103,6 +117,22 @@ int main() {
     require(maxObserved <= std::pow(10.0,-1.0/20.0)+1.e-6, "oversampled processing ceiling is respected");
     require(maxObserved > .6, "limiter does not mute the transient");
     std::cout << "Limiting max: " << maxObserved << " at -1 dBFS ceiling\n";
+
+    // Feed an isolated transient into a settled neutral limiter. With 1.5ms
+    // lookahead, release must not begin before its delayed output arrives.
+    dsp.prepare(rate, 2, lookahead);
+    p = {};
+    dsp.setParameters(p);
+    for (int i=0;i<2000;++i) dsp.processFrame(0,0);
+    dsp.processFrame(2.0f, -2.0f);
+    StereoFrame impulseAfterDelay;
+    for (int i=0;i<lookahead;++i)
+        impulseAfterDelay=dsp.processFrame(0,0);
+    const double headroom = detail::dbToLinear(-1.0) * 0.977237220956;
+    require(std::abs(impulseAfterDelay.left) <= headroom + 2.e-4,
+            "limiter holds attenuation through delayed peak");
+    require(std::abs(impulseAfterDelay.left + impulseAfterDelay.right) < 1.e-5,
+            "held limiter stereo phase remains linked");
 
     // Two musical 2nd-order shelves: measure *steady-state* response after smoothing.
     const auto shelfGain = [rate, lookahead](double hz, double lo, double hi) {

@@ -29,6 +29,32 @@ private:
     double current = 0.0, target = 0.0, coefficient = 1.0;
 };
 
+// The saturation normalization only depends on DRIVE, which changes slowly.
+// Precompute its reciprocal tanh curve once during prepare() so the 4x audio
+// path doesn't evaluate an extra transcendental function for every frame.
+class DriveShaper {
+public:
+    void prepare() noexcept {
+        for (std::size_t i = 0; i < table.size(); ++i) {
+            const double amount = 1.0 + 4.0 * static_cast<double>(i) / (table.size() - 1);
+            table[i] = 1.0 / std::tanh(amount);
+        }
+    }
+    double process(double input, double drive) const noexcept {
+        if (drive <= 1.0e-5) return input;
+        const double amount = clamp(drive, 0.0, 1.0);
+        const double t = amount * static_cast<double>(table.size() - 1);
+        const std::size_t index = static_cast<std::size_t>(t);
+        const std::size_t next = std::min(index + 1, table.size() - 1);
+        const double fraction = t - static_cast<double>(index);
+        const double normalization = table[index] + fraction * (table[next] - table[index]);
+        const double shaped = std::tanh(input * (1.0 + 4.0 * amount)) * normalization;
+        return input + amount * (shaped - input);
+    }
+private:
+    std::array<double, 1025> table {};
+};
+
 // Transposed direct-form II, suitable for changing shelf coefficients without resetting state.
 class Biquad {
 public:
@@ -223,6 +249,7 @@ public:
         dynamicsComp.prepare(rate, 8, 110);
         hf[0].prepare(rate, 2400); hf[1].prepare(rate, 2400);
         stereoImager.prepare(rate);
+        driveShaper.prepare();
         dcR = std::exp(-2.0 * detail::pi * 5.0 / rate);
         fastAtk = std::exp(-1.0 / (rate * 0.002));
         slowAtk = std::exp(-1.0 / (rate * 0.060));
@@ -242,7 +269,7 @@ public:
         stereoImager.reset();
         glueComp.reset(); dynamicsComp.reset();
         dcInput.fill(0.0); dcOutput.fill(0.0);
-        fastEnv = slowEnv = 0.0; limiterGain = 1.0; writeIndex = 0;
+        fastEnv = slowEnv = 0.0; limiterGain = 1.0; limiterHold = 0; writeIndex = 0;
         eqCounter = 0; lastEqLows = lastEqHighs = 1.0e9;
         gainReduction = 1.0; outputPeak = 0.0;
     }
@@ -281,10 +308,8 @@ public:
 
         // Symmetric soft saturation, level matched at its operating point.
         if (d > 1.0e-5) {
-            const double amount = 1.0 + 4.0 * d;
-            const double compensation = amount / std::tanh(amount);
-            l += d * (std::tanh(l * amount) * compensation / amount - l);
-            r += d * (std::tanh(r * amount) * compensation / amount - r);
+            l = driveShaper.process(l, d);
+            r = driveShaper.process(r, d);
             // Post-saturation high-pass removes potential near-DC energy.
             const double yl = l - dcInput[0] + dcR * dcOutput[0];
             const double yr = r - dcInput[1] + dcR * dcOutput[1];
@@ -346,8 +371,17 @@ public:
         const double recovery = detail::clamp((1.0 - limiterGain) * 3.0, 0.0, 1.0);
         const double release = limiterReleaseFast
                              + (limiterReleaseSlow - limiterReleaseFast) * recovery;
-        limiterGain = wanted < limiterGain ? wanted
-            : release * limiterGain + (1.0 - release) * wanted;
+        // A peak is detected ahead of the delayed programme. Hold the
+        // attenuation until that peak has actually cleared the output;
+        // otherwise the release starts while the transient is still queued.
+        if (wanted < limiterGain) {
+            limiterGain = wanted;
+            limiterHold = lookahead + 1;
+        } else if (limiterHold > 0) {
+            --limiterHold;
+        } else {
+            limiterGain = release * limiterGain + (1.0 - release) * wanted;
+        }
         const auto pos = static_cast<std::size_t>(writeIndex);
         const double delayedL = programDelay[0][pos];
         const double delayedR = programDelay[1][pos];
@@ -381,10 +415,12 @@ private:
     std::array<detail::Biquad, 2> lowShelf, highShelf;
     std::array<detail::OnePole, 2> hf;
     StereoImager stereoImager;
+    detail::DriveShaper driveShaper;
     detail::Compressor glueComp, dynamicsComp;
     std::array<double, 2> dcInput{}, dcOutput{};
     double fastEnv = 0, slowEnv = 0, fastAtk = 0, slowAtk = 0;
     double limiterGain = 1, limiterReleaseFast = 0, limiterReleaseSlow = 0;
+    int limiterHold = 0;
     double lastEqLows = 1.0e9, lastEqHighs = 1.0e9;
     double gainReduction = 1, outputPeak = 0;
 };

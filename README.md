@@ -43,6 +43,16 @@ The Windows GitHub Action compiles VST3 and Standalone targets, runs the DSP tes
 
 This is an incremental quality and performance pass. **It does not claim certified true-peak performance, LUFS metering, real-time CPU benchmarking or subjective listening validation.** Test in FL Studio before publishing as a commercial release.
 
+## November 7 — precision / CPU polish
+
+- **DRIVE shaper:** precalculates its normalization curve during `prepare()`, eliminating one expensive `tanh` call per oversampled stereo frame while matching the previous saturation transfer within 1e-6 in dedicated tests.
+- **Limiter recovery:** holds peak attenuation for the configured lookahead interval, preventing recovery before the corresponding delayed transient emerges.
+- **Analog meters:** 1.5-second amber peak-hold pointers with graceful decay, without adding a new control or DAW parameter.
+- **Compact readability:** slightly larger editable-value fonts and ASCII-safe hardware legends (including `4X OVERSAMPLING`).
+- **Automation and projects:** unchanged parameter IDs, ranges, state format and factory defaults; no CPU-heavy analysis added to the audio callback.
+
+The VST3 build and tests confirm buildability, not certified reconstructed true-peak limiting or sound-quality equivalence to third-party commercial master processors.
+
 ## Main controls
 
 | Control | DSP function | Range / default |

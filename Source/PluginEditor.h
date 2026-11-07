@@ -29,7 +29,7 @@ private:
 
     void timerCallback() override;
     void paintStatic(juce::Graphics&);
-    void drawMeter(juce::Graphics&, juce::Rectangle<float>, float,
+    void drawMeter(juce::Graphics&, juce::Rectangle<float>, float, float,
                    const juce::String&) const;
     void drawReduction(juce::Graphics&) const;
     void drawScrew(juce::Graphics&, float, float) const;
@@ -44,6 +44,8 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
     juce::Image staticBackdrop;
     std::array<float, 2> meterValues {0.0f, 0.0f};
+    std::array<float, 2> peakHoldValues {0.0f, 0.0f};
+    std::array<int, 2> peakHoldTicks {0, 0};
     float displayedReduction = 0.0f;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyMasterAudioProcessorEditor)
 };

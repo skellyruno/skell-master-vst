@@ -81,7 +81,8 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
 }
 
 juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juce::Label& label) {
-    return juce::Font(juce::FontOptions(juce::jlimit(10.0f, 15.0f, static_cast<float>(label.getHeight()) * 0.73f)).withStyle("Bold"));
+    return juce::Font(juce::FontOptions(juce::jlimit(10.0f, 15.0f,
+                    static_cast<float>(label.getHeight()) * 0.85f)).withStyle("Bold"));
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
@@ -272,8 +273,17 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
 
 void SkellyMasterAudioProcessorEditor::timerCallback() {
     const std::array<float, 2> peaks {processor.consumePeakLeft(), processor.consumePeakRight()};
-    for (size_t channel = 0; channel < meterValues.size(); ++channel)
+    for (size_t channel = 0; channel < meterValues.size(); ++channel) {
         meterValues[channel] = juce::jmax(peaks[channel], meterValues[channel] * 0.89f);
+        if (peaks[channel] > peakHoldValues[channel]) {
+            peakHoldValues[channel] = peaks[channel];
+            peakHoldTicks[channel] = 45; // 1.5 second hold at 30 Hz
+        } else if (peakHoldTicks[channel] > 0) {
+            --peakHoldTicks[channel];
+        } else {
+            peakHoldValues[channel] *= 0.975f; // gentle peak cursor fall
+        }
+    }
     displayedReduction = juce::jmax(processor.consumeMaxReduction(), displayedReduction * 0.86f);
     // At 30 Hz only the meters and status LED change. Repaint clipped
     // rectangles instead of the whole window and all 10 controls.
@@ -294,7 +304,8 @@ void SkellyMasterAudioProcessorEditor::drawScrew(juce::Graphics& g, float x, flo
 }
 
 void SkellyMasterAudioProcessorEditor::drawMeter(
-    juce::Graphics& g, juce::Rectangle<float> r, float value, const juce::String& name) const {
+    juce::Graphics& g, juce::Rectangle<float> r, float value,
+    float heldValue, const juce::String& name) const {
     juce::Graphics::ScopedSaveState save(g);
     g.addTransform(juce::AffineTransform::scale(r.getWidth()/310.0f, r.getHeight()/156.0f)
                        .translated(r.getX(), r.getY()));
@@ -352,6 +363,15 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     // Glass specular line, constrained to the top edge of the meter window.
     g.setColour(juce::Colours::white.withAlpha(.055f));
     g.fillRoundedRectangle(16,10,278,12,4);
+    // Hold marker lives on the calibrated needle scale (no extra text clutter).
+    if (heldValue > 0.0001f) {
+        const float holdAngle = (-153.0f + 126.0f * normalizedPeak(heldValue))
+                                * pi / 180.0f;
+        const float hx = pivotX + std::cos(holdAngle) * radius;
+        const float hy = pivotY + std::sin(holdAngle) * radius;
+        g.setColour(juce::Colour(0xffffcf78));
+        g.fillEllipse(hx - 2.6f, hy - 2.6f, 5.2f, 5.2f);
+    }
 }
 
 void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
@@ -407,7 +427,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     g.setColour(mint); g.fillRoundedRectangle(351,39,29,2,1);
     g.fillRoundedRectangle(826,39,29,2,1);
     font(g,12,true); g.setColour(muted);
-    text(g,"PRECISION  •  POWER",864,31,204,18,juce::Justification::centredRight);
+    text(g,"PRECISION / POWER",864,31,204,18,juce::Justification::centredRight);
     // New star-eyed graphic at top-right, no text or raster branding.
     skelly::ui::drawStarSkull(g,{1108,12,74,60},0.92f);
 
@@ -424,7 +444,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     text(g,"PRECISION MASTER BUS  /  M-01",43,154,211,21);
     g.setColour(edge); g.drawHorizontalLine(181,70,237);
     font(g,13,true); g.setColour(muted);
-    text(g,"4×  OVERSAMPLING",52,191,194,16);
+    text(g,"4X OVERSAMPLING",52,191,194,16);
     text(g,"STEREO-LINKED DSP",52,209,194,16);
     text(g,"LOOKAHEAD LIMITING",52,227,194,16);
     g.setColour(neon.withAlpha(.35f)); g.fillEllipse(72,251,11,11);
@@ -491,8 +511,8 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
     g.drawImage(staticBackdrop, 0, 0, designW, designH,
                 0, 0, designW*2, designH*2);
 
-    drawMeter(g,{275,112,325,159},meterValues[0],"OUTPUT  /  L");
-    drawMeter(g,{612,112,325,159},meterValues[1],"OUTPUT  /  R");
+    drawMeter(g,{275,112,325,159},meterValues[0],peakHoldValues[0],"OUTPUT  /  L");
+    drawMeter(g,{612,112,325,159},meterValues[1],peakHoldValues[1],"OUTPUT  /  R");
     drawReduction(g);
 
     // Read the actual attached state, so DAW automation updates the status.
