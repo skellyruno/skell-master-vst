@@ -69,7 +69,7 @@ juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juc
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
-    juce::Graphics& g, juce::Button& b, juce::Colour, bool hover, bool down) {
+    juce::Graphics& g, juce::Button& b, const juce::Colour&, bool hover, bool down) {
     const auto r = b.getLocalBounds().toFloat().reduced(1.5f);
     const bool active = b.getToggleState();
     const bool isReset = b.getButtonText() == "RESET";
