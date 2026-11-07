@@ -54,14 +54,12 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     engine.prepare(highRate, activeChannels, lookaheadSamples);
     setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
                       + lookaheadSamples / oversamplingFactor);
-    safetyGain = 1.0f;
-    safetyReleaseCoefficient = static_cast<float>(
-        std::exp(-1.0 / (juce::jmax(1.0, sampleRate) * 0.085)));
+    safetyGuard.prepare(sampleRate);
     peakLeft.store(0); peakRight.store(0); reduction.store(0);
 }
 
 void SkellyMasterAudioProcessor::releaseResources() {
-    safetyGain = 1.0f;
+    safetyGuard.reset();
     oversampler.reset();
     setLatencySamples(0);
 }
@@ -69,7 +67,7 @@ void SkellyMasterAudioProcessor::releaseResources() {
 void SkellyMasterAudioProcessor::reset() {
     if (oversampler) oversampler->reset();
     engine.reset();
-    safetyGain = 1.0f;
+    safetyGuard.reset();
     peakLeft.store(0); peakRight.store(0); reduction.store(0);
 }
 
@@ -114,34 +112,22 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     }
     oversampler->processSamplesDown(original);
 
-    // Final host-rate linked safety stage. A transient escaping the upsampled
-    // limiter/downsampler no longer hard-clips one channel independently.
-    // Attenuation engages immediately, then recovers over 85 ms; both channels
-    // receive exactly the same gain to preserve stereo balance. A last-resort
-    // clamp only catches numerical rounding. This is sample-peak protection,
-    // NOT a certified reconstructed true-peak limiter.
+    // Stereo-linked post-oversampling limiter. Shared and regression-tested
+    // with the standalone C++ DSP module: immediate attenuation, smooth
+    // recovery, no audio-thread allocations. Ceiling is sample-peak only.
     if (!p.bypass) {
-        const float ceiling = static_cast<float>(skelly::detail::dbToLinear(p.ceilingDb));
+        const double ceiling = skelly::detail::dbToLinear(p.ceilingDb);
         auto* outL = buffer.getWritePointer(0);
         auto* outR = channels == 2 ? buffer.getWritePointer(1) : nullptr;
         for (int i = 0; i < samples; ++i) {
-            const float stereoPeak = juce::jmax(std::abs(outL[i]),
-                                              outR ? std::abs(outR[i]) : 0.0f);
-            const float wanted = stereoPeak > ceiling ? ceiling / stereoPeak : 1.0f;
-            if (wanted < safetyGain)
-                safetyGain = wanted; // instant gain reduction, no overshoot
-            else
-                safetyGain = safetyReleaseCoefficient * safetyGain
-                           + (1.0f - safetyReleaseCoefficient) * wanted;
-
-            outL[i] = juce::jlimit(-ceiling, ceiling, outL[i] * safetyGain);
-            if (outR)
-                outR[i] = juce::jlimit(-ceiling, ceiling, outR[i] * safetyGain);
+            const auto corrected = safetyGuard.process(
+                {outL[i], outR ? outR[i] : outL[i]}, ceiling);
+            outL[i] = corrected.left;
+            if (outR) outR[i] = corrected.right;
         }
     } else {
-        // True bypass follows the original latency-aligned signal; do not
-        // retain the safety gain from an earlier processed section.
-        safetyGain = 1.0f;
+        // Bypass must be unmodified, apart from the existing aligned delay.
+        safetyGuard.reset();
     }
     float maximumL = 0.0f, maximumR = 0.0f;
     const auto* readL = buffer.getReadPointer(0);
