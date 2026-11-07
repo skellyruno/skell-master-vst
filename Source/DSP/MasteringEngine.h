@@ -139,6 +139,34 @@ struct MasterParameters {
 
 struct StereoFrame { float left = 0.0f, right = 0.0f; };
 
+// Host-rate safety limiter, shared by JUCE wrapper and portable regression tests.
+// Both channels receive identical attenuation. This enforces a *sample* ceiling;
+// reconstructed inter-sample peaks must still be evaluated externally.
+class StereoPeakGuard {
+public:
+    void prepare(double sampleRate) noexcept {
+        release = std::exp(-1.0 / (std::max(1.0, sampleRate) * 0.085));
+        reset();
+    }
+    void reset() noexcept { gain = 1.0; }
+    StereoFrame process(StereoFrame in, double ceilingLinear) noexcept {
+        const double limit = detail::clamp(ceilingLinear, 1.0e-5, 1.0);
+        const double peak = std::max(std::abs(static_cast<double>(in.left)),
+                                     std::abs(static_cast<double>(in.right)));
+        const double wanted = peak > limit ? limit / peak : 1.0;
+        if (wanted < gain) gain = wanted;
+        else gain = release * gain + (1.0 - release) * wanted;
+        const auto apply = [&](float sample) noexcept {
+            return static_cast<float>(
+                detail::clamp(static_cast<double>(sample) * gain, -limit, limit));
+        };
+        return {apply(in.left), apply(in.right)};
+    }
+    double currentGain() const noexcept { return gain; }
+private:
+    double gain = 1.0, release = 0.0;
+};
+
 // Engine runs at 4x the host rate. Feed it frames from a quality oversampling filter.
 class MasteringEngine {
 public:
