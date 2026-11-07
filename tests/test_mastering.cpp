@@ -14,6 +14,28 @@ int main() {
     using namespace skelly;
     constexpr double rate = 192000;
     const int lookahead = static_cast<int>(rate * 0.0015);
+    // Host-rate final sample-peak guard regression:
+    // both channels must share one gain to preserve image and phase.
+    StereoPeakGuard guard;
+    guard.prepare(48000.0);
+    const double guardCeiling = detail::dbToLinear(-1.0);
+    const auto linked = guard.process({2.0f, -1.0f}, guardCeiling);
+    require(std::abs(linked.left) <= guardCeiling + 1.e-6,
+            "linked safety limiter holds left sample ceiling");
+    require(std::abs(linked.right) <= guardCeiling + 1.e-6,
+            "linked safety limiter holds right sample ceiling");
+    require(std::abs(linked.left + 2.0f * linked.right) < 1.e-6f,
+            "linked safety limiter retains stereo ratio and phase");
+    const auto releaseFirst = guard.process({0.25f, -0.125f}, guardCeiling);
+    require(releaseFirst.left < 0.24f, "safety recovery is smooth after over");
+    for (int i = 0; i < 48000; ++i) guard.process({0.0f, 0.0f}, guardCeiling);
+    require(guard.currentGain() > 0.99, "safety limiter eventually recovers unity");
+    guard.reset();
+    const auto neutralGuard = guard.process({0.1f, -0.1f}, guardCeiling);
+    require(std::abs(neutralGuard.left - 0.1f) < 1.e-6f,
+            "safety limiter transparent under ceiling");
+    std::cout << "PASS: linked final safety, gain release, neutral guard\\n";
+
     MasteringEngine dsp;
     dsp.prepare(rate, 2, lookahead);
     MasterParameters p;
