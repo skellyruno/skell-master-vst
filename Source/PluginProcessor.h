@@ -45,9 +45,7 @@ private:
     std::atomic<float> peakLeft { 0.0f }, peakRight { 0.0f }, reduction { 0.0f };
     int activeChannels = 2;
     int lookaheadSamples = 0;
-    // Final host-rate stereo-linked peak protection, preserved across blocks.
-    // Prepared outside the real-time callback; independent of the lookahead DSP.
-    float safetyGain = 1.0f;
-    float safetyReleaseCoefficient = 0.0f;
+    // Fixed-size stereo-linked final safety processing; no audio-thread allocation.
+    skelly::StereoPeakGuard safetyGuard;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyMasterAudioProcessor)
 };
