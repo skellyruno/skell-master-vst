@@ -36,6 +36,41 @@ int main() {
             "safety limiter transparent under ceiling");
     std::cout << "PASS: linked final safety, gain release, neutral guard\n";
 
+    // Test high-band only stereo imaging, bass stability and anti-phase guard.
+    const auto sideGain = [rate](double sideHz, bool invertPhase) {
+        StereoImager imager;
+        imager.prepare(rate);
+        double initialSide = 0.0, imagedSide = 0.0;
+        for (int i = 0; i < static_cast<int>(rate * 0.6); ++i) {
+            const double t = static_cast<double>(i) / rate;
+            const double mid = invertPhase ? 0.0 : 0.20 * std::sin(2.0 * detail::pi * 1000.0 * t);
+            const double side = 0.06 * std::sin(2.0 * detail::pi * sideHz * t);
+            double l = mid + side, r = mid - side;
+            imager.process(l, r, 1.0);
+            if (t > 0.3) {
+                initialSide += side * side;
+                const double imaged = 0.5 * (l-r);
+                imagedSide += imaged * imaged;
+            }
+        }
+        return std::sqrt(imagedSide / initialSide);
+    };
+    const double bassWidth = sideGain(60.0, false);
+    const double highWidth = sideGain(3500.0, false);
+    const double antiPhaseWidth = sideGain(3500.0, true);
+    require(bassWidth < 1.07, "sauce protects low frequency stereo width");
+    require(highWidth > 1.10 && highWidth < 1.21,
+            "sauce gently widens high frequency stereo detail");
+    require(std::abs(antiPhaseWidth - 1.0) < 0.005,
+            "sauce avoids widening highly anti-phase stereo");
+    StereoImager neutralImager;
+    neutralImager.prepare(rate);
+    double neutralL = 0.1, neutralR = -0.05;
+    neutralImager.process(neutralL, neutralR, 0.0);
+    require(std::abs(neutralL - 0.1) < 1.e-12 && std::abs(neutralR + 0.05) < 1.e-12,
+            "zero-percent sauce is exactly transparent");
+    std::cout << "PASS: bass-safe mid-side imaging, anti-phase protection, neutral signal\n";
+
     MasteringEngine dsp;
     dsp.prepare(rate, 2, lookahead);
     MasterParameters p;

@@ -167,6 +167,43 @@ private:
     double gain = 1.0, release = 0.0;
 };
 
+// Gentle mastering width enhancement with two safeguards:
+// (1) a 220 Hz side low-pass leaves bass largely unaffected;
+// (2) a slow mid/side energy estimate suppresses widening when L/R are
+// strongly anti-correlated. All states run continuously when Amount == 0,
+// avoiding sudden stale-filter transients on parameter automation.
+class StereoImager {
+public:
+    void prepare(double sampleRate) noexcept {
+        sideBass.prepare(sampleRate, 220.0);
+        energyCoefficient = std::exp(-1.0 / (std::max(8000.0, sampleRate) * 0.055));
+        reset();
+    }
+    void reset() noexcept {
+        sideBass.reset();
+        midPower = sidePower = 0.0;
+    }
+    void process(double& l, double& r, double amount) noexcept {
+        const double mid = 0.5 * (l + r);
+        const double side = 0.5 * (l - r);
+        const double bassSide = sideBass.low(side);
+        midPower = energyCoefficient * midPower + (1.0 - energyCoefficient) * mid * mid;
+        sidePower = energyCoefficient * sidePower + (1.0 - energyCoefficient) * side * side;
+        if (amount < 1.0e-6) return;
+
+        const double correlation = (midPower - sidePower) / (midPower + sidePower + 1.0e-12);
+        const double protection = detail::clamp((correlation + 0.15) / 0.60, 0.0, 1.0);
+        const double width = 0.18 * detail::clamp(amount, 0.0, 1.0) * protection;
+        const double adjustedSide = side + (side - bassSide) * width;
+        l = mid + adjustedSide;
+        r = mid - adjustedSide;
+    }
+private:
+    detail::OnePole sideBass;
+    double energyCoefficient = 0.0;
+    double midPower = 0.0, sidePower = 0.0;
+};
+
 // Engine runs at 4x the host rate. Feed it frames from a quality oversampling filter.
 class MasteringEngine {
 public:
@@ -185,6 +222,7 @@ public:
         glueComp.prepare(rate, 27, 220);
         dynamicsComp.prepare(rate, 8, 110);
         hf[0].prepare(rate, 2400); hf[1].prepare(rate, 2400);
+        stereoImager.prepare(rate);
         dcR = std::exp(-2.0 * detail::pi * 5.0 / rate);
         fastAtk = std::exp(-1.0 / (rate * 0.002));
         slowAtk = std::exp(-1.0 / (rate * 0.060));
@@ -201,6 +239,7 @@ public:
         for (auto& f : lowShelf) f.reset();
         for (auto& f : highShelf) f.reset();
         for (auto& f : hf) f.reset();
+        stereoImager.reset();
         glueComp.reset(); dynamicsComp.reset();
         dcInput.fill(0.0); dcOutput.fill(0.0);
         fastEnv = slowEnv = 0.0; limiterGain = 1.0; writeIndex = 0;
@@ -293,12 +332,11 @@ public:
         if (s > 1.0e-5) {
             l += 0.24 * s * (std::tanh(2.3 * hL) / 2.3 - hL);
             r += 0.24 * s * (std::tanh(2.3 * hR) / 2.3 - hR);
-            if (channels == 2) {
-                const double mid = 0.5 * (l + r);
-                const double side = 0.5 * (l - r) * (1.0 + 0.18 * s);
-                l = mid + side; r = mid - side;
-            }
         }
+        // Bass is left essentially unchanged, and highly anti-phase material
+        // is not widened further. The imaging filters track even at 0% SAUCE.
+        if (channels == 2)
+            stereoImager.process(l, r, s);
         l *= outGain; r *= outGain;
 
         // Lookahead feed-forward brickwall-style limiter. Detector looks ahead by
@@ -342,6 +380,7 @@ private:
     detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, bypassMix;
     std::array<detail::Biquad, 2> lowShelf, highShelf;
     std::array<detail::OnePole, 2> hf;
+    StereoImager stereoImager;
     detail::Compressor glueComp, dynamicsComp;
     std::array<double, 2> dcInput{}, dcOutput{};
     double fastEnv = 0, slowEnv = 0, fastAtk = 0, slowAtk = 0;

@@ -23,6 +23,7 @@ private:
         void drawButtonBackground(juce::Graphics&, juce::Button&, const juce::Colour&,
                                   bool, bool) override;
         void drawButtonText(juce::Graphics&, juce::TextButton&, bool, bool) override;
+        void drawLabel(juce::Graphics&, juce::Label&) override;
         juce::Font getLabelFont(juce::Label&) override;
     } lookAndFeel;
 

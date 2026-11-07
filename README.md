@@ -31,6 +31,18 @@ The Windows GitHub Action compiles VST3 and Standalone targets, runs the DSP tes
 
 **Not yet certified:** sample-peak compliance is not the same as validated true-peak limiting. Test real mixes and DAW automation, inter-sample peaks, LUFS, THD, CPU and latency before shipping as a commercial mastering suite.
 
+## November 7 — next UI and mastering DSP pass
+
+- Input value displays now use softer rounded recessed plates with improved legibility at the compact 702×445 default.
+- Increased the readable size of selected captions and meter markings while retaining the 35%-smaller default and resizability.
+- The 30 Hz meter timer invalidates only live meter/status areas instead of repainting the entire editor, reducing avoidable GPU/GUI work.
+- **SAUCE stereo enhancement** now widens mostly mid/high side information above a ~220 Hz side crossover instead of boosting bass-side information indiscriminately.
+- The imager tracks mid/side energy and reduces added width when the signal is strongly anti-correlated, making negative-phase material less vulnerable to worsening.
+- Output gain-reduction metering includes the host-rate safety stage as well as the upstream compressors/limiter.
+- Added portable regression tests for bass preservation, high-frequency width, anti-phase protection and exact 0% neutrality.
+
+This is an incremental quality and performance pass. **It does not claim certified true-peak performance, LUFS metering, real-time CPU benchmarking or subjective listening validation.** Test in FL Studio before publishing as a commercial release.
+
 ## Main controls
 
 | Control | DSP function | Range / default |

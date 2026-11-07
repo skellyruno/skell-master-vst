@@ -54,6 +54,7 @@ float normalizedPeak(float value) {
 
 SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::SkellyLookAndFeel() {
     setColour(juce::Slider::textBoxTextColourId, pale);
+    setColour(juce::Label::textColourId, pale);
     setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(0xff3b8b52));
     setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff0d1410));
     setColour(juce::Slider::textBoxHighlightColourId, juce::Colour(0xff296039));
@@ -62,6 +63,21 @@ SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::SkellyLookAndFeel() {
     setColour(juce::TextButton::textColourOnId, pale);
     setColour(juce::TextButton::buttonColourId, panel);
     setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff153322));
+}
+
+void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
+    juce::Graphics& g, juce::Label& label) {
+    const auto bounds = label.getLocalBounds().toFloat().reduced(0.75f);
+    g.setColour(juce::Colour(0xff0a120e));
+    g.fillRoundedRectangle(bounds, 6.0f);
+    g.setColour(juce::Colour(0xff396b47));
+    g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
+    if (!label.isBeingEdited()) {
+        g.setColour(pale);
+        g.setFont(getLabelFont(label));
+        g.drawFittedText(label.getText(), label.getLocalBounds().reduced(4, 1),
+                         label.getJustificationType(), 1);
+    }
 }
 
 juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juce::Label& label) {
@@ -259,7 +275,16 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
     for (size_t channel = 0; channel < meterValues.size(); ++channel)
         meterValues[channel] = juce::jmax(peaks[channel], meterValues[channel] * 0.89f);
     displayedReduction = juce::jmax(processor.consumeMaxReduction(), displayedReduction * 0.86f);
-    repaint();
+    // At 30 Hz only the meters and status LED change. Repaint clipped
+    // rectangles instead of the whole window and all 10 controls.
+    const float sx = static_cast<float>(getWidth()) / designW;
+    const float sy = static_cast<float>(getHeight()) / designH;
+    const auto dirty = [this, sx, sy](int x, int y, int w, int h) {
+        repaint(juce::roundToInt(x * sx), juce::roundToInt(y * sy),
+                juce::roundToInt(w * sx) + 2, juce::roundToInt(h * sy) + 2);
+    };
+    dirty(270, 105, 901, 177);
+    dirty(174, 243, 85, 24);
 }
 
 void SkellyMasterAudioProcessorEditor::drawScrew(juce::Graphics& g, float x, float y) const {
@@ -298,7 +323,7 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         g.drawLine(pivotX+co*inner,pivotY+si*inner,
                    pivotX+co*outer,pivotY+si*outer,i%4==0?1.5f:0.8f);
     }
-    font(g,10,true); g.setColour(pale.withAlpha(.81f));
+    font(g,12,true); g.setColour(pale.withAlpha(.85f));
     text(g,"-48",35,100,34,15);
     text(g,"-36",56,79,32,15);
     text(g,"-24",106,51,40,15);
@@ -377,11 +402,11 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     text(g,"SKELLY",390,12,202,44,juce::Justification::centredRight);
     g.setColour(neon);
     text(g,"MASTER",602,12,213,44,juce::Justification::centredLeft);
-    font(g,10,true); g.setColour(muted);
+    font(g,12,true); g.setColour(muted);
     text(g,"STEREO MASTERING SUITE  /  M-01",447,56,355,17);
     g.setColour(mint); g.fillRoundedRectangle(351,39,29,2,1);
     g.fillRoundedRectangle(826,39,29,2,1);
-    font(g,10,true); g.setColour(muted);
+    font(g,12,true); g.setColour(muted);
     text(g,"PRECISION  •  POWER",864,31,204,18,juce::Justification::centredRight);
     // New star-eyed graphic at top-right, no text or raster branding.
     skelly::ui::drawStarSkull(g,{1108,12,74,60},0.92f);
@@ -395,16 +420,16 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
 
     font(g,17,true); g.setColour(pale);
     text(g,"SKELLY MASTER",48,125,201,27);
-    font(g,10,true); g.setColour(muted);
+    font(g,12,true); g.setColour(muted);
     text(g,"PRECISION MASTER BUS  /  M-01",43,154,211,21);
     g.setColour(edge); g.drawHorizontalLine(181,70,237);
-    font(g,11,true); g.setColour(muted);
+    font(g,13,true); g.setColour(muted);
     text(g,"4×  OVERSAMPLING",52,191,194,16);
     text(g,"STEREO-LINKED DSP",52,209,194,16);
     text(g,"LOOKAHEAD LIMITING",52,227,194,16);
     g.setColour(neon.withAlpha(.35f)); g.fillEllipse(72,251,11,11);
     g.setColour(neon); g.fillEllipse(75,254,5,5);
-    font(g,10,true); g.setColour(neon);
+    font(g,12,true); g.setColour(neon);
     text(g,"ENGINE STATUS",91,246,147,19,juce::Justification::centredLeft);
 
     // Grouped knobs: two compact rows, never overlapping labels or meters.
@@ -426,7 +451,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
         const float rowY=row==0?315.0f:485.0f;
         font(g,16,true); g.setColour(pale);
         text(g,labels[i],cellX+16,rowY+125,175,22);
-        font(g,10,true); g.setColour(mint);
+        font(g,12,true); g.setColour(mint);
         text(g,subtitles[i],cellX+9,rowY+148,192,15);
     }
 
@@ -447,7 +472,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     g.setColour(pale);
     text(g,"CEILING",861,708,77,18,juce::Justification::centredLeft);
     g.setColour(edge); g.drawVerticalLine(1120,694,745);
-    font(g,10,true); g.setColour(muted);
+    font(g,13,true); g.setColour(muted);
     text(g,"M-01",1133,706,53,20);
 }
 

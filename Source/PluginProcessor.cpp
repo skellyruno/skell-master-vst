@@ -138,7 +138,12 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     }
     atomicMax(peakLeft, maximumL);
     atomicMax(peakRight, maximumR);
-    atomicMax(reduction, static_cast<float>(engine.getBlockGainReductionDb()));
+    // Report the strongest gain reduction actually applied, including the
+    // final safety stage after the JUCE downsampler.
+    const float postReductionDb = static_cast<float>(
+        juce::jmax(0.0, -skelly::detail::linearToDb(safetyGuard.currentGain())));
+    atomicMax(reduction, juce::jmax(static_cast<float>(engine.getBlockGainReductionDb()),
+                                   p.bypass ? 0.0f : postReductionDb));
 }
 
 juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
