@@ -64,8 +64,8 @@ SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::SkellyLookAndFeel() {
     setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff153322));
 }
 
-juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juce::Label&) {
-    return juce::Font(juce::FontOptions(14.0f).withStyle("Bold"));
+juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juce::Label& label) {
+    return juce::Font(juce::FontOptions(juce::jlimit(10.0f, 15.0f, static_cast<float>(label.getHeight()) * 0.73f)).withStyle("Bold"));
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
@@ -91,7 +91,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonText(
     juce::Graphics& g, juce::TextButton& b, bool, bool) {
-    font(g, 13.5f, true);
+    font(g, juce::jlimit(9.0f, 14.0f, static_cast<float>(b.getHeight()) * 0.35f), true);
     g.setColour(b.getToggleState() ? juce::Colour(0xffffd3a5) : pale);
     g.drawFittedText(b.getButtonText(), b.getLocalBounds().reduced(5),
                      juce::Justification::centred, 1);
@@ -227,9 +227,9 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     addAndMakeVisible(reset);
 
     setResizable(true, true);
-    setResizeLimits(840, 532, 1800, 1140);
+    setResizeLimits(620, 393, 1800, 1140);
     getConstrainer()->setFixedAspectRatio(static_cast<double>(designW) / designH);
-    setSize(1080, 684);
+    setSize(702, 445);
     startTimerHz(30);
 }
 
@@ -287,7 +287,7 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
 
     font(g,11,true); g.setColour(pale);
     text(g,name,20,12,270,15);
-    const float pivotX=155.0f, pivotY=168.0f, radius=123.0f;
+    const float pivotX=155.0f, pivotY=146.0f, radius=103.0f;
     for (int i=0;i<=24;++i) {
         const float t=static_cast<float>(i)/24.0f;
         const float a=(-153.0f+126.0f*t)*pi/180.0f;
@@ -299,22 +299,30 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
                    pivotX+co*outer,pivotY+si*outer,i%4==0?1.5f:0.8f);
     }
     font(g,10,true); g.setColour(pale.withAlpha(.81f));
-    text(g,"-48",25,95,34,15);
-    text(g,"-36",49,65,32,15);
-    text(g,"-24",106,40,40,15);
-    text(g,"-12",170,40,40,15);
-    text(g,"-6",237,65,24,15);
-    text(g,"0",270,96,22,15);
+    text(g,"-48",35,100,34,15);
+    text(g,"-36",56,79,32,15);
+    text(g,"-24",106,51,40,15);
+    text(g,"-12",170,51,40,15);
+    text(g,"-6",231,79,24,15);
+    text(g,"0",262,100,22,15);
 
+    // Clip the needle to the inset window and mask its pivot beneath the readout.
+    // Previously the needle visibly escaped below both frames in FL Studio.
     const float angle=(-153.0f+126.0f*normalizedPeak(value))*pi/180.0f;
-    const float tipX=pivotX+std::cos(angle)*radius*.91f;
-    const float tipY=pivotY+std::sin(angle)*radius*.91f;
-    g.setColour(neon.withAlpha(.17f));
-    g.drawLine(pivotX,pivotY,tipX,tipY,6);
-    g.setColour(neon);
-    g.drawLine(pivotX,pivotY,tipX,tipY,1.8f);
+    const float tipX=pivotX+std::cos(angle)*radius*.92f;
+    const float tipY=pivotY+std::sin(angle)*radius*.92f;
+    {
+        juce::Graphics::ScopedSaveState needleClip(g);
+        g.reduceClipRegion(juce::Rectangle<int>(13,35,284,109));
+        g.setColour(neon.withAlpha(.17f));
+        g.drawLine(pivotX,pivotY,tipX,tipY,5.0f);
+        g.setColour(neon);
+        g.drawLine(pivotX,pivotY,tipX,tipY,1.7f);
+    }
+    g.setColour(juce::Colour(0xff0b1810));
+    g.fillRoundedRectangle(101.0f,127.0f,108.0f,19.0f,4.0f);
     font(g,12,true); g.setColour(neon);
-    text(g,juce::String(peakDb(value),1)+" dBFS",89,129,133,18);
+    text(g,juce::String(peakDb(value),1)+" dBFS",101,127,108,19);
 
     // Glass specular line, constrained to the top edge of the meter window.
     g.setColour(juce::Colours::white.withAlpha(.055f));
@@ -359,11 +367,11 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     g.fillRect(0,0,designW,88);
     g.setColour(juce::Colour(0xff4d6152)); g.drawHorizontalLine(87,0,designW);
     g.setColour(mint); g.fillRect(0,86,designW,1);
-    skelly::ui::drawStarSkull(g,{26,7,83,71},.96f);
+    skelly::ui::drawStarSkull(g,{31,17,56,49},.91f);
     font(g,22,true); g.setColour(pale);
-    text(g,"SKELLY",112,16,173,30,juce::Justification::centredLeft);
+    text(g,"SKELLY",100,16,173,30,juce::Justification::centredLeft);
     font(g,11,true); g.setColour(neon);
-    text(g,"AUDIO LABS",114,48,160,20,juce::Justification::centredLeft);
+    text(g,"AUDIO LABS",102,48,160,20,juce::Justification::centredLeft);
     g.setColour(edge); g.drawVerticalLine(317,18,70);
     font(g,36,true); g.setColour(pale);
     text(g,"SKELLY",390,12,202,44,juce::Justification::centredRight);
@@ -374,9 +382,9 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     g.setColour(mint); g.fillRoundedRectangle(351,39,29,2,1);
     g.fillRoundedRectangle(826,39,29,2,1);
     font(g,10,true); g.setColour(muted);
-    text(g,"PRECISION  •  POWER",864,31,190,18,juce::Justification::centredRight);
+    text(g,"PRECISION  •  POWER",864,31,204,18,juce::Justification::centredRight);
     // New star-eyed graphic at top-right, no text or raster branding.
-    skelly::ui::drawStarSkull(g,{1057,2,128,79},0.97f);
+    skelly::ui::drawStarSkull(g,{1108,12,74,60},0.92f);
 
     // Meter bridge and typography arranged on a single beveled panel.
     plate(g,{22,95,1156,193},11);
@@ -436,9 +444,11 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     font(g,12,true); g.setColour(pale);
     text(g,"OUTPUT",572,708,76,18,juce::Justification::centredLeft);
     g.setColour(edge); g.drawVerticalLine(851,694,745);
+    g.setColour(pale);
     text(g,"CEILING",861,708,77,18,juce::Justification::centredLeft);
     g.setColour(edge); g.drawVerticalLine(1120,694,745);
-    skelly::ui::drawStarSkull(g,{1130,688,61,53},.25f);
+    font(g,10,true); g.setColour(muted);
+    text(g,"M-01",1133,706,53,20);
 }
 
 void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
@@ -475,6 +485,13 @@ void SkellyMasterAudioProcessorEditor::resized() {
         c.setBounds(juce::roundToInt(x*sx),juce::roundToInt(y*sy),
                     juce::roundToInt(w*sx),juce::roundToInt(h*sy));
     };
+    // JUCE text-entry boxes are sized in pixels, unlike the painted vector
+    // labels: resize them explicitly to prevent overlap at 65% of old default.
+    const int entryW = juce::jlimit(50, 122, juce::roundToInt(95.0f*sx));
+    const int entryH = juce::jlimit(18, 32, juce::roundToInt(27.0f*sy));
+    for (int i=0;i<knobCount;++i)
+        knobs[static_cast<size_t>(i)].setTextBoxStyle(
+            juce::Slider::TextBoxRight, false, entryW, entryH);
     for (int i=0;i<8;++i) {
         const int row=i/4, col=i%4;
         const int cellX=34+col*283;
