@@ -53,6 +53,22 @@ This is an incremental quality and performance pass. **It does not claim certifi
 
 The VST3 build and tests confirm buildability, not certified reconstructed true-peak limiting or sound-quality equivalence to third-party commercial master processors.
 
+## Hardware-look revision — original control layout preserved
+
+This release focuses exclusively on the existing editor's visual materials.
+It does **not** relocate the 8 primary mastering controls, dual output meters,
+gain-reduction display, output/ceiling controls, or bypass/reset buttons.
+The compact 702×445 default, resizing, parameters, presets and DSP are unchanged.
+
+- Anodized dark-steel rack panels with directional brushed highlights and machined borders.
+- Raised metal knob collars, shallow grip-knurl engraving, brushed faceplate highlights and consistent neon pointer illumination.
+- Smoked-glass stereo meters with bevels and a restrained lens reflection.
+- Tactile, inset hardware-style switches, recessed readout windows, and steel screws.
+- Dedicated gain-reduction meter bezel with consistent faceplate materials.
+- All artwork remains procedural JUCE vector drawing with no external bitmap or font dependencies.
+
+The Windows VST3 workflow verifies compilation and portable DSP tests. Visual appearance and mouse interaction still require an FL Studio check before release.
+
 ## Main controls
 
 | Control | DSP function | Range / default |

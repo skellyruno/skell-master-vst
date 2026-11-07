@@ -34,15 +34,32 @@ void text(juce::Graphics& g, const juce::String& s, float x, float y,
     g.drawText(s, juce::Rectangle<float>(x, y, w, h), j, false);
 }
 void plate(juce::Graphics& g, juce::Rectangle<float> r, float radius = 10.0f) {
-    juce::ColourGradient metal(juce::Colour(0xff262d29), r.getX(), r.getY(),
-                              juce::Colour(0xff111715), r.getRight(), r.getBottom(), false);
-    metal.addColour(0.40, juce::Colour(0xff1d2420));
+    // Hardware-inspired anodized aluminum faceplate with engraved edge.
+    // Decorative panels are rendered into the static GUI cache.
+    const auto top = juce::Colour(0xff303936);
+    const auto bottom = juce::Colour(0xff121917);
+    juce::ColourGradient metal(top, r.getX(), r.getY(),
+                              bottom, r.getX(), r.getBottom(), false);
+    metal.addColour(0.18, juce::Colour(0xff242e29));
+    metal.addColour(0.52, juce::Colour(0xff1a2320));
+    metal.addColour(0.85, juce::Colour(0xff111815));
     g.setGradientFill(metal);
     g.fillRoundedRectangle(r, radius);
-    g.setColour(juce::Colour(0xff63756a).withAlpha(0.53f));
-    g.drawRoundedRectangle(r.reduced(0.75f), radius, 1.25f);
-    g.setColour(juce::Colours::black.withAlpha(0.65f));
-    g.drawRoundedRectangle(r.reduced(3.0f), radius - 2.0f, 1.3f);
+    // The directional brushing is restrained so type remains legible.
+    for (float y = r.getY() + 6.0f; y < r.getBottom() - 5.0f; y += 6.0f) {
+        g.setColour(juce::Colours::white.withAlpha(0.014f));
+        g.drawHorizontalLine(static_cast<int>(y), r.getX() + 7.0f, r.getRight() - 7.0f);
+    }
+    g.setColour(juce::Colour(0xff9aa89d).withAlpha(0.48f));
+    g.drawRoundedRectangle(r.reduced(0.8f), radius, 1.2f);
+    g.setColour(juce::Colours::white.withAlpha(0.10f));
+    g.drawLine(r.getX() + 12.0f, r.getY() + 2.0f,
+               r.getRight() - 12.0f, r.getY() + 2.0f, 1.0f);
+    g.setColour(juce::Colours::black.withAlpha(0.70f));
+    g.drawRoundedRectangle(r.reduced(3.0f), juce::jmax(0.0f, radius - 2.0f), 1.2f);
+    g.setColour(juce::Colours::white.withAlpha(0.04f));
+    g.drawLine(r.getX() + 10.0f, r.getBottom() - 2.0f,
+               r.getRight() - 10.0f, r.getBottom() - 2.0f, 0.8f);
 }
 float peakDb(float value) {
     return juce::jmax(-80.0f, juce::Decibels::gainToDecibels(juce::jmax(value, 0.000001f), -80.0f));
@@ -68,10 +85,15 @@ SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::SkellyLookAndFeel() {
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
     juce::Graphics& g, juce::Label& label) {
     const auto bounds = label.getLocalBounds().toFloat().reduced(0.75f);
-    g.setColour(juce::Colour(0xff0a120e));
-    g.fillRoundedRectangle(bounds, 6.0f);
-    g.setColour(juce::Colour(0xff396b47));
-    g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
+    g.setColour(juce::Colour(0xff040807));
+    g.fillRoundedRectangle(bounds, 5.0f);
+    g.setColour(juce::Colour(0xff1b2922));
+    g.fillRoundedRectangle(bounds.reduced(2.0f), 4.0f);
+    g.setColour(juce::Colour(0xff6b8070).withAlpha(0.70f));
+    g.drawRoundedRectangle(bounds, 5.0f, 1.0f);
+    g.setColour(juce::Colour(0xff5eed79).withAlpha(0.26f));
+    g.drawLine(bounds.getX() + 5.0f, bounds.getBottom() - 2.0f,
+               bounds.getRight() - 5.0f, bounds.getBottom() - 2.0f, 0.8f);
     if (!label.isBeingEdited()) {
         g.setColour(pale);
         g.setFont(getLabelFont(label));
@@ -93,17 +115,25 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
     const juce::Colour stroke = active ? juce::Colour(0xffffb36a)
                                : isReset ? juce::Colour(0xff708079)
                                : neon;
-    juce::ColourGradient shade(down ? juce::Colour(0xff24392a) :
-                              juce::Colour(0xff28332d),
+    g.setColour(juce::Colour(0xff020605));
+    g.fillRoundedRectangle(r.expanded(1.0f), 8.0f);
+    juce::ColourGradient shade(down ? juce::Colour(0xff141e17) :
+                              juce::Colour(0xff435047),
                               r.getX(), r.getY(),
-                              juce::Colour(0xff0b100e), r.getX(), r.getBottom(), false);
+                              down ? juce::Colour(0xff2e4735) :
+                              juce::Colour(0xff101815),
+                              r.getX(), r.getBottom(), false);
+    shade.addColour(0.42f, juce::Colour(0xff202c26));
     g.setGradientFill(shade);
-    g.fillRoundedRectangle(r, 8.0f);
-    g.setColour(stroke.withAlpha(active || hover ? 0.95f : 0.65f));
-    g.drawRoundedRectangle(r, 8.0f, active || hover ? 1.8f : 1.1f);
-    g.setColour(juce::Colours::white.withAlpha(0.10f));
-    g.drawHorizontalLine(static_cast<int>(r.getY() + 3.0f),
-                         r.getX() + 8.0f, r.getRight() - 8.0f);
+    g.fillRoundedRectangle(r, 7.0f);
+    g.setColour(stroke.withAlpha(active || hover ? 0.98f : 0.67f));
+    g.drawRoundedRectangle(r, 7.0f, active || hover ? 1.6f : 1.0f);
+    g.setColour(juce::Colours::white.withAlpha(down ? 0.035f : 0.21f));
+    g.drawLine(r.getX()+8.0f, r.getY()+2.5f,
+               r.getRight()-8.0f, r.getY()+2.5f, 1.0f);
+    g.setColour(juce::Colours::black.withAlpha(0.35f));
+    g.drawLine(r.getX()+8.0f, r.getBottom()-2.0f,
+               r.getRight()-8.0f, r.getBottom()-2.0f, 1.0f);
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonText(
@@ -150,6 +180,13 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     g.setColour(edge);
     g.drawEllipse(cx - radius * .91f, cy - radius * .91f,
                   radius * 1.82f, radius * 1.82f, 1.0f);
+    // Raised circular bezel reflects the faceplate lighting.
+    g.setColour(juce::Colour(0xffa1b0a4).withAlpha(0.34f));
+    g.drawArc(cx-radius*.935f, cy-radius*.935f,
+              radius*1.87f, radius*1.87f, -0.6f, 1.7f, 1.5f);
+    g.setColour(juce::Colours::black.withAlpha(.55f));
+    g.drawEllipse(cx-radius*.84f, cy-radius*.84f,
+                  radius*1.68f, radius*1.68f, 1.25f);
     juce::Path groove;
     groove.addCentredArc(cx, cy, radius * .86f, radius * .86f, 0,
                          startAngle, endAngle, true);
@@ -182,15 +219,34 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     g.fillEllipse(cx - face, cy - face, face * 2, face * 2);
     g.setColour(juce::Colour(0xff73877a).withAlpha(0.66f));
     g.drawEllipse(cx - face + 1, cy - face + 1, face * 2 - 2, face * 2 - 2, 1.3f);
+    // A restrained knurled grip reads as physical hardware at compact sizes.
+    // Each segment is a narrow engraved groove in the metallic outer rim.
+    for (int k = 0; k < 48; ++k) {
+        const float a = 2.0f*pi*static_cast<float>(k)/48.0f;
+        const float cs = std::cos(a), sn = std::sin(a);
+        const float inner = face * 0.885f, outer = face * 0.975f;
+        g.setColour(k % 4 == 0 ? juce::Colours::black.withAlpha(0.42f) :
+                                juce::Colours::black.withAlpha(0.23f));
+        g.drawLine(cx+cs*inner,cy+sn*inner,
+                   cx+cs*outer,cy+sn*outer,0.8f);
+    }
+    g.setColour(juce::Colour(0xffc3cec2).withAlpha(0.17f));
+    g.drawArc(cx-face+2.0f,cy-face+2.0f,2.0f*(face-2.0f),
+              2.0f*(face-2.0f),-0.3f,1.3f,1.0f);
 
     const float inset = face * 0.86f;
     juce::ColourGradient brushed(juce::Colour(0xff4d5a53),
                                  cx - inset * .72f, cy - inset * .92f,
                                  juce::Colour(0xff0a110f),
                                  cx + inset * .75f, cy + inset * .82f, false);
-    brushed.addColour(.43, juce::Colour(0xff27352f));
+    brushed.addColour(.35, juce::Colour(0xff53645a));
+    brushed.addColour(.63, juce::Colour(0xff1f2f28));
     g.setGradientFill(brushed);
     g.fillEllipse(cx - inset, cy - inset, inset * 2, inset * 2);
+    g.setColour(juce::Colours::white.withAlpha(0.10f));
+    g.drawArc(cx-inset+1.0f, cy-inset+1.0f,
+              (inset-1.0f)*2.0f, (inset-1.0f)*2.0f,
+              -0.9f, 0.55f, 1.0f);
     for (int i = 0; i < 5; ++i) {
         const float r = inset * (0.41f + i * .115f);
         g.setColour(juce::Colours::white.withAlpha(0.013f + i * .003f));
@@ -298,9 +354,17 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
 }
 
 void SkellyMasterAudioProcessorEditor::drawScrew(juce::Graphics& g, float x, float y) const {
-    g.setColour(juce::Colour(0xff060a08)); g.fillEllipse(x-5.2f,y-5.2f,10.4f,10.4f);
-    g.setColour(juce::Colour(0xff69776b)); g.drawEllipse(x-4.2f,y-4.2f,8.4f,8.4f,1);
-    g.setColour(juce::Colour(0xff66796b)); g.drawLine(x-2,y+2,x+2,y-2,1.1f);
+    g.setColour(juce::Colours::black.withAlpha(.72f));
+    g.fillEllipse(x-6.0f, y-5.5f, 12.0f, 12.0f);
+    juce::ColourGradient steel(juce::Colour(0xffb2beb3),x-4,y-4,
+                               juce::Colour(0xff354039),x+5,y+5,false);
+    steel.addColour(.46,juce::Colour(0xff78857b));
+    g.setGradientFill(steel);
+    g.fillEllipse(x-4.7f,y-4.7f,9.4f,9.4f);
+    g.setColour(juce::Colour(0xff101915));
+    g.drawLine(x-2.0f,y+2.0f,x+2.0f,y-2.0f,1.4f);
+    g.setColour(juce::Colours::white.withAlpha(.25f));
+    g.drawLine(x-2.4f,y+1.3f,x+1.3f,y-2.4f,.6f);
 }
 
 void SkellyMasterAudioProcessorEditor::drawMeter(
@@ -311,8 +375,12 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
                        .translated(r.getX(), r.getY()));
 
     plate(g, {0,0,310,156}, 9);
-    g.setColour(ink);
+    g.setColour(juce::Colour(0xff81978a).withAlpha(.55f));
+    g.drawRoundedRectangle(juce::Rectangle<float>(3,3,304,150),8.0f,1.0f);
+    g.setColour(juce::Colour(0xff030706));
     g.fillRoundedRectangle(6,6,298,144,7);
+    g.setColour(juce::Colour(0xff1d3026));
+    g.drawRoundedRectangle(juce::Rectangle<float>(8,8,294,140),6.0f,1.2f);
     juce::ColourGradient glass(juce::Colour(0xff1b2d24),155,5,
                               juce::Colour(0xff070f0b),155,151,false);
     glass.addColour(0.55,juce::Colour(0xff102118));
@@ -361,8 +429,17 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     text(g,juce::String(peakDb(value),1)+" dBFS",101,127,108,19);
 
     // Glass specular line, constrained to the top edge of the meter window.
-    g.setColour(juce::Colours::white.withAlpha(.055f));
-    g.fillRoundedRectangle(16,10,278,12,4);
+    g.setColour(juce::Colours::white.withAlpha(.075f));
+    g.fillRoundedRectangle(16,10,278,10,4);
+    // Angled reflection gives the smoked meter glass a physical lens.
+    juce::Path lens;
+    lens.startNewSubPath(18.0f,24.0f);
+    lens.lineTo(105.0f,24.0f);
+    lens.lineTo(43.0f,113.0f);
+    lens.lineTo(16.0f,113.0f);
+    lens.closeSubPath();
+    g.setColour(juce::Colours::white.withAlpha(.022f));
+    g.fillPath(lens);
     // Hold marker lives on the calibrated needle scale (no extra text clutter).
     if (heldValue > 0.0001f) {
         const float holdAngle = (-153.0f + 126.0f * normalizedPeak(heldValue))
@@ -375,10 +452,13 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
 }
 
 void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
-    g.setColour(juce::Colour(0xff0b120f));
-    g.fillRoundedRectangle(958,113,206,159,9);
-    g.setColour(edge);
-    g.drawRoundedRectangle(958,113,206,159,9,1);
+    plate(g, {953,108,216,170}, 8);
+    g.setColour(juce::Colour(0xff050b08));
+    g.fillRoundedRectangle(958,113,206,159,7);
+    g.setColour(juce::Colour(0xff54715b).withAlpha(.55f));
+    g.drawRoundedRectangle(juce::Rectangle<float>(958,113,206,159),7.0f,1.0f);
+    g.setColour(juce::Colours::white.withAlpha(.04f));
+    g.drawLine(969,116,1152,116,1.0f);
     font(g,11,true); g.setColour(pale);
     text(g,"GAIN REDUCTION",967,127,188,19);
     font(g,37,true); g.setColour(neon);
@@ -454,6 +534,8 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
 
     // Grouped knobs: two compact rows, never overlapping labels or meters.
     plate(g,{22,302,1156,360},12);
+    for (const float x : {39.0f, 1161.0f})
+        for (const float y : {319.0f, 645.0f}) drawScrew(g,x,y);
     g.setColour(juce::Colour(0xff0e1412));
     g.fillRoundedRectangle(34,315,1132,166,8);
     g.fillRoundedRectangle(34,485,1132,165,8);
@@ -477,6 +559,8 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
 
     // Bottom control deck: separate mastering utility controls.
     plate(g,{0,673,1200,87},0);
+    drawScrew(g,18.0f,714.0f);
+    drawScrew(g,1181.0f,714.0f);
     g.setColour(juce::Colour(0xff66766b).withAlpha(.45f));
     g.drawHorizontalLine(673,0,1200);
     g.setColour(mint); g.fillRoundedRectangle(0,673,1200,1.2f,0.6f);
