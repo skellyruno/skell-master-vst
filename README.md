@@ -18,6 +18,19 @@ The interface is implemented in **JUCE C++** (not a rendered mockup or external 
 The visual change has not been used as evidence of mastering-audio quality: use an external true-peak/LUFS analyzer and verify real projects before commercial distribution.
 The Windows GitHub Action compiles VST3 and Standalone targets, runs the DSP tests, and uploads the VST3 bundle as a ZIP.
 
+## November 7 FL Studio polish and DSP revision
+
+- Default window is now **702×445** (35% smaller in width and height than the previous 1080×684 default), still resizable at a fixed aspect ratio.
+- Stereo meter pointers are constrained to the meter faces and the readouts mask the pivot, preventing needles extending below the glass.
+- The decorative star-skull is smaller and moved away from the header tagline; redundant footer skull removed.
+- Higher-contrast **CEILING** label, improved compact button and slider text sizing, and text-entry boxes which scale with the editor window.
+- The final host-rate output stage now uses a **linked stereo sample-peak gain guard** (immediate gain reduction, 85 ms release), preserving L/R balance instead of hard-clipping each channel independently.
+- The main 4× oversampled lookahead limiter now uses a program-dependent release (65–220 ms) to reduce abrupt volume recovery after large peaks.
+- New portable C++ regression checks exercise the peak guard's ceiling, stereo ratio, release, and below-ceiling transparency.
+- Build workflow cancels superseded push builds on `main` while preserving manual workflow dispatch.
+
+**Not yet certified:** sample-peak compliance is not the same as validated true-peak limiting. Test real mixes and DAW automation, inter-sample peaks, LUFS, THD, CPU and latency before shipping as a commercial mastering suite.
+
 ## Main controls
 
 | Control | DSP function | Range / default |
@@ -43,7 +56,7 @@ The editor includes **dual analog-inspired output peak meters**, peak gain reduc
 3. Separate stereo-linked slow glue and fast dynamics compressors with 6 dB knees.
 4. Stereo-linked transient enhancement from fast and slow onset envelopes.
 5. Band-isolated harmonic coloration and mild mid/side width (SAUCE).
-6. Output trim → 4× oversampled lookahead limiter with 0.2 dB safety margin → sample-safety clamp.
+6. Output trim → 4× oversampled lookahead limiter with adaptive recovery and 0.2 dB headroom → linked host-rate sample-peak gain guard with a final numerical ceiling safeguard.
 7. 12 ms crossfaded, latency-matched bypass; never use the audio thread for file access or heap allocation.
 
 **True-peak limitation:** 4× oversampling reduces inter-sample peak risk but this is **not yet a certified IEC/ITU true-peak limiter**; additional host-rate sample safeguarding guarantees an output **sample-peak** ceiling when bypass is off, but not mathematical reconstruction-peak compliance between output samples. There is no loudness-normalized automatic makeup, auto-mastering AI, multiband compressor, dithering, or LUFS analyzer in this version. Verify renders and loudness in a dedicated loudness/TP analyzer.
