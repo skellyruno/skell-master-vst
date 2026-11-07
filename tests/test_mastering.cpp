@@ -34,7 +34,7 @@ int main() {
     const auto neutralGuard = guard.process({0.1f, -0.1f}, guardCeiling);
     require(std::abs(neutralGuard.left - 0.1f) < 1.e-6f,
             "safety limiter transparent under ceiling");
-    std::cout << "PASS: linked final safety, gain release, neutral guard\\n";
+    std::cout << "PASS: linked final safety, gain release, neutral guard\n";
 
     MasteringEngine dsp;
     dsp.prepare(rate, 2, lookahead);
