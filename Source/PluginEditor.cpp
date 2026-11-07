@@ -182,8 +182,10 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                   radius * 1.82f, radius * 1.82f, 1.0f);
     // Raised circular bezel reflects the faceplate lighting.
     g.setColour(juce::Colour(0xffa1b0a4).withAlpha(0.34f));
-    g.drawArc(cx-radius*.935f, cy-radius*.935f,
-              radius*1.87f, radius*1.87f, -0.6f, 1.7f, 1.5f);
+    juce::Path bezelHighlight;
+    bezelHighlight.addCentredArc(cx, cy, radius*.935f, radius*.935f,
+                                 0.0f, -0.6f, 1.7f, true);
+    g.strokePath(bezelHighlight, juce::PathStrokeType(1.5f));
     g.setColour(juce::Colours::black.withAlpha(.55f));
     g.drawEllipse(cx-radius*.84f, cy-radius*.84f,
                   radius*1.68f, radius*1.68f, 1.25f);
@@ -231,8 +233,10 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                    cx+cs*outer,cy+sn*outer,0.8f);
     }
     g.setColour(juce::Colour(0xffc3cec2).withAlpha(0.17f));
-    g.drawArc(cx-face+2.0f,cy-face+2.0f,2.0f*(face-2.0f),
-              2.0f*(face-2.0f),-0.3f,1.3f,1.0f);
+    juce::Path gripHighlight;
+    gripHighlight.addCentredArc(cx, cy, face-2.0f, face-2.0f,
+                                0.0f, -0.3f, 1.3f, true);
+    g.strokePath(gripHighlight, juce::PathStrokeType(1.0f));
 
     const float inset = face * 0.86f;
     juce::ColourGradient brushed(juce::Colour(0xff4d5a53),
@@ -244,9 +248,10 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     g.setGradientFill(brushed);
     g.fillEllipse(cx - inset, cy - inset, inset * 2, inset * 2);
     g.setColour(juce::Colours::white.withAlpha(0.10f));
-    g.drawArc(cx-inset+1.0f, cy-inset+1.0f,
-              (inset-1.0f)*2.0f, (inset-1.0f)*2.0f,
-              -0.9f, 0.55f, 1.0f);
+    juce::Path faceHighlight;
+    faceHighlight.addCentredArc(cx, cy, inset-1.0f, inset-1.0f,
+                                0.0f, -0.9f, 0.55f, true);
+    g.strokePath(faceHighlight, juce::PathStrokeType(1.0f));
     for (int i = 0; i < 5; ++i) {
         const float r = inset * (0.41f + i * .115f);
         g.setColour(juce::Colours::white.withAlpha(0.013f + i * .003f));
