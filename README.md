@@ -4,6 +4,20 @@ A dark neon-green mastering effect built on your `skell-vst-template-main(1).zip
 
 > **Engineering status:** portable C++ DSP tests are included. A successful Windows VST3/Standalone compile, compatibility with every DAW, mastering-quality subjective evaluation, peak compliance to BS.1770, and real-world listening tests must be independently verified before selling or claiming commercial flagship parity.
 
+## UI refresh: premium vector faceplate (November 2026)
+
+The interface is implemented in **JUCE C++** (not a rendered mockup or external bitmap).
+- High-contrast studio rack faceplate, simplified visual hierarchy, balanced 4×2 control grid.
+- Machined dark-metal rotary encoders with illuminated pointers and editable dB / percent values.
+- Glass-look dual L/R output peak meters, gain-reduction readout, engine/bypass status.
+- Compact Bypass / Reset / Output / Ceiling utility strip and fixed-aspect resizing.
+- Original **star-eyed skull** emblem inspired by the supplied reference, without its text, implemented as scalable vector geometry in `Source/UI/StarSkullMark.h`.
+- Static decorative artwork is cached at 2× resolution, so the 30 Hz meter refresh does not recreate the entire vector faceplate.
+
+**All existing parameter IDs, DSP topology, DAW automation and preset data are preserved.**
+The visual change has not been used as evidence of mastering-audio quality: use an external true-peak/LUFS analyzer and verify real projects before commercial distribution.
+The Windows GitHub Action compiles VST3 and Standalone targets, runs the DSP tests, and uploads the VST3 bundle as a ZIP.
+
 ## Main controls
 
 | Control | DSP function | Range / default |
@@ -39,7 +53,7 @@ The editor includes **dual analog-inspired output peak meters**, peak gain reduc
 1. Create a GitHub repository (for example `skelly-master-vst`).
 2. Upload **all of this zip's project contents**, including hidden `.github`.
 3. Select **Actions → Build Skelly Master (Windows VST3 + Standalone) → Run workflow**.
-4. The workflow fetches JUCE 8.0.12, builds on Windows x64, runs DSP regression tests and packages a `Skelly Master.vst3` bundle plus `Skelly Master.exe` in an artifact.
+4. The workflow fetches JUCE 8.0.12, builds on Windows x64, runs DSP regression tests, and uploads a VST3 bundle ZIP. The Standalone target is also compiled but is not included in this artifact.
 5. Extract the artifact ZIP. Install the **entire** `.vst3` directory into `C:\Program Files\Common Files\VST3\` and rescan plugins in FL Studio. Standalone runs outside your DAW.
 
 **Local with installed JUCE 8:**
