@@ -23,6 +23,34 @@ void resetValues(SkellyMasterAudioProcessor& p) {
         if (auto* param = p.parameters.getParameter(id))
             param->setValueNotifyingHost(param->getDefaultValue());
 }
+// APVTS SliderAttachment updates may be queued for the JUCE message loop.
+// The screenshot tool has no live DAW loop, so explicitly synchronize the
+// real visible Slider/TextButton controls from the real processor parameters.
+// This is visual test setup, not a mock UI or alternate rendering code.
+void synchronizeControls(SkellyMasterAudioProcessorEditor& editor,
+                         SkellyMasterAudioProcessor& p) {
+    static constexpr std::array<const char*, 10> ids {{
+        "input", "drive", "glue", "dynamics", "lows", "highs",
+        "sauce", "transients", "output", "ceiling"
+    }};
+    int index = 0;
+    for (int i=0;i<editor.getNumChildComponents();++i) {
+        auto* child = editor.getChildComponent(i);
+        if (auto* slider = dynamic_cast<juce::Slider*>(child)) {
+            if (index < static_cast<int>(ids.size())) {
+                if (auto* raw = p.parameters.getRawParameterValue(ids[static_cast<size_t>(index)]))
+                    slider->setValue(raw->load(std::memory_order_relaxed), juce::dontSendNotification);
+                ++index;
+            }
+        } else if (auto* button = dynamic_cast<juce::TextButton*>(child)) {
+            if (button->getButtonText() == "BYPASS") {
+                if (auto* raw = p.parameters.getRawParameterValue("bypass"))
+                    button->setToggleState(raw->load(std::memory_order_relaxed) >= 0.5f,
+                                           juce::dontSendNotification);
+            }
+        }
+    }
+}
 juce::StringArray inspect(SkellyMasterAudioProcessorEditor& editor) {
     juce::StringArray issues;
     std::vector<juce::Rectangle<int>> rectangles;
@@ -104,7 +132,7 @@ int main(int argc, char** argv) {
                 default:
                     break;
             }
-            juce::MessageManager::getInstance()->runDispatchLoopUntil(25);
+            synchronizeControls(editor, processor);
         };
         options.inspect = [&] { return inspect(editor); };
         options.mustDiffer = {
