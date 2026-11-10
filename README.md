@@ -92,6 +92,13 @@ host compatibility, visual human review, loudness/true-peak measurements, or
 real-song listening tests. The GUI's visual design and DSP parameter IDs are
 unchanged; resizing no longer recreates every text-entry box unnecessarily.
 
+## CI warning cleanup
+
+Removed the obsolete `JUCE_DISPLAY_SPLASH_SCREEN` compile definition that JUCE 8
+explicitly ignores, and updated official GitHub checkout/artifact actions to
+their Node 24 versions to avoid obsolete Node 20 warnings. Both artifact
+categories now have 14-day retention.
+
 ## Main controls
 
 | Control | DSP function | Range / default |
