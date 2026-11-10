@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -166,8 +167,46 @@ int main() {
                         }
                 }
             }
+            // Stress input sanitization at the actual JUCE oversampler boundary.
+            // An invalid host frame must not poison the persistent filter
+            // state, and the following normal programme must recover.
+            processor.reset();
+            juce::AudioBuffer<float> badBuffer(2, 257);
+            juce::MidiBuffer badMidi;
+            const auto bad = std::numeric_limits<float>::quiet_NaN();
+            const auto inf = std::numeric_limits<float>::infinity();
+            double recoveredEnergy = 0.0;
+            constexpr float sampleCeiling = 0.891250938f; // -1 dBFS
+            for (int block = 0; block < 48; ++block) {
+                for (int i = 0; i < badBuffer.getNumSamples(); ++i) {
+                    const double phase = (block * badBuffer.getNumSamples() + i)
+                        * juce::MathConstants<double>::twoPi * 440.0 / sampleRate;
+                    const float input = static_cast<float>(0.2 * std::sin(phase));
+                    badBuffer.setSample(0, i, input);
+                    badBuffer.setSample(1, i, input * 0.8f);
+                }
+                if (block == 3) {
+                    badBuffer.setSample(0, 0, bad);
+                    badBuffer.setSample(1, 3, inf);
+                    badBuffer.setSample(0, 11, -inf);
+                    badBuffer.setSample(0, 15, 1.e38f);
+                }
+                processor.processBlock(badBuffer, badMidi);
+                for (int channel = 0; channel < 2; ++channel)
+                    for (int i = 0; i < badBuffer.getNumSamples(); ++i) {
+                        const float output = badBuffer.getSample(channel, i);
+                        check(std::isfinite(output),
+                              "oversampler filter poisoned by invalid host audio");
+                        check(std::abs(output) <= sampleCeiling + .0003f,
+                              "sample-peak safety failed after invalid host audio");
+                        if (block >= 42)
+                            recoveredEnergy += static_cast<double>(output) * output;
+                    }
+            }
+            check(recoveredEnergy > 2.0,
+                  "host output did not recover after invalid samples");
             std::cout << "PASS: host wrapper " << sampleRate
-                      << " Hz, variable block sizes, ceiling, latency="
+                      << " Hz, variable blocks, invalid input recovery, ceiling, latency="
                       << latency << " samples\n";
         }
         processor.releaseResources();

@@ -100,6 +100,22 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     engine.setParameters(p);
     engine.beginBlock();
 
+    // Reject malformed input BEFORE JUCE's oversampling filter stages.
+    // Sanitizing only the oversampled samples is too late: NaN or Inf can
+    // contaminate IIR filter memory and persist long after the bad sample.
+    // The generous +48 dBFS guard only affects otherwise pathological audio
+    // and keeps extreme finite values from overflowing internal arithmetic.
+    constexpr float maxHostSample = 256.0f;
+    for (int channel = 0; channel < channels; ++channel) {
+        float* inputSamples = buffer.getWritePointer(channel);
+        for (int i = 0; i < samples; ++i) {
+            const float value = inputSamples[i];
+            if (!std::isfinite(value)) inputSamples[i] = 0.0f;
+            else if (value > maxHostSample) inputSamples[i] = maxHostSample;
+            else if (value < -maxHostSample) inputSamples[i] = -maxHostSample;
+        }
+    }
+
     juce::dsp::AudioBlock<float> original(buffer);
     auto highRateBlock = oversampler->processSamplesUp(original);
     float* left = highRateBlock.getChannelPointer(0);

@@ -106,6 +106,22 @@ not concept images. Shifted the bottom-right M-01 badge clear of the decorative
 metal screw and increased legibility of the manufacturer, control subtitles and
 master bus tagline at compact sizes. Layout and DSP remain otherwise unchanged.
 
+## November 10 — host input safety
+
+- Host-rate samples are validated **before** the JUCE 4× oversampling filters.
+  Non-finite inputs are replaced with silence so they cannot corrupt the
+  oversampler's filter state; extraordinary signals above ±256 linear
+  (+48.2 dBFS) are bounded as defensive protection.
+- The JUCE integration regression now injects NaN, positive/negative infinity
+  and extreme finite values at 44.1, 48 and 96 kHz, then checks output stays
+  finite, below the configured sample ceiling, and recovers normal energy.
+- Nominal program material, 702×445 window, parameter IDs, and preset formats
+  are unchanged.
+
+This is sample-peak safety, not certified inter-sample true-peak limiting.
+Real projects and DAW host validation remain mandatory for a commercial
+mastering release.
+
 ## Main controls
 
 | Control | DSP function | Range / default |
