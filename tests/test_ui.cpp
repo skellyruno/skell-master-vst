@@ -67,6 +67,7 @@ int main() {
         SkellyMasterAudioProcessor processor;
         processor.prepareToPlay(48000.0, 512);
         SkellyMasterAudioProcessorEditor editor(processor);
+        editor.setVisible(true); // Offscreen component has no native desktop peer.
 
         // Visual coverage: compact min/default, intermediate, design, large.
         for (int width : {620, 702, 960, 1200, 1800}) {
@@ -93,8 +94,12 @@ int main() {
                           "two top-level interactive controls overlap");
 
             juce::Image rendered(juce::Image::ARGB,width,height,true);
-            juce::Graphics graphics(rendered);
-            paintDetachedTree(editor,graphics);
+            {
+                juce::Graphics graphics(rendered);
+                paintDetachedTree(editor,graphics);
+                // Finish and flush the software drawing context before
+                // inspecting or PNG-encoding the image pixels.
+            }
             // Save before asserting: a visually broken renderer must still
             // publish an image for root-cause inspection in CI.
             if (width==620 || width==702 || width==1200)
