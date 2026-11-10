@@ -45,3 +45,19 @@ enable_testing()
 add_executable(SkellyDSPTests tests/test_mastering.cpp)
 target_compile_features(SkellyDSPTests PRIVATE cxx_std_17)
 add_test(NAME SkellyDSPTests COMMAND SkellyDSPTests)
+
+# Real JUCE editor + processor smoke tests on the Windows runner. Renders
+# offscreen snapshots at multiple sizes and verifies controls/layout/host DSP.
+# Link the plugin's shared-code target rather than recompiling the engine/UI.
+if(WIN32)
+    juce_add_console_app(SkellyUITests PRODUCT_NAME "Skelly Master UI Tests")
+    target_sources(SkellyUITests PRIVATE tests/test_ui.cpp)
+    target_compile_features(SkellyUITests PRIVATE cxx_std_17)
+    target_compile_definitions(SkellyUITests PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0)
+    target_link_libraries(SkellyUITests PRIVATE SkellyMaster
+        juce::juce_audio_utils juce::juce_audio_processors
+        juce::juce_dsp juce::juce_gui_extra)
+    juce_generate_juce_header(SkellyUITests)
+    add_test(NAME SkellyUITests COMMAND SkellyUITests)
+endif()

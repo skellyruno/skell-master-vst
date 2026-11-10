@@ -606,7 +606,7 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
 
     // Read the actual attached state, so DAW automation updates the status.
     const bool bypassed = bypass.getToggleState();
-    font(g,10,true);
+    font(g,14,true);
     g.setColour(bypassed ? juce::Colour(0xffffbb7d) : neon);
     text(g,bypassed ? "BYPASSED" : "ACTIVE",
          186,246,65,19,juce::Justification::centredLeft);
@@ -623,9 +623,12 @@ void SkellyMasterAudioProcessorEditor::resized() {
     // labels: resize them explicitly to prevent overlap at 65% of old default.
     const int entryW = juce::jlimit(50, 122, juce::roundToInt(95.0f*sx));
     const int entryH = juce::jlimit(18, 32, juce::roundToInt(27.0f*sy));
-    for (int i=0;i<knobCount;++i)
-        knobs[static_cast<size_t>(i)].setTextBoxStyle(
-            juce::Slider::TextBoxRight, false, entryW, entryH);
+    if (entryW != lastTextBoxWidth || entryH != lastTextBoxHeight) {
+        for (auto& slider : knobs)
+            slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, entryW, entryH);
+        lastTextBoxWidth = entryW;
+        lastTextBoxHeight = entryH;
+    }
     for (int i=0;i<8;++i) {
         const int row=i/4, col=i%4;
         const int cellX=34+col*283;

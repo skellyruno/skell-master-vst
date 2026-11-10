@@ -77,6 +77,21 @@ The Windows VST3 workflow verifies compilation and portable DSP tests. Visual ap
 - Portable regression tests now inject non-finite samples, exercise recovery, and check lowpass denormal tails.
 - Existing IDs, preset state, GUI layout and all mastering controls are unchanged.
 
+## Windows UI and host integration verification
+
+The Windows workflow runs a JUCE offscreen renderer and a host-like processor
+smoke test in addition to portable DSP tests. It checks **five editor sizes**
+(620×393 through 1800×1140), verifies no top-level knob/button bounds escape or
+overlap, validates that input/bypass/reset controls update parameters, and saves
+two actual rendered PNG snapshots in the `SkellyMaster-UI-Regression` artifact.
+Host tests process 44.1/48/96 kHz sample streams with variable block sizes,
+check sample-peak ceilings, finite output, and sane reported latency.
+
+This improves automated UI validation but is **not** a replacement for FL Studio
+host compatibility, visual human review, loudness/true-peak measurements, or
+real-song listening tests. The GUI's visual design and DSP parameter IDs are
+unchanged; resizing no longer recreates every text-entry box unnecessarily.
+
 ## Main controls
 
 | Control | DSP function | Range / default |

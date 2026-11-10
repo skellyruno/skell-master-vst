@@ -47,5 +47,6 @@ private:
     std::array<float, 2> peakHoldValues {0.0f, 0.0f};
     std::array<int, 2> peakHoldTicks {0, 0};
     float displayedReduction = 0.0f;
+    int lastTextBoxWidth = -1, lastTextBoxHeight = -1;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyMasterAudioProcessorEditor)
 };
