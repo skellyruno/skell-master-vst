@@ -333,6 +333,10 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
 }
 
 void SkellyMasterAudioProcessorEditor::timerCallback() {
+    const auto previousMeters = meterValues;
+    const auto previousHolds = peakHoldValues;
+    const float previousReduction = displayedReduction;
+
     const std::array<float, 2> peaks {processor.consumePeakLeft(), processor.consumePeakRight()};
     for (size_t channel = 0; channel < meterValues.size(); ++channel) {
         meterValues[channel] = juce::jmax(peaks[channel], meterValues[channel] * 0.89f);
@@ -346,16 +350,31 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
         }
     }
     displayedReduction = juce::jmax(processor.consumeMaxReduction(), displayedReduction * 0.86f);
-    // At 30 Hz only the meters and status LED change. Repaint clipped
-    // rectangles instead of the whole window and all 10 controls.
+    const bool bypassed = bypass.getToggleState();
+
+    // Meter graphics are relatively expensive at a compact size. While the
+    // DAW is stopped, the timer should not repaint the whole bridge 30x/s.
+    const bool metersChanged = [&] {
+        if (std::abs(displayedReduction - previousReduction) >= 0.025f)
+            return true;
+        for (size_t i=0;i<meterValues.size();++i)
+            if (std::abs(meterValues[i]-previousMeters[i]) >= 0.0001f
+                || std::abs(peakHoldValues[i]-previousHolds[i]) >= 0.0001f)
+                return true;
+        return false;
+    }();
+
     const float sx = static_cast<float>(getWidth()) / designW;
     const float sy = static_cast<float>(getHeight()) / designH;
     const auto dirty = [this, sx, sy](int x, int y, int w, int h) {
         repaint(juce::roundToInt(x * sx), juce::roundToInt(y * sy),
                 juce::roundToInt(w * sx) + 2, juce::roundToInt(h * sy) + 2);
     };
-    dirty(270, 105, 901, 177);
-    dirty(174, 243, 85, 24);
+    if (metersChanged) dirty(270, 105, 901, 177);
+    if (bypassed != lastDisplayedBypass) {
+        lastDisplayedBypass = bypassed;
+        dirty(174, 243, 85, 24);
+    }
 }
 
 void SkellyMasterAudioProcessorEditor::drawScrew(juce::Graphics& g, float x, float y) const {

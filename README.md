@@ -122,6 +122,17 @@ This is sample-peak safety, not certified inter-sample true-peak limiting.
 Real projects and DAW host validation remain mandatory for a commercial
 mastering release.
 
+## November 10 — idle graphics and profiling
+
+- The 30 Hz meter timer only invalidates the meter bridge when the peak
+  readouts, peak-hold cursors, or reduction readout actually change.
+  Bypass-status repaint is handled separately, so idle audio doesn't redraw
+  the premium hardware artwork repeatedly.
+- CI uses verbose CTest output to expose the existing busy-chain CPU timing
+  probe and the integration-test pass details for each sample rate.
+- The visual design, control rectangles, parameter automation IDs and DSP
+  processing algorithm are unchanged by this GUI optimization.
+
 ## Main controls
 
 | Control | DSP function | Range / default |
