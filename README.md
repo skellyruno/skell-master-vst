@@ -135,6 +135,41 @@ mastering release.
 - The visual design, control rectangles, parameter automation IDs and DSP
   processing algorithm are unchanged by this GUI optimization.
 
+## SkellCore headless JUCE renderer (permanent development gate)
+
+Skelly Master uses the **shared SkellCore real-editor screenshot harness** from
+[skell-vst-template](https://github.com/skellyruno/skell-vst-template), pinned
+to renderer-tested Git commit `5ac8e885f1563f804c66072797b7038bc2939fae`.
+CMake exposes an opt-in `SKELLY_MASTER_BUILD_UI_RENDERER` target linked with
+`SkellCore::UIRenderer`, the plugin's actual Processor and Editor, and JUCE.
+This development executable is **not part of the released VST3**.
+
+The [SkellCore screenshot workflow](https://github.com/skellyruno/skell-master-vst/actions/workflows/ui-screenshots.yml)
+runs on every relevant UI/source push, pull request and manual dispatch.
+Linux/Xvfb captures 10 actual editor states: minimum (620×393), default
+(702×445), medium (960×608), reference (1200×760), maximum
+(1800×1140), bypass at two sizes, plus active DRIVE, EQ, and full-mastering
+settings. It validates bounds, control overlap, scene differences and output
+image entropy. The artifact includes `manifest.json`, all 10 PNGs and a
+six-panel `contact-sheet.png`.
+
+Local Linux usage:
+
+```sh
+cmake -S . -B build-ui -G Ninja -DCMAKE_BUILD_TYPE=Release -DSKELLY_MASTER_BUILD_UI_RENDERER=ON
+cmake --build build-ui --target SkellyMasterUIRenderer --parallel 3
+xvfb-run -a ./build-ui/SkellyMasterUIRenderer --output ui-screenshots
+```
+
+Skelly Master currently has **one hardware UI skin and one control page**.
+It has no custom preset-browser, additional tabs or plugin-created overlay.
+Native popup menus and actual pointer hover still need host/interactive checks;
+unsupported UI states are not fabricated for screenshots.
+
+**Workflow rule:** Any meaningful editor changes must pass
+**build → render real editor → inspect PNGs → fix → render again**.
+Windows VST3/host regression tests and DSP tests remain independent gates.
+
 ## Main controls
 
 | Control | DSP function | Range / default |
