@@ -47,6 +47,11 @@ private:
     std::array<float, 2> peakHoldValues {0.0f, 0.0f};
     std::array<int, 2> peakHoldTicks {0, 0};
     float displayedReduction = 0.0f;
+    // Compare against the values last submitted for painting, not last timer
+    // tick: otherwise tiny continuous decreases may never be drawn.
+    std::array<float, 2> lastPaintedMeterValues {0.0f, 0.0f};
+    std::array<float, 2> lastPaintedPeakHoldValues {0.0f, 0.0f};
+    float lastPaintedReduction = 0.0f;
     bool lastDisplayedBypass = false;
     int lastTextBoxWidth = -1, lastTextBoxHeight = -1;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyMasterAudioProcessorEditor)

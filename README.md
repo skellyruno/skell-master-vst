@@ -126,6 +126,8 @@ mastering release.
 
 - The 30 Hz meter timer only invalidates the meter bridge when the peak
   readouts, peak-hold cursors, or reduction readout actually change.
+  Thresholds compare against the last submitted paint state, not the previous
+  30 Hz tick, preserving gradual cursor release and the final zero readout.
   Bypass-status repaint is handled separately, so idle audio doesn't redraw
   the premium hardware artwork repeatedly.
 - CI uses verbose CTest output to expose the existing busy-chain CPU timing
