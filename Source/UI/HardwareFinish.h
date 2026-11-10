@@ -101,18 +101,19 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
     g.drawRoundedRectangle(r.reduced(5.8f),juce::jmax(0.0f,radius-4.0f),0.8f);
     // Irregular flaked enamel near the panel borders, with warm exposed metal
     // beneath the black or green paint. Keep chips behind the inset trim.
-    const int edgeMarks=juce::jlimit(8,130,static_cast<int>(r.getWidth()/11.0f));
+    const int edgeMarks=juce::jlimit(6,85,static_cast<int>(r.getWidth()/16.0f));
     for (int i=0;i<edgeMarks;++i) {
         const auto h=noise(seed+static_cast<uint32_t>(i*463+0x72e3u));
         const float t=static_cast<float>(h%10001u)/10001.0f;
         const bool upper=(i%3==0);
         const float px=r.getX()+8.0f+t*(r.getWidth()-17.0f);
-        const float py=upper?r.getY()+7.0f:r.getBottom()-7.0f;
-        const float len=2.0f+static_cast<float>((h>>19)&31u)*0.62f;
-        const float depth=0.7f+static_cast<float>((h>>25)&7u)*0.55f;
-        g.setColour(i%5==0?juce::Colour(0xffe9c58b).withAlpha(0.52f):
-                            juce::Colour(0xff937147).withAlpha(0.27f));
-        g.fillRect(px,py,len,depth);
+        const float jitter=static_cast<float>((h>>17)&7u)*0.65f;
+        const float py=upper?r.getY()+5.0f+jitter:r.getBottom()-5.0f-jitter;
+        const float len=1.0f+static_cast<float>((h>>21)&31u)*0.31f;
+        const float delta=static_cast<float>((h>>26)&7u)*0.18f;
+        g.setColour(i%7==0?juce::Colour(0xffe9c58b).withAlpha(0.42f):
+                            juce::Colour(0xff937147).withAlpha(0.18f));
+        g.drawLine(px,py,px+len,py+(upper?delta:-delta),i%5==0?1.1f:0.6f);
     }
     // Exposed brass along long chipped edges.
     for (int i=0; i<static_cast<int>(r.getWidth()/27.0f); ++i) {

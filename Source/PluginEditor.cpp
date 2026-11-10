@@ -29,10 +29,16 @@ constexpr const char* subtitles[8] = {
 };
 
 void font(juce::Graphics& g, float size, bool bold = false) {
-    // Georgia on Windows; JUCE selects the closest installed serif fallback
-    // on the Linux SkellCore screenshot runner.
+    // Georgia is the supplied vintage serif face on Windows.
+    // Linux/Xvfb has DejaVu Serif, so the shared renderer can check an
+    // equivalent physical-engraved style rather than silently using sans.
+   #if JUCE_LINUX
+    constexpr const char* family = "DejaVu Serif";
+   #else
+    constexpr const char* family = "Georgia";
+   #endif
     g.setFont(juce::Font(juce::FontOptions(size)
-                        .withName("Georgia")
+                        .withName(family)
                         .withStyle(bold ? "Bold" : "Regular")));
 }
 void text(juce::Graphics& g, const juce::String& s, float x, float y,
@@ -98,8 +104,14 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
 }
 
 juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juce::Label& label) {
-    return juce::Font(juce::FontOptions(juce::jlimit(10.0f, 24.0f,
-                    static_cast<float>(label.getHeight()) * 0.85f)).withStyle("Bold"));
+    const auto size = juce::jlimit(10.0f, 24.0f,
+                    static_cast<float>(label.getHeight()) * 0.85f);
+   #if JUCE_LINUX
+    constexpr const char* family = "DejaVu Serif";
+   #else
+    constexpr const char* family = "Georgia";
+   #endif
+    return juce::Font(juce::FontOptions(size).withName(family).withStyle("Bold"));
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
@@ -371,9 +383,9 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
                    pivotX+c*outer,pivotY+si*outer,i%5==0?1.8f:0.85f);
     }
     // Tiny authentic skull-brand ink stamp on the parchment dial.
-    skelly::ui::drawStarSkull(g,{135,79,40,31},0.78f,juce::Colour(0xff392510));
+    skelly::ui::drawStarSkull(g,{142,81,26,22},0.75f,juce::Colour(0xff392510));
     font(g,8,true);g.setColour(juce::Colour(0xff322310));
-    text(g,"SKELLY",126,109,58,10);
+    text(g,"SKELLY",126,105,58,10);
     font(g,12,true); g.setColour(juce::Colour(0xff30200e));
     text(g,"-48",30,95,40,15);
     text(g,"-36",48,69,38,15);

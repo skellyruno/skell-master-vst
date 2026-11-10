@@ -185,6 +185,15 @@ on the GUI thread when needed and never reallocates from the audio callback.
 All parameter IDs, DSP, meter behavior, theme and hardware layout are
 preserved. SkellCore screenshot CI must pass again before release.
 
+## November 10 — visual QA revision
+
+Visual review of actual SkellCore screenshots found overly regular chipped
+metal strips and a missing preferred serif font on Linux. The wear is now
+irregular and less aggressive, the dial stamp is smaller, and editable
+readouts and captions explicitly select Georgia on Windows / DejaVu Serif
+in CI. Both remain ordinary system fonts: no font assets are embedded.
+All functional controls and the audio engine are untouched.
+
 ## November 10 — emerald vintage rack UI (actual JUCE)
 
 Reference-directed hardware design, with **all red lacquer replaced by deep
