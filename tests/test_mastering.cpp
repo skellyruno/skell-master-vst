@@ -1,5 +1,6 @@
 #include "../Source/DSP/MasteringEngine.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -27,6 +28,37 @@ int main() {
                     "drive lookup retains the reference saturation shape");
         }
     }
+
+    // Invalid input must be isolated at the boundary; no persistent poisoning.
+    const auto NaN = std::numeric_limits<float>::quiet_NaN();
+    const auto Inf = std::numeric_limits<float>::infinity();
+    StereoPeakGuard invalidGuard;
+    invalidGuard.prepare(48000.0);
+    const auto invalidGuardOut = invalidGuard.process({NaN, Inf}, detail::dbToLinear(-1));
+    require(std::isfinite(invalidGuardOut.left) && std::isfinite(invalidGuardOut.right),
+            "final safety guard rejects non-finite input");
+
+    MasteringEngine invalidEngine;
+    invalidEngine.prepare(rate, 2, lookahead);
+    MasterParameters nonneutral;
+    nonneutral.drive = .7; nonneutral.glue = .4; nonneutral.dynamics = .4;
+    nonneutral.lowsDb = 3.0; nonneutral.highsDb = 2.0;
+    nonneutral.sauce = .6; nonneutral.transients = .6;
+    invalidEngine.setParameters(nonneutral);
+    for (int i=0; i<8000; ++i) {
+        const auto in = i == 300 ? NaN : i == 301 ? Inf :
+                        i == 302 ? -Inf : 0.05f;
+        const auto out = invalidEngine.processFrame(in, -in);
+        require(std::isfinite(out.left) && std::isfinite(out.right),
+                "non-finite samples never poison the mastering engine");
+    }
+    detail::OnePole tail;
+    tail.prepare(rate, 2400);
+    tail.low(1.0);
+    for (int i=0;i<150000;++i) tail.low(0.0);
+    require(std::fpclassify(tail.low(0.0)) == FP_ZERO,
+            "lowpass state decays to exact zero, without denormals");
+    std::cout << "PASS: NaN/Inf recovery and denormal-safe filter tails\n";
 
     // Host-rate final sample-peak guard regression:
     // both channels must share one gain to preserve image and phase.
@@ -202,4 +234,31 @@ int main() {
         require(std::isfinite(v.left), "mono finite");
     }
     std::cout << "PASS: impulse, limiter, automation, stereo, mono tests\n";
+
+    // Offline CPU sanity probe (time is recorded, not treated as a universal
+    // benchmark across shared CI runners). Real-time ratio uses 4x oversampling:
+    // rate is the actual processing rate of processFrame(), not the host rate.
+    MasteringEngine bench;
+    bench.prepare(rate, 2, lookahead);
+    MasterParameters busy;
+    busy.drive=.8; busy.glue=.65; busy.dynamics=.55;
+    busy.lowsDb=3; busy.highsDb=3; busy.sauce=.8; busy.transients=.55;
+    bench.setParameters(busy);
+    constexpr int frames = 192000;
+    const auto start = std::chrono::steady_clock::now();
+    volatile float sink = 0.0f;
+    for (int i=0;i<frames;++i) {
+        const float a = static_cast<float>(0.3*std::sin(i*2.0*detail::pi*213.0/rate));
+        const auto v=bench.processFrame(a,-a*.72f);
+        require(std::isfinite(v.left) && std::isfinite(v.right), "busy DSP stays finite");
+        sink = sink + v.left * 1.e-9f;
+    }
+    const auto elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now()-start).count();
+    const double audioSeconds = static_cast<double>(frames)/rate;
+    std::cout << "DSP CPU probe: " << elapsed*1000.0 << " ms / "
+              << audioSeconds*1000.0 << " ms audio ("
+              << elapsed/audioSeconds*100.0 << "% one core realtime), sink="
+              << sink << "\n";
+    require(elapsed < audioSeconds*8.0, "DSP performance pathological slowdown");
 }

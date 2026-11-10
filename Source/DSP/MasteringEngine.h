@@ -13,7 +13,10 @@ namespace detail {
 constexpr double pi = 3.1415926535897932384626433832795;
 inline double clamp(double v, double lo, double hi) noexcept { return std::max(lo, std::min(hi, v)); }
 inline double dbToLinear(double db) noexcept { return std::pow(10.0, db / 20.0); }
-inline double linearToDb(double v) noexcept { return 20.0 * std::log10(std::max(v, 1.0e-12)); }
+inline double linearToDb(double v) noexcept {
+    return 20.0 * std::log10(std::isfinite(v) ? std::max(v, 1.0e-12) : 1.0e-12);
+}
+inline double finiteSample(double v) noexcept { return std::isfinite(v) ? v : 0.0; }
 
 class Smoother {
 public:
@@ -22,7 +25,11 @@ public:
         current = target = initial;
     }
     void setTarget(double newTarget) noexcept { target = newTarget; }
-    double next() noexcept { current += (target - current) * coefficient; return current; }
+    double next() noexcept {
+        current += (target - current) * coefficient;
+        if (target == 0.0 && std::abs(current) < 1.0e-28) current = 0.0;
+        return current;
+    }
     double value() const noexcept { return current; }
     void snap(double v) noexcept { current = target = v; }
 private:
@@ -112,6 +119,7 @@ public:
     double next(double stereoPeak, double amount, double thresholdAtMax, double ratioAtMax) noexcept {
         const double a = stereoPeak > envelope ? attack : release;
         envelope = a * envelope + (1.0 - a) * stereoPeak;
+        if (envelope < 1.0e-27) envelope = 0.0;
         if (++tick >= 16) {
             tick = 0;
             if (amount <= 0.00001) targetGain = 1.0;
@@ -143,7 +151,11 @@ class OnePole {
 public:
     void prepare(double rate, double hz) noexcept { a = std::exp(-2.0 * pi * hz / rate); z = 0.0; }
     void reset() noexcept { z = 0.0; }
-    double low(double x) noexcept { z = a * z + (1.0 - a) * x; return z; }
+    double low(double x) noexcept {
+        z = a * z + (1.0 - a) * x;
+        if (std::abs(z) < 1.0e-27) z = 0.0;
+        return z;
+    }
 private:
     double a = 0.0, z = 0.0;
 };
@@ -176,7 +188,12 @@ public:
     }
     void reset() noexcept { gain = 1.0; }
     StereoFrame process(StereoFrame in, double ceilingLinear) noexcept {
-        const double limit = detail::clamp(ceilingLinear, 1.0e-5, 1.0);
+        // Guard downsampled output as a final safety boundary. Do not let a
+        // broken host buffer permanently poison the linked gain envelope.
+        in.left = static_cast<float>(detail::finiteSample(in.left));
+        in.right = static_cast<float>(detail::finiteSample(in.right));
+        const double limit = detail::clamp(std::isfinite(ceilingLinear) ? ceilingLinear : 1.0,
+                                           1.0e-5, 1.0);
         const double peak = std::max(std::abs(static_cast<double>(in.left)),
                                      std::abs(static_cast<double>(in.right)));
         const double wanted = peak > limit ? limit / peak : 1.0;
@@ -215,6 +232,8 @@ public:
         const double bassSide = sideBass.low(side);
         midPower = energyCoefficient * midPower + (1.0 - energyCoefficient) * mid * mid;
         sidePower = energyCoefficient * sidePower + (1.0 - energyCoefficient) * side * side;
+        if (midPower < 1.0e-36) midPower = 0.0;
+        if (sidePower < 1.0e-36) sidePower = 0.0;
         if (amount < 1.0e-6) return;
 
         const double correlation = (midPower - sidePower) / (midPower + sidePower + 1.0e-12);
@@ -292,8 +311,11 @@ public:
 
     StereoFrame processFrame(float inLeft, float inRight) noexcept {
         using namespace detail;
-        const double rawL = static_cast<double>(inLeft);
-        const double rawR = channels == 2 ? static_cast<double>(inRight) : rawL;
+        // A NaN/Inf arriving from an upstream plugin must not persist inside
+        // EQ, sidechain, feedback or limiter states for the rest of the session.
+        const double rawL = detail::finiteSample(static_cast<double>(inLeft));
+        const double rawR = channels == 2
+            ? detail::finiteSample(static_cast<double>(inRight)) : rawL;
         double l = rawL, r = rawR;
         const double inputGain = input.next();
         const double d = drive.next();
@@ -347,6 +369,8 @@ public:
         const double postCompressionPeak = std::max(std::abs(l), std::abs(r));
         fastEnv = fastAtk * fastEnv + (1 - fastAtk) * postCompressionPeak;
         slowEnv = slowAtk * slowEnv + (1 - slowAtk) * postCompressionPeak;
+        if (fastEnv < 1.0e-27) fastEnv = 0.0;
+        if (slowEnv < 1.0e-27) slowEnv = 0.0;
         const double onset = clamp((fastEnv - slowEnv) / (slowEnv + 0.08), 0.0, 1.3);
         const double transientGain = 1.0 + tr * 0.42 * onset;
         l *= transientGain; r *= transientGain;

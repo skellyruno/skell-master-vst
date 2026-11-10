@@ -69,6 +69,14 @@ The compact 702×445 default, resizing, parameters, presets and DSP are unchange
 
 The Windows VST3 workflow verifies compilation and portable DSP tests. Visual appearance and mouse interaction still require an FL Studio check before release.
 
+## November 10 — robustness tests
+
+- Sanitizes non-finite audio at the engine and final peak-guard boundaries, preventing a NaN or infinity from corrupting persistent EQ/compressor/limiter state.
+- Explicitly zeros sub-audible filter/envelope tails to prevent denormal CPU spikes on long silence.
+- Adds a busy-chain CPU probe that reports measured processing time relative to processed audio duration at the 4× internal rate; broad failure guard catches extreme regressions but is not a hard real-time guarantee.
+- Portable regression tests now inject non-finite samples, exercise recovery, and check lowpass denormal tails.
+- Existing IDs, preset state, GUI layout and all mastering controls are unchanged.
+
 ## Main controls
 
 | Control | DSP function | Range / default |
