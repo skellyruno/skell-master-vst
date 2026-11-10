@@ -185,6 +185,28 @@ on the GUI thread when needed and never reallocates from the audio callback.
 All parameter IDs, DSP, meter behavior, theme and hardware layout are
 preserved. SkellCore screenshot CI must pass again before release.
 
+## November 10 — emerald vintage rack UI (actual JUCE)
+
+Reference-directed hardware design, with **all red lacquer replaced by deep
+emerald green**. Keeps the master plugin's existing 10 controls, bypass/reset,
+VU and gain-reduction metering, parameters, automation, preset identity and
+DSP unchanged.
+
+The live, compiled JUCE editor now renders worn iron and chipped green enamel
+plates, brass screws and surrounds, aged-gold skull insignia, engraved
+serif-inspired typography, dual amber analog-style VU meters with skull dial
+stamps, gold mechanical knob indicators, recessed value plates and brushed
+side handles. Procedural patina is deterministic, built into the adaptive
+GUI-only backdrop cache. The meter/knob readouts remain live, draggable and
+attached to real APVTS parameters — **the supplied reference picture is NOT
+used as a static UI background**.
+
+After changes, the pinned SkellCore renderer captures actual Windows-equivalent
+JUCE editor states on Linux/Xvfb at five size classes and different automation
+settings, then the independent Windows workflow compiles the VST3 and runs
+portable DSP and JUCE host integration tests. Hardware materials are decorative
+and are not processed on the audio thread.
+
 ## Main controls
 
 | Control | DSP function | Range / default |

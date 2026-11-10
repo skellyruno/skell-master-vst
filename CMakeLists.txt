@@ -30,6 +30,7 @@ target_sources(SkellyMaster PRIVATE
     Source/PluginProcessor.cpp Source/PluginProcessor.h
     Source/PluginEditor.cpp Source/PluginEditor.h
     Source/UI/StarSkullMark.h
+    Source/UI/HardwareFinish.h
     Source/DSP/MasteringEngine.h)
 target_compile_features(SkellyMaster PRIVATE cxx_std_17)
 target_compile_definitions(SkellyMaster PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0)

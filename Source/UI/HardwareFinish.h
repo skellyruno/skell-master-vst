@@ -42,6 +42,16 @@ inline void patina(juce::Graphics& g, juce::Rectangle<float> area, uint32_t seed
             g.fillRect(x,y,size*(i%13==0?2.8f:1.0f),size*0.55f);
         }
     }
+    // Soft uneven dark patina blooms break up overly flat digital gradients.
+    for (int i=0;i<count/85;++i) {
+        const auto h=noise(seed + 0x9381u + static_cast<uint32_t>(i*137));
+        const float x=area.getX()+static_cast<float>(h%10007u)/10007.0f*area.getWidth();
+        const float y=area.getY()+static_cast<float>((h>>13)%9941u)/9941.0f*area.getHeight();
+        const float width=3.0f+static_cast<float>((h>>21)&31u)*0.75f;
+        g.setColour(i%2==0?juce::Colours::black.withAlpha(0.12f):
+                        juce::Colour(0xffab8550).withAlpha(0.055f));
+        g.fillEllipse(x,y,width,width*0.32f);
+    }
     // Directional scuffs and small exposed-metal scratches.
     for (int i=0;i<count/15;++i) {
         const auto h=noise(seed+0x43c3u+static_cast<uint32_t>(i*73));
@@ -75,10 +85,10 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
                   uint32_t seed=0x6172u, float radius=9.0f, float wear=1.0f) {
     g.setColour(juce::Colours::black.withAlpha(0.9f));
     g.fillRoundedRectangle(r.translated(0,3.5f),radius);
-    juce::ColourGradient enamel(green?juce::Colour(0xff286043):juce::Colour(0xff363426),
+    juce::ColourGradient enamel(green?juce::Colour(0xff35764e):juce::Colour(0xff363426),
                 r.getX(),r.getY(),green?juce::Colour(0xff071d14):juce::Colour(0xff11120e),
                 r.getX()+r.getWidth()*0.8f,r.getBottom(),false);
-    enamel.addColour(0.27,green?juce::Colour(0xff17452e):juce::Colour(0xff26251b));
+    enamel.addColour(0.27,green?juce::Colour(0xff215b3c):juce::Colour(0xff26251b));
     enamel.addColour(0.56,green?juce::Colour(0xff133924):juce::Colour(0xff1b1c15));
     g.setGradientFill(enamel);
     g.fillRoundedRectangle(r,radius);
@@ -89,6 +99,21 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
     g.drawRoundedRectangle(r.reduced(3.3f),juce::jmax(0.0f,radius-2.2f),2.3f);
     g.setColour(juce::Colour(0xffb98a50).withAlpha(0.50f));
     g.drawRoundedRectangle(r.reduced(5.8f),juce::jmax(0.0f,radius-4.0f),0.8f);
+    // Irregular flaked enamel near the panel borders, with warm exposed metal
+    // beneath the black or green paint. Keep chips behind the inset trim.
+    const int edgeMarks=juce::jlimit(8,130,static_cast<int>(r.getWidth()/11.0f));
+    for (int i=0;i<edgeMarks;++i) {
+        const auto h=noise(seed+static_cast<uint32_t>(i*463+0x72e3u));
+        const float t=static_cast<float>(h%10001u)/10001.0f;
+        const bool upper=(i%3==0);
+        const float px=r.getX()+8.0f+t*(r.getWidth()-17.0f);
+        const float py=upper?r.getY()+7.0f:r.getBottom()-7.0f;
+        const float len=2.0f+static_cast<float>((h>>19)&31u)*0.62f;
+        const float depth=0.7f+static_cast<float>((h>>25)&7u)*0.55f;
+        g.setColour(i%5==0?juce::Colour(0xffe9c58b).withAlpha(0.52f):
+                            juce::Colour(0xff937147).withAlpha(0.27f));
+        g.fillRect(px,py,len,depth);
+    }
     // Exposed brass along long chipped edges.
     for (int i=0; i<static_cast<int>(r.getWidth()/27.0f); ++i) {
         auto h=noise(seed+static_cast<uint32_t>(i*173));

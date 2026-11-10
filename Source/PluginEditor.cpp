@@ -29,7 +29,11 @@ constexpr const char* subtitles[8] = {
 };
 
 void font(juce::Graphics& g, float size, bool bold = false) {
-    g.setFont(juce::Font(juce::FontOptions(size).withStyle(bold ? "Bold" : "Regular")));
+    // Georgia on Windows; JUCE selects the closest installed serif fallback
+    // on the Linux SkellCore screenshot runner.
+    g.setFont(juce::Font(juce::FontOptions(size)
+                        .withName("Georgia")
+                        .withStyle(bold ? "Bold" : "Regular")));
 }
 void text(juce::Graphics& g, const juce::String& s, float x, float y,
           float w, float h, juce::Justification j = juce::Justification::centred) {
@@ -366,6 +370,10 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         g.drawLine(pivotX+c*inner,pivotY+si*inner,
                    pivotX+c*outer,pivotY+si*outer,i%5==0?1.8f:0.85f);
     }
+    // Tiny authentic skull-brand ink stamp on the parchment dial.
+    skelly::ui::drawStarSkull(g,{135,79,40,31},0.78f,juce::Colour(0xff392510));
+    font(g,8,true);g.setColour(juce::Colour(0xff322310));
+    text(g,"SKELLY",126,109,58,10);
     font(g,12,true); g.setColour(juce::Colour(0xff30200e));
     text(g,"-48",30,95,40,15);
     text(g,"-36",48,69,38,15);
