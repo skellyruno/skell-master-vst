@@ -61,3 +61,31 @@ if(WIN32)
     add_test(NAME SkellyUITests COMMAND SkellyUITests)
     set_tests_properties(SkellyUITests PROPERTIES TIMEOUT 90)
 endif()
+
+
+# Permanent optional SkellCore headless renderer. The executable links the
+# actual plugin shared-code target and is never included in the shipped VST3.
+option(SKELLY_MASTER_BUILD_UI_RENDERER "Build real editor with pinned SkellCore renderer" OFF)
+if(SKELLY_MASTER_BUILD_UI_RENDERER)
+    FetchContent_Declare(SkellCoreRendererSource
+        GIT_REPOSITORY https://github.com/skellyruno/skell-vst-template.git
+        GIT_TAG 5ac8e885f1563f804c66072797b7038bc2939fae
+        SOURCE_SUBDIR SkellCore
+        GIT_SHALLOW FALSE)
+    set(SKELLCORE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(SKELLCORE_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(SkellCoreRendererSource)
+
+    # A plain executable avoids conflicting JUCE_STANDALONE_APPLICATION
+    # compile definitions inherited from plugin shared code.
+    add_executable(SkellyMasterUIRenderer tests/ui_renderer.cpp)
+    target_include_directories(SkellyMasterUIRenderer PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/SkellyMaster_artefacts/JuceLibraryCode")
+    target_compile_features(SkellyMasterUIRenderer PRIVATE cxx_std_17)
+    target_compile_definitions(SkellyMasterUIRenderer PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0)
+    target_link_libraries(SkellyMasterUIRenderer PRIVATE
+        SkellyMaster SkellCore::UIRenderer
+        juce::juce_audio_utils juce::juce_audio_processors
+        juce::juce_dsp juce::juce_gui_extra)
+endif()
