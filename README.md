@@ -99,6 +99,13 @@ explicitly ignores, and updated official GitHub checkout/artifact actions to
 their Node 24 versions to avoid obsolete Node 20 warnings. Both artifact
 categories now have 14-day retention.
 
+## November 10 — screenshot-driven finishing details
+
+Reviewed the **actual JUCE rendered screenshots** at 620×393, 702×445 and 1200×760,
+not concept images. Shifted the bottom-right M-01 badge clear of the decorative
+metal screw and increased legibility of the manufacturer, control subtitles and
+master bus tagline at compact sizes. Layout and DSP remain otherwise unchanged.
+
 ## Main controls
 
 | Control | DSP function | Range / default |

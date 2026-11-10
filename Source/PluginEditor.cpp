@@ -500,7 +500,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     skelly::ui::drawStarSkull(g,{31,17,56,49},.91f);
     font(g,22,true); g.setColour(pale);
     text(g,"SKELLY",100,16,173,30,juce::Justification::centredLeft);
-    font(g,11,true); g.setColour(neon);
+    font(g,14,true); g.setColour(neon);
     text(g,"AUDIO LABS",102,48,160,20,juce::Justification::centredLeft);
     g.setColour(edge); g.drawVerticalLine(317,18,70);
     font(g,36,true); g.setColour(pale);
@@ -558,7 +558,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
         const float rowY=row==0?315.0f:485.0f;
         font(g,16,true); g.setColour(pale);
         text(g,labels[i],cellX+16,rowY+125,175,22);
-        font(g,12,true); g.setColour(mint);
+        font(g,14,true); g.setColour(mint);
         text(g,subtitles[i],cellX+9,rowY+148,192,15);
     }
 
@@ -571,7 +571,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     g.setColour(mint); g.fillRoundedRectangle(0,673,1200,1.2f,0.6f);
     font(g,13,true); g.setColour(pale);
     text(g,"//  MASTER BUS",43,697,208,21,juce::Justification::centredLeft);
-    font(g,10); g.setColour(muted);
+    font(g,13); g.setColour(muted);
     text(g,"TONE IS EVERYTHING",66,723,177,15,juce::Justification::centredLeft);
     g.setColour(edge); g.drawVerticalLine(265,694,745);
     g.drawVerticalLine(552,694,745);
@@ -582,7 +582,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     text(g,"CEILING",861,708,77,18,juce::Justification::centredLeft);
     g.setColour(edge); g.drawVerticalLine(1120,694,745);
     font(g,13,true); g.setColour(muted);
-    text(g,"M-01",1133,706,53,20);
+    text(g,"M-01",1129,706,36,20);
 }
 
 void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
