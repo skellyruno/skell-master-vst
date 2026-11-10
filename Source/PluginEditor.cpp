@@ -103,7 +103,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
 }
 
 juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juce::Label& label) {
-    return juce::Font(juce::FontOptions(juce::jlimit(10.0f, 15.0f,
+    return juce::Font(juce::FontOptions(juce::jlimit(10.0f, 24.0f,
                     static_cast<float>(label.getHeight()) * 0.85f)).withStyle("Bold"));
 }
 
@@ -613,15 +613,28 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
     g.addTransform(juce::AffineTransform::scale(static_cast<float>(getWidth()) / designW,
                                                 static_cast<float>(getHeight()) / designH));
 
-    if (staticBackdrop.isNull()) {
-        // Supersampled static vector artwork, generated on the GUI thread only.
-        staticBackdrop = juce::Image(juce::Image::ARGB, designW * 2, designH * 2, true);
-        juce::Graphics cached(staticBackdrop);
-        cached.addTransform(juce::AffineTransform::scale(2.0f));
-        paintStatic(cached);
+    // Scale decorative cache to the actual display resolution, not a fixed
+    // 2400x1520 allocation per instance. Quantize to 128px steps to avoid
+    // repeated reallocations while the user drags a resize corner.
+    // The compact default now uses about 77% less backdrop memory while
+    // preserving >1.5 source pixels per displayed pixel.
+    const int desiredW = juce::roundToInt(static_cast<float>(getWidth()) * 1.5f);
+    const int rasterW = juce::jlimit(960, 2400, ((desiredW + 127) / 128) * 128);
+    const int rasterH = juce::roundToInt(static_cast<float>(rasterW) * designH / designW);
+    if (staticBackdrop.isNull() || staticBackdrop.getWidth() != rasterW
+        || staticBackdrop.getHeight() != rasterH) {
+        juce::Image updated(juce::Image::ARGB, rasterW, rasterH, true);
+        {
+            juce::Graphics cached(updated);
+            cached.addTransform(juce::AffineTransform::scale(
+                static_cast<float>(rasterW) / designW,
+                static_cast<float>(rasterH) / designH));
+            paintStatic(cached);
+        }
+        staticBackdrop = std::move(updated);
     }
     g.drawImage(staticBackdrop, 0, 0, designW, designH,
-                0, 0, designW*2, designH*2);
+                0, 0, rasterW, rasterH);
 
     drawMeter(g,{275,112,325,159},meterValues[0],peakHoldValues[0],"OUTPUT  /  L");
     drawMeter(g,{612,112,325,159},meterValues[1],peakHoldValues[1],"OUTPUT  /  R");
@@ -644,8 +657,8 @@ void SkellyMasterAudioProcessorEditor::resized() {
     };
     // JUCE text-entry boxes are sized in pixels, unlike the painted vector
     // labels: resize them explicitly to prevent overlap at 65% of old default.
-    const int entryW = juce::jlimit(50, 122, juce::roundToInt(95.0f*sx));
-    const int entryH = juce::jlimit(18, 32, juce::roundToInt(27.0f*sy));
+    const int entryW = juce::jlimit(50, 160, juce::roundToInt(95.0f*sx));
+    const int entryH = juce::jlimit(18, 46, juce::roundToInt(27.0f*sy));
     if (entryW != lastTextBoxWidth || entryH != lastTextBoxHeight) {
         for (auto& slider : knobs)
             slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, entryW, entryH);

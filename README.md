@@ -170,6 +170,21 @@ unsupported UI states are not fabricated for screenshots.
 **build → render real editor → inspect PNGs → fix → render again**.
 Windows VST3/host regression tests and DSP tests remain independent gates.
 
+## SkellCore verified visual polish — adaptive hardware UI cache
+
+Inspection of the actual SkellCore 620×393, 702×445 and 1800×1140
+captures found the control arrangement and hardware rendering intact, but
+editable values stayed relatively small on very large windows. Their label
+font and editable text-box caps now scale with the editor.
+
+The static brushed-metal faceplate is cached at a **quantized, adaptive**
+resolution instead of always allocating a 2400×1520 ARGB image. At the
+702px default, the target is approximately 1152×730, a reduction of roughly
+77% in cached-faceplate memory per open plugin window. This runs exclusively
+on the GUI thread when needed and never reallocates from the audio callback.
+All parameter IDs, DSP, meter behavior, theme and hardware layout are
+preserved. SkellCore screenshot CI must pass again before release.
+
 ## Main controls
 
 | Control | DSP function | Range / default |
