@@ -18,7 +18,7 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -A x64
       - name: Build
-        run: cmake --build build --config Release --parallel 2
+        run: cmake --build build --config Release --parallel 4
       - name: Test mastering DSP
         run: ctest --test-dir build -C Release --output-on-failure
       - name: Package
