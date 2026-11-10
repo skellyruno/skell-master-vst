@@ -11,6 +11,24 @@ namespace {
 void check(bool result, const char* message) {
     if (!result) throw std::runtime_error(message);
 }
+// CI runs without an on-screen plugin editor. The normal snapshot helper
+// exits early for components that have never been attached to a desktop peer.
+// Render the same JUCE paint callbacks recursively into a software image,
+// including editable Labels inside Sliders and text on Buttons.
+void paintDetachedTree(juce::Component& component, juce::Graphics& graphics) {
+    juce::Graphics::ScopedSaveState save(graphics);
+    graphics.reduceClipRegion(component.getLocalBounds());
+    component.paint(graphics);
+    for (int i=0;i<component.getNumChildComponents();++i) {
+        auto* child=component.getChildComponent(i);
+        if (child==nullptr || !child->isVisible()) continue;
+        juce::Graphics::ScopedSaveState childSave(graphics);
+        graphics.addTransform(juce::AffineTransform::translation(
+            static_cast<float>(child->getX()),static_cast<float>(child->getY())));
+        paintDetachedTree(*child, graphics);
+    }
+    component.paintOverChildren(graphics);
+}
 void saveSnapshot(juce::Image image, int width, int height) {
     const auto directory = juce::File::getCurrentWorkingDirectory()
         .getChildFile("ui-snapshots");
@@ -76,7 +94,7 @@ int main() {
 
             juce::Image rendered(juce::Image::ARGB,width,height,true);
             juce::Graphics graphics(rendered);
-            editor.paintEntireComponent(graphics,true);
+            paintDetachedTree(editor,graphics);
             // Save before asserting: a visually broken renderer must still
             // publish an image for root-cause inspection in CI.
             if (width==620 || width==702 || width==1200)
