@@ -5,16 +5,17 @@
 // Deliberately no typography or raster assets. Drawn on the message thread.
 namespace skelly::ui {
 inline void drawStarSkull(juce::Graphics& g, juce::Rectangle<float> bounds,
-                         float opacity = 1.0f)
+                         float opacity = 1.0f,
+                         juce::Colour pigment = juce::Colour(0xff59f76d))
 {
     juce::Graphics::ScopedSaveState save(g);
     g.addTransform(juce::AffineTransform::scale(bounds.getWidth() / 128.0f,
                                                 bounds.getHeight() / 104.0f)
                        .translated(bounds.getX(), bounds.getY()));
 
-    const auto neon = juce::Colour(0xff59f76d).withMultipliedAlpha(opacity);
-    const auto glow = juce::Colour(0xff208f3a).withMultipliedAlpha(opacity);
-    const auto cutout = juce::Colour(0xff0d1210).withMultipliedAlpha(opacity);
+    const auto neon = pigment.withMultipliedAlpha(opacity);
+    const auto glow = pigment.darker(0.78f).withMultipliedAlpha(opacity);
+    const auto cutout = juce::Colour(0xff141109).withMultipliedAlpha(opacity);
     const auto star = [](float x, float y, float outer, int points = 5) {
         juce::Path p;
         p.addStar({x, y}, points, outer * 0.40f, outer,
@@ -52,14 +53,14 @@ inline void drawStarSkull(juce::Graphics& g, juce::Rectangle<float> bounds,
     head.cubicTo(33, 62, 30, 57, 29, 48);
     head.closeSubPath();
 
-    juce::ColourGradient headLight(juce::Colour(0xff7aff88).withMultipliedAlpha(opacity),
+    juce::ColourGradient headLight(pigment.brighter(0.27f).withMultipliedAlpha(opacity),
                                    47, 15,
-                                   juce::Colour(0xff2ec654).withMultipliedAlpha(opacity),
+                                   pigment.darker(0.37f).withMultipliedAlpha(opacity),
                                    85, 85, false);
     headLight.addColour(0.56, neon);
     g.setGradientFill(headLight);
     g.fillPath(head);
-    g.setColour(juce::Colour(0xffb2ffba).withMultipliedAlpha(opacity * 0.40f));
+    g.setColour(pigment.brighter(0.38f).withMultipliedAlpha(opacity * 0.40f));
     g.strokePath(head, juce::PathStrokeType(0.75f));
 
     // Black five-point eye sockets and triangular nose.
