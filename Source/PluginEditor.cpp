@@ -189,7 +189,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                    : 0.5f+0.5f*juce::jlimit(0.0f,1.0f,v/12.0f);
     }
     const float angle=startAngle+p*(endAngle-startAngle);
-    const auto accent=getColour(juce::Slider::thumbColourId);
+    const auto accent=findColour(juce::Slider::thumbColourId);
     // Fixed engraved graduation ring: never rotate a photographic ring
     // or asymmetrical texture over these ticks.
     for(int tick=0;tick<=40;++tick) {
