@@ -159,6 +159,15 @@ public:
 private:
     double a = 0.0, z = 0.0;
 };
+// Control zero maps to the safe factory ceiling of -1 dBFS.
+inline double ceilingOffsetToDb(double offset) noexcept {
+    const double x=std::isfinite(offset) ? std::clamp(offset,-3.0,3.0) : 0.0;
+    return x<0.0 ? -1.0+(2.0/3.0)*x : -1.0+0.3*x;
+}
+inline double ceilingDbToOffset(double db) noexcept {
+    const double x=std::isfinite(db) ? std::clamp(db,-3.0,-0.1) : -1.0;
+    return x<-1.0 ? (x+1.0)*1.5 : (x+1.0)/0.3;
+}
 } // namespace detail
 
 struct MasterParameters {
