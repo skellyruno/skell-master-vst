@@ -43,7 +43,10 @@ void font(juce::Graphics& g, float size, bool bold = false) {
 }
 void text(juce::Graphics& g, const juce::String& s, float x, float y,
           float w, float h, juce::Justification j = juce::Justification::centred) {
-    g.drawText(s, juce::Rectangle<float>(x, y, w, h), j, false);
+    g.drawFittedText(s, juce::Rectangle<int>(juce::roundToInt(x),
+                                          juce::roundToInt(y),
+                                          juce::roundToInt(w),
+                                          juce::roundToInt(h)), j, 1);
 }
 void plate(juce::Graphics& g, juce::Rectangle<float> r, float radius = 10.0f) {
     hw::plate(g,r,false,static_cast<uint32_t>(r.getX()*37+r.getY()*97),radius,0.5f);
@@ -500,7 +503,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     g.setColour(hw::phosphor);
     g.fillEllipse(85.4f,262.4f,6.2f,6.2f);
     font(g,11,true);g.setColour(hw::phosphor);
-    text(g,"ENGINE STATUS",99,253,150,20,juce::Justification::centredLeft);
+    text(g,"ENGINE STATUS",98,253,104,20,juce::Justification::centredLeft);
 
     // Modular lower rack: same genuine APVTS controls as previous build.
     hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.0f);
@@ -581,10 +584,10 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
 
     // Read the actual attached state, so DAW automation updates the status.
     const bool bypassed = bypass.getToggleState();
-    font(g,14,true);
-    g.setColour(bypassed ? juce::Colour(0xffffbb7d) : neon);
+    font(g,12,true);
+    g.setColour(bypassed ? hw::gold : neon);
     text(g,bypassed ? "BYPASSED" : "ACTIVE",
-         186,246,65,19,juce::Justification::centredLeft);
+         202,246,49,19,juce::Justification::centredLeft);
 }
 
 void SkellyMasterAudioProcessorEditor::resized() {
