@@ -29,6 +29,18 @@ int main() {
         }
     }
 
+    require(std::abs(detail::ceilingOffsetToDb(0.0)+1.0)<1.e-12,
+            "zero ceiling adjustment preserves -1 dBFS factory limiter");
+    require(std::abs(detail::ceilingOffsetToDb(-3.0)+3.0)<1.e-12,
+            "negative ceiling extreme maps to -3 dBFS");
+    require(std::abs(detail::ceilingOffsetToDb(3.0)+0.1)<1.e-12,
+            "positive ceiling extreme maps to -0.1 dBFS");
+    for (double oldDb : {-3.0,-2.4,-1.0,-0.6,-0.1})
+        require(std::abs(detail::ceilingOffsetToDb(
+            detail::ceilingDbToOffset(oldDb))-oldDb)<1.e-11,
+            "previous saved limiter threshold is preserved");
+    std::cout << "PASS: centred ceiling map and preset migration\n";
+
     // Invalid input must be isolated at the boundary; no persistent poisoning.
     const auto NaN = std::numeric_limits<float>::quiet_NaN();
     const auto Inf = std::numeric_limits<float>::infinity();
