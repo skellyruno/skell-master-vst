@@ -149,6 +149,24 @@ int main() {
     require(maxObserved <= std::pow(10.0,-1.0/20.0)+1.e-6, "oversampled processing ceiling is respected");
     require(maxObserved > .6, "limiter does not mute the transient");
     std::cout << "Limiting max: " << maxObserved << " at -1 dBFS ceiling\n";
+    
+    // A heavily limited asymmetric stereo signal must retain its L/R ratio
+    // without independent hard-clipping at the final oversampled ceiling.
+    dsp.prepare(rate,2,lookahead);
+    p={}; p.ceilingDb=-1.0;
+    dsp.setParameters(p);
+    for (int i=0;i<6000;++i) dsp.processFrame(0,0);
+    double maxStereoError=0.0;
+    for (int i=0;i<15000;++i) {
+        const float x=(i%4096<380) ? 2.2f : 0.4f;
+        const auto result=dsp.processFrame(x, x*0.27f);
+        if (std::abs(result.left)>0.1f) {
+            maxStereoError=std::max(maxStereoError,
+                std::abs(static_cast<double>(result.right)
+                            / static_cast<double>(result.left)-0.27));
+        }
+    }
+    require(maxStereoError<0.001,"limiter preserves asymmetric stereo ratios");
 
     // Feed an isolated transient into a settled neutral limiter. With 1.5ms
     // lookahead, release must not begin before its delayed output arrives.
