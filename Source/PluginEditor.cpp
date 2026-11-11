@@ -15,6 +15,8 @@ const juce::Colour ink = hw::black;
 const juce::Colour panel = hw::iron;
 const juce::Colour pale = hw::parchment;
 const juce::Colour muted(0xffbda776);
+// Warm near-white for all live numeric readouts; status LEDs remain green.
+const juce::Colour readoutWhite(0xfffaf9f6);
 
 constexpr const char* labels[10] = {
     "INPUT", "DRIVE", "GLUE", "DYNAMICS", "LOWS", "HIGHS",
@@ -100,7 +102,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
     }
     if (!label.isBeingEdited()) {
         g.setFont(getLabelFont(label));
-        g.setColour(hw::gold);
+        g.setColour(readoutWhite);
         const int inset=r.getWidth()>75.0f?10:4;
         g.drawFittedText(label.getText(), label.getLocalBounds().reduced(inset,2),
                          label.getJustificationType(), 1);
@@ -486,7 +488,7 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     g.fillRoundedRectangle(106,127,98,22,5.0f);
     g.setColour(juce::Colour(0xff17160f));
     g.fillRoundedRectangle(109,129,92,18,4.0f);
-    font(g,12,true);g.setColour(hw::gold);
+    font(g,12,true);g.setColour(readoutWhite);
     text(g,juce::String(peakDb(value),1)+" dBFS",108,128,94,19);
     hw::screw(g,107,137,0.28f);
     hw::screw(g,203,137,0.28f);
@@ -504,9 +506,9 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
     g.fillRoundedRectangle(976,152,173,56,8.0f);
     g.setColour(hw::brass.withAlpha(0.5f));
     g.drawRoundedRectangle(juce::Rectangle<float>(976,152,173,56),8.0f,1.0f);
-    font(g,37,true);g.setColour(hw::phosphor);
+    font(g,37,true);g.setColour(readoutWhite);
     text(g,juce::String(displayedReduction,1),985,158,130,47);
-    font(g,12,true);g.setColour(hw::gold);
+    font(g,12,true);g.setColour(readoutWhite);
     text(g,"dB",1117,178,27,14);
     const float level=juce::jlimit(0.0f,16.0f,displayedReduction*(16.0f/18.0f));
     for(int i=0;i<16;++i) {
@@ -525,11 +527,36 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     g.setColour(hw::brass.withAlpha(0.26f));
     g.drawRoundedRectangle(juce::Rectangle<float>(8,8,1184,744),12.0f,1.0f);
 
-    // Top enamel branding plate (RED on reference -> emerald green here).
+    // Nameplate and skulls are separate transparent photographic resources,
+    // drawn once into the existing editor faceplate cache, never per meter tick.
     hw::plate(g,{405,7,391,73},true,0x001ab3u,10.0f,0.9f);
-    for(float x : {417.0f,784.0f})
-        for(float y : {21.0f,66.0f}) hw::screw(g,x,y,0.83f);
-    skelly::ui::drawStarSkull(g,{57,10,82,72},0.98f,hw::gold);
+   #if SKELLY_MASTER_HEADER_ASSETS
+    static const juce::Image photoHeader = juce::ImageFileFormat::loadFrom(
+        BinaryData::header_nameplate_green_blank_png,
+        static_cast<size_t>(BinaryData::header_nameplate_green_blank_pngSize));
+    static const juce::Image photoSkullLeft = juce::ImageFileFormat::loadFrom(
+        BinaryData::logo_skull_header_left_png,
+        static_cast<size_t>(BinaryData::logo_skull_header_left_pngSize));
+    static const juce::Image photoSkullRight = juce::ImageFileFormat::loadFrom(
+        BinaryData::logo_skull_header_right_png,
+        static_cast<size_t>(BinaryData::logo_skull_header_right_pngSize));
+    g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+    if (photoHeader.isValid())
+        g.drawImage(photoHeader,405.0f,7.0f,391.0f,73.0f,
+                    0,0,photoHeader.getWidth(),photoHeader.getHeight());
+    else
+   #endif
+    {
+        for(float x : {417.0f,784.0f})
+            for(float y : {21.0f,66.0f}) hw::screw(g,x,y,0.83f);
+    }
+   #if SKELLY_MASTER_HEADER_ASSETS
+    if (photoSkullLeft.isValid())
+        g.drawImage(photoSkullLeft,57.0f,10.0f,82.0f,72.0f,
+                    0,0,photoSkullLeft.getWidth(),photoSkullLeft.getHeight());
+    else
+   #endif
+        skelly::ui::drawStarSkull(g,{57,10,82,72},0.98f,hw::gold);
     font(g,31,true);g.setColour(hw::gold);
     text(g,"SKELLY",145,15,185,38,juce::Justification::centredLeft);
     font(g,16,true);g.setColour(hw::parchment);
@@ -542,7 +569,13 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     hw::divider(g,861,18,861,76);
     font(g,16,true);g.setColour(hw::gold);
     text(g,"PRECISION / POWER",885,27,191,28);
-    skelly::ui::drawStarSkull(g,{1080,12,79,69},0.96f,hw::gold);
+   #if SKELLY_MASTER_HEADER_ASSETS
+    if (photoSkullRight.isValid())
+        g.drawImage(photoSkullRight,1080.0f,12.0f,79.0f,69.0f,
+                    0,0,photoSkullRight.getWidth(),photoSkullRight.getHeight());
+    else
+   #endif
+        skelly::ui::drawStarSkull(g,{1080,12,79,69},0.96f,hw::gold);
 
     // Engraved meter bridge with a separate stamped status panel.
     hw::plate(g,{37,94,1126,200},false,0x33c8a7u,12.0f,0.72f);
