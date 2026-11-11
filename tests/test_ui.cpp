@@ -184,6 +184,26 @@ int main() {
             if (width==620 || width==702 || width==1200)
                 saveSnapshot(rendered,width,height);
             checkRendered(rendered);
+            if (width==1200) {
+                // A new mastering instance must show completely unlit
+                // gain-reduction digits and LEDs: the chassis frame itself
+                // remains visible, but no fake GR is reported at idle.
+                int illuminatedPixels=0;
+                for(int yy=165;yy<202;yy+=2)
+                    for(int xx=984;xx<1130;xx+=2) {
+                        const auto c=rendered.getPixelAt(xx,yy);
+                        if(c.getGreen()>130 && c.getGreen()>c.getRed()+28
+                            && c.getGreen()>c.getBlue()+20) ++illuminatedPixels;
+                    }
+                for(int yy=229;yy<245;yy+=2)
+                    for(int xx=978;xx<1145;xx+=2) {
+                        const auto c=rendered.getPixelAt(xx,yy);
+                        if(c.getGreen()>130 && c.getGreen()>c.getRed()+28
+                            && c.getGreen()>c.getBlue()+20) ++illuminatedPixels;
+                    }
+                check(illuminatedPixels==0,
+                    "idle gain-reduction display/LEDs must remain completely dark");
+            }
             std::cout << "PASS: JUCE UI render, bounds, contrast " << width
                       << "x" << height << "\n";
         }
