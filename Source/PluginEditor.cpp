@@ -102,7 +102,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
     }
     if (!label.isBeingEdited()) {
         g.setFont(getLabelFont(label));
-        g.setColour(readoutWhite);
+        g.setColour(hw::gold);
         const int inset=r.getWidth()>75.0f?10:4;
         g.drawFittedText(label.getText(), label.getLocalBounds().reduced(inset,2),
                          label.getJustificationType(), 1);
@@ -548,9 +548,9 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
     g.fillRoundedRectangle(976,152,173,56,8.0f);
     g.setColour(hw::brass.withAlpha(0.5f));
     g.drawRoundedRectangle(juce::Rectangle<float>(976,152,173,56),8.0f,1.0f);
-    font(g,37,true);g.setColour(readoutWhite);
+    font(g,37,true);g.setColour(hw::phosphor);
     text(g,juce::String(displayedReduction,1),985,158,130,47);
-    font(g,12,true);g.setColour(readoutWhite);
+    font(g,12,true);g.setColour(hw::gold);
     text(g,"dB",1117,178,27,14);
     const float level=juce::jlimit(0.0f,16.0f,displayedReduction*(16.0f/18.0f));
     for(int i=0;i<16;++i) {
