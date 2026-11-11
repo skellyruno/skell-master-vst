@@ -67,7 +67,7 @@ target_compile_features(SkellyMaster PRIVATE cxx_std_17)
 target_compile_definitions(SkellyMaster PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0)
 target_compile_definitions(SkellyMaster PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0
-    SKELLY_MASTER_HEADER_ASSETS=\${SKELLY_MASTER_HEADER_ASSETS})
+    SKELLY_MASTER_HEADER_ASSETS=${SKELLY_MASTER_HEADER_ASSETS})
 target_link_libraries(SkellyMaster PRIVATE
     SkellyMasterPhotoAssets
     juce::juce_audio_utils juce::juce_audio_processors
