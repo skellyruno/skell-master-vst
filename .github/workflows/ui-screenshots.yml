@@ -44,7 +44,7 @@ jobs:
           renderer=$(find build-ui -type f -name SkellyMasterUIRenderer -executable | head -n 1)
           test -n "$renderer"
           xvfb-run -a -s '-screen 0 1920x1200x24' "$renderer" --output ui-screenshots
-          test "$(find ui-screenshots -maxdepth 1 -name '*.png' | wc -l)" -eq 11
+          test "$(find ui-screenshots -maxdepth 1 -name '*.png' | wc -l)" -eq 14
           test -s ui-screenshots/contact-sheet.png
           test -s ui-screenshots/manifest.json
       - name: Upload SkellCore screenshots and contact sheet
