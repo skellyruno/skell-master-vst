@@ -216,8 +216,10 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
         g.drawEllipse(cx-radius*0.85f,cy-radius*0.85f,
                       radius*1.70f,radius*1.70f,1.15f);
         g.setColour(juce::Colours::white.withAlpha(0.16f));
-        g.drawArc(cx-radius*0.86f,cy-radius*0.86f,radius*1.72f,
-                  radius*1.72f,-1.0f,0.50f,1.0f);
+        juce::Path fixedGlint;
+        fixedGlint.addArc(cx-radius*0.86f,cy-radius*0.86f,
+                          radius*1.72f,radius*1.72f,-1.0f,0.50f,true);
+        g.strokePath(fixedGlint,juce::PathStrokeType(1.0f));
         return;
     }
 
