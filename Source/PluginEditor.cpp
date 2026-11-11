@@ -77,6 +77,7 @@ SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::SkellyLookAndFeel() {
 }
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::setSkin(
         skellcore::ui::SkullSkin selected) {
+    activeSkin=selected;
     const auto p=skellcore::ui::skullPalette(selected);
     setColour(juce::Slider::textBoxTextColourId,p.bone);
     setColour(juce::Slider::textBoxOutlineColourId,p.line);
@@ -93,6 +94,28 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::setSkin(
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
     juce::Graphics& g, juce::Label& label) {
     const auto r=label.getLocalBounds().toFloat().reduced(0.65f);
+    // Hardware-style number plates retain their geometry in every skin.
+    // Use the actual SkellCore palette for contrast instead of leaving
+    // ivory/obsidian controls stuck with gold-on-black artwork.
+    if (activeSkin != skellcore::ui::SkullSkin::Ossuary) {
+        const auto p=skellcore::ui::skullPalette(activeSkin);
+        g.setColour(juce::Colours::black.withAlpha(0.24f));
+        g.fillRoundedRectangle(r.translated(0,1.2f),4.5f);
+        g.setColour(p.line);
+        g.fillRoundedRectangle(r,4.5f);
+        g.setColour(p.panel);
+        g.fillRoundedRectangle(r.reduced(2.1f),3.1f);
+        g.setColour(p.accent.withAlpha(0.60f));
+        g.drawRoundedRectangle(r.reduced(1.0f),3.8f,0.95f);
+        if (!label.isBeingEdited()) {
+            g.setFont(getLabelFont(label));
+            g.setColour(p.bone);
+            g.drawFittedText(label.getText(),
+                             label.getLocalBounds().reduced(6,2),
+                             label.getJustificationType(),1);
+        }
+        return;
+    }
     g.setColour(juce::Colour(0xff030302));
     g.fillRoundedRectangle(r.translated(0,1.4f),4.5f);
     juce::ColourGradient metal(juce::Colour(0xff5b4328),r.getX(),r.getY(),
@@ -124,12 +147,14 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
 }
 
 juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juce::Label& label) {
-    const auto size = juce::jlimit(10.0f, 24.0f,
-                    static_cast<float>(label.getHeight()) * 0.85f);
+    const auto size = juce::jlimit(10.0f, 22.0f,
+                    static_cast<float>(label.getHeight()) * 0.80f);
+    // Monospaced numerical displays distinguish digit 0 from capital O,
+    // reduce shifts under automation, and remain sharp in the 620px UI.
    #if JUCE_LINUX
-    constexpr const char* family = "DejaVu Serif";
+    constexpr const char* family = "DejaVu Sans Mono";
    #else
-    constexpr const char* family = "Georgia";
+    constexpr const char* family = "Consolas";
    #endif
     return juce::Font(juce::FontOptions(size).withName(family).withStyle("Bold"));
 }
@@ -138,6 +163,20 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
     juce::Graphics& g, juce::Button& b, const juce::Colour&, bool hover, bool down) {
     const auto r=b.getLocalBounds().toFloat().reduced(1.0f);
     const bool active=b.getToggleState();
+    if (activeSkin != skellcore::ui::SkullSkin::Ossuary) {
+        const auto p=skellcore::ui::skullPalette(activeSkin);
+        const auto frame=p.line;
+        const auto surface=active ? p.panelHi : p.panel;
+        g.setColour(juce::Colours::black.withAlpha(0.27f));
+        g.fillRoundedRectangle(r.translated(0,1.5f),8.0f);
+        g.setColour(frame);
+        g.fillRoundedRectangle(r,8.0f);
+        g.setColour(down ? surface.darker(0.25f) : surface);
+        g.fillRoundedRectangle(r.reduced(2.3f),6.0f);
+        g.setColour(p.accent.withAlpha(hover ? 0.95f : active ? 0.72f : 0.28f));
+        g.drawRoundedRectangle(r.reduced(2.3f),6.0f,hover ? 1.7f : 1.0f);
+        return;
+    }
     g.setColour(juce::Colour(0xff030403));
     g.fillRoundedRectangle(r.translated(0,2),9.0f);
     juce::ColourGradient bezel(juce::Colour(0xffd1b27b),r.getX(),r.getY(),
@@ -423,7 +462,7 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
     }
     if (bypassed != lastDisplayedBypass) {
         lastDisplayedBypass = bypassed;
-        dirty(174, 243, 85, 24);
+        dirty(173, 251, 83, 22);
     }
 }
 
@@ -666,7 +705,8 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     text(g,"STEREO MASTERING SUITE  /  M-01",422,53,359,22);
     hw::divider(g,861,18,861,76);
     font(g,16,true);g.setColour(hw::gold);
-    text(g,"PRECISION / POWER",885,27,191,28);
+    text(g,"PRECISION / POWER",907,27,239,28,
+         juce::Justification::centredRight);
     // The skull on the right was removed; left skull alone changes skin.
 
     // Engraved meter bridge with a separate stamped status panel.
@@ -688,7 +728,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     g.setColour(hw::phosphor);
     g.fillEllipse(85.4f,262.4f,6.2f,6.2f);
     font(g,11,true);g.setColour(hw::phosphor);
-    text(g,"ENGINE STATUS",98,253,104,20,juce::Justification::centredLeft);
+    text(g,"ENGINE",99,253,66,20,juce::Justification::centredLeft);
 
     // Modular lower rack: same genuine APVTS controls as previous build.
     hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.0f);
@@ -772,7 +812,7 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
     font(g,12,true);
     g.setColour(bypassed ? hw::gold : neon);
     text(g,bypassed ? "BYPASSED" : "ACTIVE",
-         202,246,49,19,juce::Justification::centredLeft);
+         174,253,80,19,juce::Justification::centredLeft);
 }
 
 void SkellyMasterAudioProcessorEditor::resized() {
