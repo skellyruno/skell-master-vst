@@ -249,6 +249,22 @@ The design preserves a black chassis, emerald green enamel nameplate and
 bottom strip, aged-gold trim, and existing control positions. This is the
 first of the image-asset iterations; it does not change DSP or VST3 identity.
 
+## Hardware accuracy pass — knob, chassis, enamel, meters and regression
+
+The photographic rotary cap has been scaled to fill its fixed engraved
+graduation collar and calibrated to the reference's brass pointer. Rotation
+still follows real APVTS values. The iron housing uses darker neutral-black
+metal, stronger reference-derived photographic grain, and nonrepeating chipped
+edges, while **emerald enamel remains limited to the title plate and lower
+master-bus strip**. The amber VU meter receives a low-opacity glass reflection,
+a machined inset rim and a brighter live needle. All changes are GUI-only,
+with unchanged controls, DSP, automation IDs, latency and preset states.
+
+The regression workflow now checks the photographic knob's transparent
+corners/aspect, amber dial resolution, four image decodes, five editor sizes,
+controls and the existing audio/CPU suite. SkellCore screenshots remain the
+authoritative actual-editor visual inspection output.
+
 ## Main controls
 
 | Control | DSP function | Range / default |

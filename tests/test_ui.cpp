@@ -80,10 +80,13 @@ int main() {
         const auto green=juce::ImageFileFormat::loadFrom(
             BinaryData::greenpatina_jpg,
             static_cast<size_t>(BinaryData::greenpatina_jpgSize));
-        check(photoKnob.isValid() && photoKnob.getWidth()>60,
-              "reference rotary PNG did not decode");
-        check(photoMeter.isValid() && photoMeter.getWidth()>100,
-              "reference VU meter JPEG did not decode");
+        check(photoKnob.isValid() && photoKnob.getWidth()>=80
+              && photoKnob.getHeight()==photoKnob.getWidth(),
+              "reference rotary PNG missing or incorrect aspect");
+        check(photoKnob.getPixelAt(0,0).getAlpha() < 32,
+              "rotary asset background not transparent");
+        check(photoMeter.isValid() && photoMeter.getWidth()>=220,
+              "reference VU meter JPEG missing or unexpectedly low resolution");
         check(iron.isValid() && green.isValid(),
               "photographic panel grain assets did not decode");
         std::cout << "PASS: reference-derived hardware images decoded\n";

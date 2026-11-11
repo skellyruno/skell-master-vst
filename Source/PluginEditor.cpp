@@ -190,13 +190,24 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                                        static_cast<size_t>(BinaryData::knob_photo_pngSize));
     if (photographicKnob.isValid()) {
         juce::Graphics::ScopedSaveState transformSave(g);
-        const float imageSize=radius*1.78f;
-        // The photographed indicator is approx. +0.30 radians from 12 o'clock.
-        // Rotate its actual photo to the knob's host-automated position.
-        g.addTransform(juce::AffineTransform::rotation(angle-0.30f,cx,cy));
+        // The reference face fills the mechanical brass collar; the 84 px
+        // source stays behind the fixed engraved tick ring at every UI size.
+        const float imageSize=radius*1.92f;
+        // Calibrated against the extracted ivory pointer (+0.34 rad).
+        // Keep the actual APVTS rotary angle, including host automation.
+        g.addTransform(juce::AffineTransform::rotation(angle-0.34f,cx,cy));
+        g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
         g.drawImage(photographicKnob,
                     cx-imageSize*.5f,cy-imageSize*.5f,imageSize,imageSize,
                     0,0,photographicKnob.getWidth(),photographicKnob.getHeight());
+        // Real knob texture rotates; the bevel around its seat does not.
+        // A small fixed brass reflection gives the cap physical depth.
+        g.setColour(hw::gold.withAlpha(0.27f));
+        g.drawEllipse(cx-radius*.955f,cy-radius*.955f,
+                      radius*1.91f,radius*1.91f,1.3f);
+        g.setColour(juce::Colours::black.withAlpha(0.32f));
+        g.drawEllipse(cx-radius*.87f,cy-radius*.87f,
+                      radius*1.74f,radius*1.74f,0.6f);
         return;
     }
 
@@ -391,8 +402,20 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         juce::ImageFileFormat::loadFrom(BinaryData::meter_card_jpg,
                                        static_cast<size_t>(BinaryData::meter_card_jpgSize));
     if (photographedMeter.isValid()) {
+        // Keep the photographic graduation scale as-is. The readout and
+        // animated needle are always drawn later on top of the glass.
+        g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
         g.drawImage(photographedMeter,19.0f,24.0f,272.0f,119.0f,
                     0,0,photographedMeter.getWidth(),photographedMeter.getHeight());
+        juce::ColourGradient reflection(juce::Colours::white.withAlpha(0.10f),
+                                         155.0f,26.0f,
+                                         juce::Colours::white.withAlpha(0.0f),
+                                         155.0f,70.0f,false);
+        g.setGradientFill(reflection);
+        g.fillRoundedRectangle(24.0f,28.0f,262.0f,43.0f,19.0f);
+        g.setColour(juce::Colour(0xff19130a).withAlpha(0.67f));
+        g.drawRoundedRectangle(juce::Rectangle<float>(18.5f,23.5f,273.0f,119.0f),
+                               27.0f,2.0f);
     } else {
     // Vector fallback for damaged or unavailable resource.
     juce::ColourGradient paper(juce::Colour(0xffffe6ac),155,26,
@@ -441,7 +464,11 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         g.setColour(juce::Colour(0xff251c12));
         g.drawLine(pivotX,pivotY,tipX,tipY,2.0f);
         g.setColour(hw::brass);
-        g.drawLine(pivotX,pivotY,tipX,tipY,0.75f);
+        g.drawLine(pivotX,pivotY,tipX,tipY,1.05f);
+        // Small specular glint on the active needle, without making it
+        // look like an electronic line instead of a mechanical instrument.
+        g.setColour(hw::gold.withAlpha(0.58f));
+        g.drawLine(pivotX,pivotY,tipX,tipY,0.38f);
     }
     if (heldValue>0.0001f) {
         const float ah=(-157.0f+134.0f*normalizedPeak(heldValue))*pi/180.0f;
