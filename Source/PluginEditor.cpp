@@ -346,154 +346,163 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     juce::Graphics& g, juce::Rectangle<float> r, float value,
     float heldValue, const juce::String& name) const {
     juce::Graphics::ScopedSaveState save(g);
-    g.addTransform(juce::AffineTransform::scale(r.getWidth()/310.0f,r.getHeight()/156.0f)
-                   .translated(r.getX(),r.getY()));
+    g.addTransform(juce::AffineTransform::scale(
+        r.getWidth()/310.0f,r.getHeight()/156.0f).translated(r.getX(),r.getY()));
     hw::plate(g,{0,0,310,156},false,0x52b4u,9.0f,0.24f);
-    for (float xx : {11.5f,298.5f})
-        for (float yy : {12.0f,144.0f}) hw::screw(g,xx,yy,0.72f);
+    for(float xx : {11.5f,298.5f})
+        for(float yy : {12.0f,144.0f}) hw::screw(g,xx,yy,0.72f);
     g.setColour(juce::Colour(0xff040404));
-    g.fillRoundedRectangle(16,23,278,119,30.0f);
-    font(g,14,true); g.setColour(hw::parchment);
+    g.fillRoundedRectangle(16,23,278,120,29.0f);
+    font(g,14,true);g.setColour(hw::parchment);
     text(g,name,40,5,230,18);
 
-    constexpr float pivotX=155.0f,pivotY=141.0f,radius=111.0f;
-    // Reference-derived photographic face, converted to vintage neutral
-    // white once per process on the GUI thread. Dark scale numbers stay dark,
-    // red danger markings survive, and the live needle is separate artwork.
-    // No bitmap conversion happens in audio callbacks or 30 Hz repaints.
-    static const juce::Image photographedMeter = [] {
-        auto face=juce::ImageFileFormat::loadFrom(
-            BinaryData::meter_card_jpg,
-            static_cast<size_t>(BinaryData::meter_card_jpgSize));
-        if (!face.isValid()) return face;
-        face=face.createCopy();
-        juce::Image::BitmapData bitmap(face,juce::Image::BitmapData::readWrite);
-        for (int y=0;y<bitmap.height;++y)
-            for (int x=0;x<bitmap.width;++x) {
-                const auto c=bitmap.getPixelColour(x,y);
-                const float red=c.getFloatRed(),green=c.getFloatGreen(),
-                            blue=c.getFloatBlue();
-                // Preserve red only in the actual upper-right overload
-                // scale. Bright amber around the lens perimeter is NOT a red
-                // overload marking; the older global colour test left jagged
-                // orange patches on the otherwise white face.
-                const float u=static_cast<float>(x)/static_cast<float>(bitmap.width);
-                const float v=static_cast<float>(y)/static_cast<float>(bitmap.height);
-                const bool redOverload=u>0.61f && u<0.96f
-                                    && v>0.27f && v<0.83f
-                                    && red>0.40f && red-green>0.32f
-                                    && red>green*1.65f && red>blue*1.8f
-                                    && green<0.38f;
-                if (redOverload) continue;
-                const float luminance=255.0f*(0.299f*red+0.587f*green+0.114f*blue);
-                float mix=juce::jlimit(0.0f,1.0f,(luminance-82.0f)/100.0f);
-                mix=mix*mix*(3.0f-2.0f*mix);
-                const int neutral=juce::jlimit(0,255,juce::roundToInt(
-                    luminance*(1.0f-mix)+(234.0f+15.0f*luminance/255.0f)*mix));
-                bitmap.setPixelColour(x,y,juce::Colour(
-                    static_cast<juce::uint8>(neutral),
-                    static_cast<juce::uint8>(neutral),
-                    static_cast<juce::uint8>(juce::jmax(0,neutral-2)),c.getAlpha()));
+    // Needle-free meter face: static lens, scale and skull cached at 2x.
+    // Unlike the previous JPEG, this has NO baked needle or ghost shadow.
+    // Real signal/peak-hold needles are the only moving pieces.
+    static const juce::Image cleanFace=[] {
+        juce::Image image(juce::Image::ARGB,620,312,true);
+        juce::Graphics f(image);
+        f.addTransform(juce::AffineTransform::scale(2.0f));
+        juce::ColourGradient paper(juce::Colour(0xfff9f9f4),155,27,
+                                   juce::Colour(0xffc7c5be),155,143,false);
+        paper.addColour(0.42,juce::Colour(0xfff4f3ec));
+        paper.addColour(0.81,juce::Colour(0xffe4e1d9));
+        f.setGradientFill(paper);
+        f.fillRoundedRectangle(19.0f,26.0f,272.0f,113.0f,27.0f);
+        // Subtle deterministic paper patina, independent of meter refresh.
+        for(int i=0;i<500;++i) {
+            const auto seed=hw::noise(static_cast<uint32_t>(i*2677+0x789bu));
+            const float px=24.0f+(seed%12037u)/12037.0f*261.0f;
+            const float py=29.0f+((seed>>12)%12011u)/12011.0f*105.0f;
+            if(px>21.0f && px<288.0f) {
+                f.setColour(juce::Colour(0xff6c6256).withAlpha(0.04f));
+                f.fillEllipse(px,py,0.4f,0.4f);
             }
-        return face;
+        }
+        constexpr float cx=155.0f,cy=141.0f,rad=111.0f;
+        const auto angle=[](float p) { return (-157.0f+134.0f*p)*pi/180.0f; };
+        juce::Path scaleArc;
+        for(int i=0;i<=100;++i) {
+            const float a=angle(i/100.0f);
+            const float px=cx+std::cos(a)*rad, py=cy+std::sin(a)*rad;
+            if(i==0) scaleArc.startNewSubPath(px,py);
+            else scaleArc.lineTo(px,py);
+        }
+        f.setColour(juce::Colour(0xff3c362d));
+        f.strokePath(scaleArc,juce::PathStrokeType(1.45f));
+        for(int tick=0;tick<=30;++tick) {
+            const float a=angle(tick/30.0f);
+            const float ux=std::cos(a),uy=std::sin(a);
+            const float outer=rad+1.5f;
+            const float inner=rad-(tick%5==0?11.5f:5.6f);
+            f.setColour(juce::Colour(0xff41382d));
+            f.drawLine(cx+ux*inner,cy+uy*inner,
+                       cx+ux*outer,cy+uy*outer,
+                       tick%5==0?1.25f:0.65f);
+        }
+        // Fixed red OVERLOAD scale is a printed *zone*. The moving red
+        // indicator is rendered separately from live audio below.
+        juce::Path danger;
+        for(int i=0;i<=36;++i) {
+            const float a=angle(0.83f+i*(0.17f/36.0f));
+            const float px=cx+std::cos(a)*rad,py=cy+std::sin(a)*rad;
+            if(i==0)danger.startNewSubPath(px,py);
+            else danger.lineTo(px,py);
+        }
+        f.setColour(juce::Colour(0xffb1281a));
+        f.strokePath(danger,juce::PathStrokeType(3.4f,
+                                               juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
+        font(f,11,true);
+        f.setColour(juce::Colour(0xff28241f));
+        text(f,"-48",25,94,36,14);
+        text(f,"-36",45,71,41,15);
+        text(f,"-24",100,48,40,15);
+        text(f,"-12",171,48,40,15);
+        text(f,"-6",225,72,31,15);
+        text(f,"0",266,93,19,15);
+        skelly::ui::drawStarSkull(f,{142,80,26,23},0.75f,
+                                  juce::Colour(0xff392e22));
+        font(f,8,true);f.setColour(juce::Colour(0xff342b1f));
+        text(f,"SKELLY",126,105,58,11);
+        f.setColour(juce::Colour(0xff29251e).withAlpha(0.55f));
+        f.drawRoundedRectangle(juce::Rectangle<float>(19,26,272,113),27.0f,1.8f);
+        return image;
     }();
-    if (photographedMeter.isValid()) {
-        // Keep the photographic graduation scale as-is. The readout and
-        // animated needle are always drawn later on top of the glass.
-        g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
-        g.drawImage(photographedMeter,19.0f,24.0f,272.0f,119.0f,
-                    0,0,photographedMeter.getWidth(),photographedMeter.getHeight());
-        juce::ColourGradient reflection(juce::Colours::white.withAlpha(0.10f),
-                                         155.0f,26.0f,
-                                         juce::Colours::white.withAlpha(0.0f),
-                                         155.0f,70.0f,false);
-        g.setGradientFill(reflection);
-        g.fillRoundedRectangle(24.0f,28.0f,262.0f,43.0f,19.0f);
-        g.setColour(juce::Colour(0xff19130a).withAlpha(0.67f));
-        g.drawRoundedRectangle(juce::Rectangle<float>(18.5f,23.5f,273.0f,119.0f),
-                               27.0f,2.0f);
-    } else {
-    // Vector fallback for damaged or unavailable resource.
-    juce::ColourGradient paper(juce::Colour(0xfff7f6f0),155,26,
-                               juce::Colour(0xffb6b4ad),155,140,false);
-    paper.addColour(0.36,juce::Colour(0xfff0efea));
-    paper.addColour(0.73,juce::Colour(0xffdad8d1));
-    g.setGradientFill(paper);
-    g.fillRoundedRectangle(19,27,272,108,27.0f);
-    g.setColour(juce::Colour(0xff2b210f).withAlpha(0.72f));
-    g.drawRoundedRectangle(juce::Rectangle<float>(19,27,272,108),26.0f,1.4f);
-    g.setColour(juce::Colours::black.withAlpha(0.16f));
-    g.drawLine(25,32,283,32,0.8f);
+    g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+    g.drawImage(cleanFace,19.0f,24.0f,272.0f,119.0f,
+                38,48,544,238);
+    juce::ColourGradient reflection(juce::Colours::white.withAlpha(0.15f),
+                                     155.0f,27.0f,
+                                     juce::Colours::white.withAlpha(0.0f),
+                                     155.0f,73.0f,false);
+    g.setGradientFill(reflection);
+    g.fillRoundedRectangle(24.0f,28.0f,262.0f,42.0f,18.0f);
 
-    // Curved calibrated arc and engraved divisions, plus green peak zone.
-
-    for(int i=0;i<=30;++i) {
-        const float t=static_cast<float>(i)/30.0f;
-        const float a=(-157.0f+134.0f*t)*pi/180.0f;
-        const float c=std::cos(a),si=std::sin(a);
-        const float outer=radius,inner=radius-(i%5==0?13.5f:7.0f);
-        g.setColour(i>25?juce::Colour(0xff20683d):juce::Colour(0xff3b2c19));
-        g.drawLine(pivotX+c*inner,pivotY+si*inner,
-                   pivotX+c*outer,pivotY+si*outer,i%5==0?1.8f:0.85f);
+    constexpr float pivotX=155.0f,pivotY=141.0f,radius=111.0f;
+    const float normalized=normalizedPeak(value);
+    const float a=(-157.0f+134.0f*normalized)*pi/180.0f;
+    const float ux=std::cos(a),uy=std::sin(a),nx=-uy,ny=ux;
+    const float tipX=pivotX+ux*radius*0.965f;
+    const float tipY=pivotY+uy*radius*0.965f;
+    juce::Graphics::ScopedSaveState needleClip(g);
+    g.reduceClipRegion(juce::Rectangle<int>(20,30,271,106));
+    // Red arc *illumination* and peak marker follow audio as it approaches 0.
+    if(normalized>0.83f) {
+        juce::Path activeDanger;
+        const int steps=juce::jmax(2,juce::roundToInt((normalized-0.83f)*96.0f));
+        for(int i=0;i<=steps;++i) {
+            const float t=0.83f+(normalized-0.83f)*i/static_cast<float>(steps);
+            const float aa=(-157.0f+134.0f*t)*pi/180.0f;
+            const float px=pivotX+std::cos(aa)*(radius+1.5f);
+            const float py=pivotY+std::sin(aa)*(radius+1.5f);
+            if(i==0)activeDanger.startNewSubPath(px,py);
+            else activeDanger.lineTo(px,py);
+        }
+        g.setColour(juce::Colour(0xffff493a).withAlpha(0.92f));
+        g.strokePath(activeDanger,juce::PathStrokeType(3.0f));
     }
-    // Tiny authentic skull-brand ink stamp on the parchment dial.
-    skelly::ui::drawStarSkull(g,{142,81,26,22},0.75f,juce::Colour(0xff392510));
-    font(g,8,true);g.setColour(juce::Colour(0xff322310));
-    text(g,"SKELLY",126,105,58,10);
-    font(g,12,true); g.setColour(juce::Colour(0xff30200e));
-    text(g,"-48",30,95,40,15);
-    text(g,"-36",48,69,38,15);
-    text(g,"-24",100,47,39,15);
-    text(g,"-12",171,47,39,15);
-    text(g,"-6",222,69,32,15);
-    text(g,"0",268,95,18,15);
-    }
-    // Needle is a single tapered, anti-aliased solid mechanical pointer,
-    // not multiple overlapping lines. The pivot is covered by the readout
-    // plate, and the point stays inside the meter face at both extremes.
-    const float a=(-157.0f+134.0f*normalizedPeak(value))*pi/180.0f;
-    const float ux=std::cos(a),uy=std::sin(a);
-    const float nx=-uy,ny=ux;
-    const float tipX=pivotX+ux*radius*0.935f;
-    const float tipY=pivotY+uy*radius*0.935f;
+    // A single tapered, centered mechanical needle that reacts to the
+    // actual output channel. No photo pointer remains underneath it.
     juce::Path needle;
-    needle.startNewSubPath(pivotX+nx*2.5f,pivotY+ny*2.5f);
-    needle.lineTo(tipX+nx*0.26f,tipY+ny*0.26f);
-    needle.lineTo(tipX-nx*0.26f,tipY-ny*0.26f);
-    needle.lineTo(pivotX-nx*2.5f,pivotY-ny*2.5f);
+    needle.startNewSubPath(pivotX+nx*2.4f,pivotY+ny*2.4f);
+    needle.lineTo(tipX+nx*0.28f,tipY+ny*0.28f);
+    needle.lineTo(tipX-nx*0.28f,tipY-ny*0.28f);
+    needle.lineTo(pivotX-nx*2.4f,pivotY-ny*2.4f);
     needle.closeSubPath();
-    {
-        juce::Graphics::ScopedSaveState clipped(g);
-        g.reduceClipRegion(juce::Rectangle<int>(20,30,271,106));
-        g.setColour(juce::Colours::black.withAlpha(0.38f));
-        g.fillPath(needle,juce::AffineTransform::translation(1.25f,1.45f));
-        g.setColour(juce::Colour(0xff32271c));
-        g.fillPath(needle);
-        g.setColour(juce::Colour(0xffa17c48).withAlpha(0.82f));
-        g.drawLine(pivotX+nx*0.35f,pivotY+ny*0.35f,
-                   tipX+nx*0.20f,tipY+ny*0.20f,0.65f);
-    }
-    if (heldValue>0.0001f) {
+    g.setColour(juce::Colours::black.withAlpha(0.42f));
+    g.fillPath(needle,juce::AffineTransform::translation(1.2f,1.5f));
+    g.setColour(normalized>0.83f ? juce::Colour(0xff9d2218)
+                                  : juce::Colour(0xff342618));
+    g.fillPath(needle);
+    g.setColour(normalized>0.83f ? juce::Colour(0xffff5743)
+                                  : hw::brass);
+    g.drawLine(pivotX+nx*.32f,pivotY+ny*.32f,
+               tipX+nx*.18f,tipY+ny*.18f,0.65f);
+    if(heldValue>0.0001f) {
         const float ah=(-157.0f+134.0f*normalizedPeak(heldValue))*pi/180.0f;
         const float hx=pivotX+std::cos(ah)*radius;
         const float hy=pivotY+std::sin(ah)*radius;
-        g.setColour(juce::Colour(0xff164f30));
-        g.fillEllipse(hx-2.6f,hy-2.6f,5.2f,5.2f);
+        g.setColour(normalizedPeak(heldValue)>0.83f
+            ? juce::Colour(0xffff5134) : hw::gold);
+        g.fillEllipse(hx-2.3f,hy-2.3f,4.6f,4.6f);
     }
 
-    // Riveted black mechanical dBFS label masks the needle pivot.
-    g.setColour(juce::Colours::black.withAlpha(0.7f));
+    // Pivot and live INTEGER dBFS readout hide the needle origin.
+    g.setColour(juce::Colours::black.withAlpha(0.74f));
     g.fillRoundedRectangle(101,126,108,24,6.0f);
-    juce::ColourGradient bronze(hw::brass,103,126,juce::Colour(0xff42321d),207,149,false);
+    juce::ColourGradient bronze(hw::brass,103,126,
+                                juce::Colour(0xff42321d),207,149,false);
     g.setGradientFill(bronze);
     g.fillRoundedRectangle(106,127,98,22,5.0f);
     g.setColour(juce::Colour(0xff17160f));
     g.fillRoundedRectangle(109,129,92,18,4.0f);
     font(g,12,true);g.setColour(readoutWhite);
-    text(g,juce::String(peakDb(value),1)+" dBFS",108,128,94,19);
+    text(g,juce::String(juce::roundToInt(peakDb(value)))+" dBFS",
+         108,128,94,19);
     hw::screw(g,107,137,0.28f);
     hw::screw(g,203,137,0.28f);
-    g.setColour(juce::Colours::white.withAlpha(0.10f));
+    g.setColour(juce::Colours::white.withAlpha(0.08f));
     g.drawLine(43,29,264,29,0.9f);
 }
 
@@ -508,7 +517,7 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
     g.setColour(hw::brass.withAlpha(0.5f));
     g.drawRoundedRectangle(juce::Rectangle<float>(976,152,173,56),8.0f,1.0f);
     font(g,37,true);g.setColour(hw::phosphor);
-    text(g,juce::String(displayedReduction,1),985,158,130,47);
+    text(g,juce::String(juce::roundToInt(displayedReduction)),985,158,130,47);
     font(g,12,true);g.setColour(hw::gold);
     text(g,"dB",1117,178,27,14);
     const float level=juce::jlimit(0.0f,16.0f,displayedReduction*(16.0f/18.0f));
