@@ -44,8 +44,7 @@ juce_add_plugin(SkellyMaster
 set(SKELLY_MASTER_HEADER_ASSETS 0)
 set(SKELLY_MASTER_HEADER_FILES
     Source/UI/Assets/header_nameplate_green_blank.png
-    Source/UI/Assets/logo_skull_header_left.png
-    Source/UI/Assets/logo_skull_header_right.png)
+    Source/UI/Assets/logo_skull_header_left.png)
 set(SKELLY_MASTER_HEADER_READY TRUE)
 foreach(asset IN LISTS SKELLY_MASTER_HEADER_FILES)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${asset}")
