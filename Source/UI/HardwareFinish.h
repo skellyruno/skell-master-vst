@@ -129,6 +129,35 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
     g.drawRoundedRectangle(r.reduced(3.3f),juce::jmax(0.0f,radius-2.2f),2.3f);
     g.setColour(juce::Colour(0xffb98a50).withAlpha(0.50f));
     g.drawRoundedRectangle(r.reduced(5.8f),juce::jmax(0.0f,radius-4.0f),0.8f);
+
+    // Machined 3-D lip: warm overhead light, sharp falloff along the right,
+    // black shadow underneath and worn-through metal at the rim. These are
+    // real line geometries on the panel, not a flattened interface bitmap.
+    // In the cached chassis it adds depth at every editor size; on the
+    // small meter plates the cost is just a handful of paths.
+    g.setColour(juce::Colour(0xffffe3ae).withAlpha(green?0.24f:0.19f));
+    g.drawLine(r.getX()+radius+6.0f,r.getY()+4.7f,
+               r.getRight()-radius-6.0f,r.getY()+4.7f,0.82f);
+    g.setColour(juce::Colours::black.withAlpha(0.58f));
+    g.drawLine(r.getX()+radius+5.0f,r.getBottom()-4.1f,
+               r.getRight()-radius-5.0f,r.getBottom()-4.1f,1.2f);
+    g.drawLine(r.getRight()-4.2f,r.getY()+radius,
+               r.getRight()-4.2f,r.getBottom()-radius,1.1f);
+    g.setColour(juce::Colour(0xffe3c38d).withAlpha(0.13f));
+    g.drawLine(r.getX()+4.4f,r.getY()+radius,
+               r.getX()+4.4f,r.getBottom()-radius,0.8f);
+    // Fine directional grinding marks along the bare mounting lip.
+    const int lipMarks=juce::jlimit(4,60,static_cast<int>(r.getWidth()/21.0f));
+    for(int i=0;i<lipMarks;++i) {
+        const auto h=noise(seed+0x173bu+static_cast<uint32_t>(i*937u));
+        const float xx=r.getX()+radius+4.0f+
+            static_cast<float>(h%32749u)/32749.0f*
+            juce::jmax(1.0f,r.getWidth()-radius*2.0f-8.0f);
+        const float length=1.4f+static_cast<float>((h>>20)&7u)*0.55f;
+        g.setColour(i%5==0?gold.withAlpha(0.21f):
+                             juce::Colours::black.withAlpha(0.24f));
+        g.drawLine(xx,r.getY()+5.3f,xx+length,r.getY()+5.3f,0.65f);
+    }
     // Irregular flaked enamel near the panel borders, with warm exposed metal
     // beneath the black or green paint. Keep chips behind the inset trim.
     const int edgeMarks=juce::jlimit(6,85,static_cast<int>(r.getWidth()/16.0f));
