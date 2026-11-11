@@ -158,125 +158,75 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonText(
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
-    juce::Graphics& g, int x,int y,int width,int height,float position,
-    float start,float end,juce::Slider& slider) {
-    const float cx=static_cast<float>(x)+width*.50f;
-    const float cy=static_cast<float>(y)+height*.50f;
-    const bool utility=slider.getComponentID()=="utility";
-    const float radius=std::min(static_cast<float>(width),static_cast<float>(height))
-                       *(utility?0.455f:0.462f);
-    const float startAngle=start+0.05f,endAngle=end-0.05f;
-    const float angle=startAngle+juce::jlimit(0.0f,1.0f,position)*(endAngle-startAngle);
-
-    // Embossed machine-engraved graduation ring; no fake raster knobs.
-    for (int i=0;i<=40;++i) {
-        const float a=startAngle+(endAngle-startAngle)*i/40.0f;
-        const float si=std::sin(a),co=-std::cos(a);
-        const bool major=(i%5==0);
-        const float inner=radius*(major?0.93f:0.985f);
-        const float outer=radius*(major?1.13f:1.09f);
-        g.setColour(hw::gold.withAlpha(major?0.91f:0.48f));
-        g.drawLine(cx+si*inner,cy+co*inner,cx+si*outer,cy+co*outer,major?1.3f:0.85f);
+    juce::Graphics& g, int x, int y, int width, int height,
+    float position, float start, float end, juce::Slider& slider) {
+    if (width < 16 || height < 16) return;
+    const float cx=x+width*0.5f, cy=y+height*0.5f;
+    const float radius=std::min(static_cast<float>(width),
+                                static_cast<float>(height))*0.445f;
+    const float startAngle=start+0.04f, endAngle=end-0.04f;
+    float p=std::isfinite(position) ? juce::jlimit(0.0f,1.0f,position) : 0.5f;
+    // OUTPUT has an asymmetric dB range, but its neutral 0 dB must
+    // visibly point straight up. This only changes marker geometry;
+    // the original parameter range and host automation remain intact.
+    if (slider.getComponentID()=="utility-output") {
+        const float v=static_cast<float>(slider.getValue());
+        p=v<=0.0f ? 0.5f*juce::jlimit(0.0f,1.0f,(v+18.0f)/18.0f)
+                   : 0.5f+0.5f*juce::jlimit(0.0f,1.0f,v/12.0f);
     }
-    g.setColour(juce::Colour(0xff030403));
-    g.fillEllipse(cx-radius*.92f,cy-radius*.91f,radius*1.84f,radius*1.84f);
-    g.setColour(hw::brass.withAlpha(0.75f));
-    g.drawEllipse(cx-radius*.91f,cy-radius*.91f,radius*1.82f,radius*1.82f,1.6f);
-
-    // The reference-derived photographic dial is intentionally its own
-    // compressed binary resource, not a flattened image of the entire UI.
-    // Knobs remain real JUCE sliders; the face rotates with the actual APVTS
-    // parameter value while the fixed graduation ring stays engraved.
-    static const juce::Image photographicKnob =
-        juce::ImageFileFormat::loadFrom(BinaryData::knob_photo_png,
-                                       static_cast<size_t>(BinaryData::knob_photo_pngSize));
-    if (photographicKnob.isValid()) {
-        // The image contains a second ring of photographed tick marks. Mask
-        // that ring out: only the actual cap/pointer rotates, while the
-        // engraved calibration ticks and mechanical collar remain stationary.
-        // This also eliminates the apparent double rotation at small sizes.
-        {
-            juce::Graphics::ScopedSaveState dial(g);
-            juce::Path circularFace;
-            circularFace.addEllipse(cx-radius*0.835f,cy-radius*0.835f,
-                                    radius*1.67f,radius*1.67f);
-            g.reduceClipRegion(circularFace, juce::AffineTransform());
-            const float imageSize=radius*1.92f;
-            // Original photographic pointer is 0.34 radians clockwise from
-            // twelve o'clock. JUCE's rotary angle is measured from the top.
-            g.addTransform(juce::AffineTransform::rotation(angle-0.34f,cx,cy));
-            g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
-            g.drawImage(photographicKnob,
-                        cx-imageSize*.5f,cy-imageSize*.5f,imageSize,imageSize,
-                        0,0,photographicKnob.getWidth(),photographicKnob.getHeight());
-        }
-        // Fixed gold retaining collar and specular glints do not spin with
-        // the pointer; only the cap itself follows automation.
-        g.setColour(hw::gold.withAlpha(0.35f));
-        g.drawEllipse(cx-radius*0.85f,cy-radius*0.85f,
-                      radius*1.70f,radius*1.70f,1.15f);
-        g.setColour(juce::Colours::white.withAlpha(0.16f));
-        juce::Path fixedGlint;
-        fixedGlint.addArc(cx-radius*0.86f,cy-radius*0.86f,
-                          radius*1.72f,radius*1.72f,-1.0f,0.50f,true);
-        g.strokePath(fixedGlint,juce::PathStrokeType(1.0f));
-        return;
+    const float angle=startAngle+p*(endAngle-startAngle);
+    const auto accent=getColour(juce::Slider::thumbColourId);
+    // Fixed engraved graduation ring: never rotate a photographic ring
+    // or asymmetrical texture over these ticks.
+    for(int tick=0;tick<=40;++tick) {
+        const float a=startAngle+(endAngle-startAngle)*tick/40.0f;
+        const float ss=std::sin(a),cs=-std::cos(a);
+        const float d0=radius*(tick%5==0?0.91f:0.98f);
+        const float d1=radius*(tick%5==0?1.14f:1.10f);
+        g.setColour(accent.withAlpha(tick%5==0?0.91f:0.53f));
+        g.drawLine(cx+ss*d0,cy+cs*d0,cx+ss*d1,cy+cs*d1,
+                   tick%5==0?1.25f:0.80f);
     }
-
-    // Vector fallback remains available if a resource is damaged.
-    const float outerFace=radius*.81f;
-    juce::ColourGradient metal(juce::Colour(0xffc8a676),cx-outerFace,cy-outerFace,
-                               juce::Colour(0xff302319),cx+outerFace,cy+outerFace,false);
-    metal.addColour(0.27,juce::Colour(0xff756046));
-    metal.addColour(0.65,juce::Colour(0xff16150e));
+    // Concentric, perfectly centred machined collar and knob. Stationary
+    // reflections keep the body from wobbling during dragging.
+    const float seat=radius*0.88f;
+    g.setColour(juce::Colour(0xff020302));
+    g.fillEllipse(cx-seat-2.0f,cy-seat-1.0f,seat*2+4.0f,seat*2+4.0f);
+    g.setColour(hw::brass.withAlpha(0.78f));
+    g.drawEllipse(cx-seat,cy-seat,seat*2,seat*2,1.4f);
+    const float cap=radius*0.785f;
+    juce::ColourGradient metal(juce::Colour(0xff81715b),cx-cap,cy-cap,
+                               juce::Colour(0xff090b09),cx+cap,cy+cap,false);
+    metal.addColour(0.20,juce::Colour(0xff34332e));
+    metal.addColour(0.60,juce::Colour(0xff1c1e1b));
     g.setGradientFill(metal);
-    g.fillEllipse(cx-outerFace,cy-outerFace,2*outerFace,2*outerFace);
-
-    // Knurled perimeter catches specular highlights at different angles.
-    for (int i=0;i<72;++i) {
-        const float a=2*pi*i/72.0f;
-        const float cs=std::cos(a),sn=std::sin(a);
-        const float d1=outerFace*.89f,d2=outerFace*.99f;
-        g.setColour(i%3==0?hw::gold.withAlpha(0.28f):
-                      juce::Colours::black.withAlpha(0.38f));
-        g.drawLine(cx+cs*d1,cy+sn*d1,cx+cs*d2,cy+sn*d2,0.9f);
+    g.fillEllipse(cx-cap,cy-cap,cap*2,cap*2);
+    g.setColour(juce::Colours::black.withAlpha(0.68f));
+    g.drawEllipse(cx-cap+1.8f,cy-cap+1.8f,(cap-1.8f)*2,(cap-1.8f)*2,1.2f);
+    for(int i=0;i<60;++i) {
+        const float a=2.0f*pi*static_cast<float>(i)/60.0f;
+        const float ss=std::sin(a),cs=std::cos(a);
+        g.setColour((i%4==0?hw::gold:juce::Colours::black)
+                    .withAlpha(i%4==0?0.21f:0.33f));
+        g.drawLine(cx+ss*cap*0.92f,cy+cs*cap*0.92f,
+                   cx+ss*cap*0.985f,cy+cs*cap*0.985f,0.8f);
     }
-    const float face=outerFace*.84f;
-    juce::ColourGradient blackSteel(juce::Colour(0xff5a4937),
-                                    cx-face*.7f,cy-face*.78f,
-                                    juce::Colour(0xff0c0d0b),
-                                    cx+face*.72f,cy+face*.82f,false);
-    blackSteel.addColour(.32,juce::Colour(0xff292820));
-    blackSteel.addColour(.70,juce::Colour(0xff171610));
-    g.setGradientFill(blackSteel);
-    g.fillEllipse(cx-face,cy-face,face*2,face*2);
-    g.setColour(hw::gold.withAlpha(0.35f));
-    g.drawEllipse(cx-face+.9f,cy-face+.9f,(face-.9f)*2,(face-.9f)*2,1.0f);
-    // Circular lathe markings, shaded and offset so they read as real machining.
-    for (int i=0;i<7;++i) {
-        const float rr=face*(0.35f+0.086f*i);
-        g.setColour(i%2==0?juce::Colours::white.withAlpha(0.024f):
-                            juce::Colours::black.withAlpha(0.09f));
-        g.drawEllipse(cx-rr,cy-rr,rr*2,rr*2,0.55f);
-    }
-
-    // Physical ivory/brass bar pointer: bright bevel and dark cast shadow.
-    const float sn=std::sin(angle),cs=-std::cos(angle);
-    const float startD=face*.35f,endD=face*.94f;
-    g.setColour(juce::Colours::black.withAlpha(0.65f));
-    g.drawLine(cx+sn*startD+1.7f,cy+cs*startD+1.7f,
-               cx+sn*endD+1.7f,cy+cs*endD+1.7f,8.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.105f));
+    g.drawEllipse(cx-cap*0.72f,cy-cap*0.72f,cap*1.44f,cap*1.44f,0.8f);
+    g.setColour(accent.withAlpha(0.55f));
+    g.drawEllipse(cx-cap+0.8f,cy-cap+0.8f,(cap-0.8f)*2,(cap-0.8f)*2,0.8f);
+    // The ONLY rotating feature is this symmetrical ivory/brass indicator.
+    const float ss=std::sin(angle),cs=-std::cos(angle);
+    const float inner=cap*0.28f,outer=cap*0.84f;
+    g.setColour(juce::Colours::black.withAlpha(0.80f));
+    g.drawLine(cx+ss*inner+1.3f,cy+cs*inner+1.4f,
+               cx+ss*outer+1.3f,cy+cs*outer+1.4f,7.4f);
     g.setColour(hw::brass);
-    g.drawLine(cx+sn*startD,cy+cs*startD,
-               cx+sn*endD,cy+cs*endD,6.2f);
-    g.setColour(hw::gold);
-    g.drawLine(cx+sn*startD,cy+cs*startD,
-               cx+sn*endD,cy+cs*endD,3.2f);
-    // Warm centre inset maintains the handmade reference's proportions.
-    g.setColour(juce::Colour(0xff100e09));
-    g.fillEllipse(cx-3.0f,cy-3.0f,6.0f,6.0f);
-    g.setColour(hw::gold.withAlpha(0.45f));
-    g.drawEllipse(cx-2.3f,cy-2.3f,4.6f,4.6f,0.9f);
+    g.drawLine(cx+ss*inner,cy+cs*inner,cx+ss*outer,cy+cs*outer,5.4f);
+    g.setColour(accent);
+    g.drawLine(cx+ss*inner,cy+cs*inner,cx+ss*outer,cy+cs*outer,3.35f);
+    g.setColour(juce::Colour(0xff10100c));
+    g.fillEllipse(cx-2.5f,cy-2.5f,5.0f,5.0f);
 }
 
 SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterAudioProcessor& p)
