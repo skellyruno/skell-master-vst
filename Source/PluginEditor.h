@@ -20,6 +20,10 @@ private:
     public:
         SkellyLookAndFeel();
         void setSkin(skellcore::ui::SkullSkin selected);
+        skellcore::ui::SkullSkin getSkin() const noexcept { return activeSkin; }
+    private:
+        skellcore::ui::SkullSkin activeSkin = skellcore::ui::SkullSkin::Ossuary;
+    public:
         void drawRotarySlider(juce::Graphics&, int, int, int, int, float,
                               float, float, juce::Slider&) override;
         void drawButtonBackground(juce::Graphics&, juce::Button&, const juce::Colour&,
@@ -48,7 +52,15 @@ private:
             setMouseCursor(juce::MouseCursor::PointingHandCursor);
             setTooltip("Change SKELL theme (SkellCore)");
         }
-        void paintButton(juce::Graphics&, bool, bool) override {}
+        void paintButton(juce::Graphics& g, bool over, bool down) override {
+            if (!over && !down) return;
+            const auto accent=getLookAndFeel().findColour(juce::Slider::thumbColourId);
+            const auto b=getLocalBounds().toFloat().reduced(1.5f);
+            g.setColour(juce::Colours::black.withAlpha(down ? 0.28f : 0.14f));
+            g.fillRoundedRectangle(b,8.0f);
+            g.setColour(accent.withAlpha(down ? 0.92f : 0.56f));
+            g.drawRoundedRectangle(b,8.0f,down ? 1.8f : 1.2f);
+        }
     };
     SkullHitTarget skullHitTarget;
     skellcore::ui::SkullSkin skin = skellcore::ui::SkullSkin::Ossuary;
