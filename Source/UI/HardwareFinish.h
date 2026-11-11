@@ -173,21 +173,37 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
 }
 
 inline void handle(juce::Graphics& g, float x, float top, float bottom) {
+    // Deep bowed chrome pull bars, styled after the photographic rack handles.
+    // All highlights remain fixed in the cached static editor faceplate.
     const float h=bottom-top;
-    g.setColour(juce::Colour(0xff030504));
-    g.fillRoundedRectangle(x-10.0f,top-3.0f,20.0f,h+6.0f,10.0f);
-    juce::ColourGradient steel(juce::Colour(0xfff0e5d1),x-7,top,
-                               juce::Colour(0xff433c32),x+8,top,false);
-    steel.addColour(0.24,juce::Colour(0xff998e81));
-    steel.addColour(0.55,juce::Colour(0xff342f29));
+    g.setColour(juce::Colour(0xff020202));
+    g.fillRoundedRectangle(x-14.0f,top-5.0f,28.0f,h+10.0f,13.0f);
+    juce::ColourGradient recess(juce::Colour(0xffa08155),x-13,top,
+                               juce::Colour(0xff171713),x+13,top,false);
+    recess.addColour(0.24,juce::Colour(0xff34302b));
+    recess.addColour(0.75,juce::Colour(0xff1b1c18));
+    g.setGradientFill(recess);
+    g.fillRoundedRectangle(x-12.0f,top-3.0f,24.0f,h+6.0f,11.0f);
+    g.setColour(gold.withAlpha(0.32f));
+    g.drawRoundedRectangle(juce::Rectangle<float>(x-12,top-3,24,h+6),11.0f,0.85f);
+
+    // Wide chromed grip: bright edges and slightly darker central belly.
+    juce::ColourGradient steel(juce::Colour(0xffe3d6bf),x-9.5f,top,
+                               juce::Colour(0xff171913),x+10.0f,top,false);
+    steel.addColour(0.16,juce::Colour(0xfff4ede2));
+    steel.addColour(0.34,juce::Colour(0xff706f65));
+    steel.addColour(0.61,juce::Colour(0xffc2b9aa));
+    steel.addColour(0.84,juce::Colour(0xff453b33));
     g.setGradientFill(steel);
-    g.fillRoundedRectangle(x-6.0f,top,12.0f,h,6.0f);
-    g.setColour(juce::Colours::white.withAlpha(0.35f));
-    g.drawLine(x-3.4f,top+18,x-3.4f,bottom-18,1.5f);
-    g.setColour(juce::Colours::black.withAlpha(0.5f));
-    g.drawLine(x+4.0f,top+12,x+4.0f,bottom-12,1.2f);
-    screw(g,x,top+7,0.63f);
-    screw(g,x,bottom-7,0.63f);
+    g.fillRoundedRectangle(x-9.0f,top+2.0f,18.0f,h-4.0f,9.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.55f));
+    g.drawLine(x-5.9f,top+23.0f,x-5.9f,bottom-23.0f,1.8f);
+    g.setColour(juce::Colour(0xff241d18).withAlpha(0.72f));
+    g.drawLine(x+5.5f,top+16.0f,x+5.5f,bottom-16.0f,1.35f);
+    g.setColour(gold.withAlpha(0.30f));
+    g.drawLine(x+7.3f,top+26.0f,x+7.3f,bottom-26.0f,0.7f);
+    screw(g,x,top+8.0f,0.72f);
+    screw(g,x,bottom-8.0f,0.72f);
 }
 
 inline void divider(juce::Graphics& g, float x1,float y1,float x2,float y2) {
