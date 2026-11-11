@@ -99,7 +99,7 @@ if(WIN32)
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0
         SKELLY_MASTER_HEADER_ASSETS=${SKELLY_MASTER_HEADER_ASSETS})
     target_link_libraries(SkellyUITests PRIVATE SkellyMaster
-        SkellyMasterPhotoAssets
+        SkellyMasterPhotoAssets SkellCore::UI
         juce::juce_audio_utils juce::juce_audio_processors
         juce::juce_dsp juce::juce_gui_extra)
     juce_generate_juce_header(SkellyUITests)
