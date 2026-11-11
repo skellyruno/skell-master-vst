@@ -423,9 +423,18 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
                 const auto c=bitmap.getPixelColour(x,y);
                 const float red=c.getFloatRed(),green=c.getFloatGreen(),
                             blue=c.getFloatBlue();
-                // Keep the original red zero/over section where identifiable.
-                if (red>0.34f && red>green*1.55f && red>blue*1.9f
-                    && green<0.52f) continue;
+                // Preserve red only in the actual upper-right overload
+                // scale. Bright amber around the lens perimeter is NOT a red
+                // overload marking; the older global colour test left jagged
+                // orange patches on the otherwise white face.
+                const float u=static_cast<float>(x)/static_cast<float>(bitmap.width);
+                const float v=static_cast<float>(y)/static_cast<float>(bitmap.height);
+                const bool redOverload=u>0.61f && u<0.96f
+                                    && v>0.27f && v<0.83f
+                                    && red>0.40f && red-green>0.32f
+                                    && red>green*1.65f && red>blue*1.8f
+                                    && green<0.38f;
+                if (redOverload) continue;
                 const float luminance=255.0f*(0.299f*red+0.587f*green+0.114f*blue);
                 float mix=juce::jlimit(0.0f,1.0f,(luminance-82.0f)/100.0f);
                 mix=mix*mix*(3.0f-2.0f*mix);
