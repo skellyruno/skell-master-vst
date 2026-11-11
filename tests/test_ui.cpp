@@ -120,6 +120,32 @@ int main() {
         SkellyMasterAudioProcessor processor;
         processor.prepareToPlay(48000.0, 512);
         SkellyMasterAudioProcessorEditor editor(processor);
+        // Every *fresh* control starts at displayed zero. Old projects still
+        // restore their saved user settings rather than resetting on open.
+        for (const auto* id : {"input","drive","glue","dynamics","lows",
+                               "highs","sauce","transients","output","ceiling"}) {
+            auto* param=processor.parameters.getParameter(id);
+            check(param!=nullptr,"missing mastering parameter");
+            check(std::abs(param->convertFrom0to1(param->getDefaultValue()))<0.0001f,
+                  "mastering control default must be zero");
+        }
+        check(std::abs(skelly::detail::ceilingOffsetToDb(0.0)+1.0)<1e-9,
+              "zero ceiling adjustment must preserve safe -1 dBFS target");
+        juce::Button* skinButton=nullptr;
+        for (int childIndex=0;childIndex<editor.getNumChildComponents();++childIndex) {
+            auto* child=editor.getChildComponent(childIndex);
+            if(child && child->getComponentID()=="skellcore-theme-skull")
+                skinButton=dynamic_cast<juce::Button*>(child);
+        }
+        check(skinButton && static_cast<bool>(skinButton->onClick),
+              "left skull must have functional SkellCore skin callback");
+        const auto originalSkin=editor.selectedSkin();
+        skinButton->onClick();
+        check(editor.selectedSkin()==skellcore::ui::nextSkin(originalSkin),
+              "skull click advances shared SkellCore theme");
+        for(int remaining=0;remaining<3;++remaining) skinButton->onClick();
+        check(editor.selectedSkin()==originalSkin,
+              "four skull clicks return to the original palette");
         editor.setVisible(true); // Offscreen component has no native desktop peer.
 
         // Visual coverage: compact min/default, intermediate, design, large.
