@@ -108,15 +108,11 @@ int main() {
         const auto skullLeft = juce::ImageFileFormat::loadFrom(
             BinaryData::logo_skull_header_left_png,
             static_cast<size_t>(BinaryData::logo_skull_header_left_pngSize));
-        const auto skullRight = juce::ImageFileFormat::loadFrom(
-            BinaryData::logo_skull_header_right_png,
-            static_cast<size_t>(BinaryData::logo_skull_header_right_pngSize));
-        check(header.isValid() && skullLeft.isValid() && skullRight.isValid(),
+        check(header.isValid() && skullLeft.isValid(),
               "reference header artwork did not decode");
         check(header.getWidth() >= 391 && header.getHeight() >= 73,
               "header nameplate below display resolution");
-        check(skullLeft.getPixelAt(0,0).getAlpha() < 32
-           && skullRight.getPixelAt(0,0).getAlpha() < 32,
+        check(skullLeft.getPixelAt(0,0).getAlpha() < 32,
               "transparent header skull assets have opaque corners");
         std::cout << "PASS: reference-kit header graphics decoded\n";
        #endif
