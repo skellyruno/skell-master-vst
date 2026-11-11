@@ -216,6 +216,16 @@ settings, then the independent Windows workflow compiles the VST3 and runs
 portable DSP and JUCE host integration tests. Hardware materials are decorative
 and are not processed on the audio thread.
 
+## Reference-derived meter face
+
+A compact JPEG asset reproduces the vintage amber VU dial's scale, skull stamp,
+aged-gold bezel and paper grain. The meter's displayed needle is still
+calculated and drawn from the **actual left/right output levels**, while
+its dBFS readout and peak-hold marker remain real-time JUCE graphics.
+A full procedural fallback is retained. Both the dial and photographic
+rotary face are embedded as JUCE BinaryData; there is no external asset
+loading when the plugin runs.
+
 ## Photographic hardware asset pass
 
 The original reference knob has been extracted as a small, transparent indexed

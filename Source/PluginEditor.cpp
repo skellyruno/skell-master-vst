@@ -380,7 +380,21 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         for (float yy : {12.0f,144.0f}) hw::screw(g,xx,yy,0.72f);
     g.setColour(juce::Colour(0xff040404));
     g.fillRoundedRectangle(16,23,278,119,30.0f);
-    // Warm amber illuminated mechanical meter card, like the reference.
+    font(g,14,true); g.setColour(hw::parchment);
+    text(g,name,40,5,230,18);
+
+    constexpr float pivotX=155.0f,pivotY=141.0f,radius=111.0f;
+    // Reference-derived photographic dial: vintage numerals, enamel speckle,
+    // warm amber lens and authentic skull stamp are all packed as one small
+    // static resource. The needle and dBFS readout remain live JUCE graphics.
+    static const juce::Image photographedMeter =
+        juce::ImageFileFormat::loadFrom(BinaryData::meter_card_jpg,
+                                       static_cast<size_t>(BinaryData::meter_card_jpgSize));
+    if (photographedMeter.isValid()) {
+        g.drawImage(photographedMeter,19.0f,24.0f,272.0f,119.0f,
+                    0,0,photographedMeter.getWidth(),photographedMeter.getHeight());
+    } else {
+    // Vector fallback for damaged or unavailable resource.
     juce::ColourGradient paper(juce::Colour(0xffffe6ac),155,26,
                                juce::Colour(0xffa26b2d),155,140,false);
     paper.addColour(0.36,juce::Colour(0xffffd381));
@@ -392,11 +406,8 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     g.setColour(juce::Colours::black.withAlpha(0.16f));
     g.drawLine(25,32,283,32,0.8f);
 
-    font(g,14,true); g.setColour(hw::parchment);
-    text(g,name,40,5,230,18);
-
     // Curved calibrated arc and engraved divisions, plus green peak zone.
-    constexpr float pivotX=155.0f,pivotY=141.0f,radius=111.0f;
+
     for(int i=0;i<=30;++i) {
         const float t=static_cast<float>(i)/30.0f;
         const float a=(-157.0f+134.0f*t)*pi/180.0f;
@@ -417,6 +428,7 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     text(g,"-12",171,47,39,15);
     text(g,"-6",222,69,32,15);
     text(g,"0",268,95,18,15);
+    }
     // Needle is clipped under the readout plate and never leaves the meter.
     const float a=(-157.0f+134.0f*normalizedPeak(value))*pi/180.0f;
     const float tipX=pivotX+std::cos(a)*radius*.97f;
