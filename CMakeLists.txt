@@ -63,6 +63,7 @@ if(WIN32)
     target_compile_definitions(SkellyUITests PRIVATE
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0)
     target_link_libraries(SkellyUITests PRIVATE SkellyMaster
+        SkellyMasterPhotoAssets
         juce::juce_audio_utils juce::juce_audio_processors
         juce::juce_dsp juce::juce_gui_extra)
     juce_generate_juce_header(SkellyUITests)
@@ -93,7 +94,7 @@ if(SKELLY_MASTER_BUILD_UI_RENDERER)
     target_compile_definitions(SkellyMasterUIRenderer PRIVATE
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0)
     target_link_libraries(SkellyMasterUIRenderer PRIVATE
-        SkellyMaster SkellCore::UIRenderer
+        SkellyMaster SkellyMasterPhotoAssets SkellCore::UIRenderer
         juce::juce_audio_utils juce::juce_audio_processors
         juce::juce_dsp juce::juce_gui_extra)
 endif()
