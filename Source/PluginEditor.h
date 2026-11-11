@@ -13,6 +13,7 @@ public:
     ~SkellyMasterAudioProcessorEditor() override;
     void paint(juce::Graphics&) override;
     void resized() override;
+    skellcore::ui::SkullSkin selectedSkin() const noexcept { return skin; }
 
 private:
     class SkellyLookAndFeel final : public juce::LookAndFeel_V4 {
