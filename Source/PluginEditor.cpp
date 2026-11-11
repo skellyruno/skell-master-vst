@@ -713,24 +713,52 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
 }
 
 void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
+    // Hardware GR module: the electronic display and LED ladder are
+    // physically DARK at idle. No ghost 0, dB text, or grey inactive bars.
+    // The label and recessed unlit glass stay visible as physical hardware.
     hw::plate(g,{953,108,216,170},false,0x300ad5u,9.0f,0.34f);
-    for (float xx : {965.0f,1157.0f})
-        for (float yy : {120.0f,265.0f}) hw::screw(g,xx,yy,0.63f);
+    for(float xx : {965.0f,1157.0f})
+        for(float yy : {120.0f,265.0f}) hw::screw(g,xx,yy,0.63f);
     font(g,12,true);g.setColour(hw::parchment);
     text(g,"GAIN REDUCTION",969,125,185,17);
-    g.setColour(juce::Colour(0xff030702));
-    g.fillRoundedRectangle(976,152,173,56,8.0f);
-    g.setColour(hw::brass.withAlpha(0.5f));
-    g.drawRoundedRectangle(juce::Rectangle<float>(976,152,173,56),8.0f,1.0f);
-    font(g,37,true);g.setColour(hw::phosphor);
+
+    g.setColour(juce::Colours::black.withAlpha(0.76f));
+    g.fillRoundedRectangle(975,153.5f,175,56.5f,9.0f);
+    juce::ColourGradient glass(juce::Colour(0xff030604),979,156,
+                               juce::Colour(0xff010201),1139,206,false);
+    glass.addColour(0.52,juce::Colour(0xff050a06));
+    g.setGradientFill(glass);
+    g.fillRoundedRectangle(979,155.5f,167,50.5f,7.0f);
+    g.setColour(hw::brass.withAlpha(0.28f));
+    g.drawRoundedRectangle(juce::Rectangle<float>(975,152,175,57),8.5f,0.9f);
+    g.setColour(juce::Colours::white.withAlpha(0.075f));
+    g.drawLine(983,157,1139,157,0.7f);
+
+    const bool active=std::isfinite(displayedReduction)
+                   && displayedReduction>=0.5f;
+    // Recessed light-pipe holder stays dark when no compressor/limiter GR.
+    g.setColour(juce::Colour(0xff050704));
+    g.fillRoundedRectangle(972,225,176,24,3.1f);
+    g.setColour(hw::brass.withAlpha(0.22f));
+    g.drawRoundedRectangle(juce::Rectangle<float>(972,225,176,24),3.1f,0.7f);
+    if (!active) return;
+
+    font(g,37,true);
+    g.setColour(hw::phosphor);
     text(g,juce::String(juce::roundToInt(displayedReduction)),985,158,130,47);
-    font(g,12,true);g.setColour(hw::gold);
+    font(g,12,true);
+    g.setColour(hw::gold);
     text(g,"dB",1117,178,27,14);
-    const float level=juce::jlimit(0.0f,16.0f,displayedReduction*(16.0f/18.0f));
-    for(int i=0;i<16;++i) {
-        g.setColour(i<level?(i>12?hw::gold:hw::phosphor):
-                              juce::Colour(0xff766a54));
-        g.fillRoundedRectangle(976.0f+i*10.4f,229,6.9f,17,2.1f);
+    const int lit=juce::jlimit(1,16,juce::roundToInt(
+        displayedReduction*(16.0f/18.0f)));
+    for(int i=0;i<lit;++i) {
+        const float xx=977.0f+i*10.4f;
+        g.setColour(juce::Colours::black.withAlpha(0.7f));
+        g.fillRoundedRectangle(xx+0.7f,230.2f,7.3f,15.3f,1.9f);
+        g.setColour(i>12?juce::Colour(0xffefb653):hw::phosphor);
+        g.fillRoundedRectangle(xx,229.1f,6.9f,16.0f,2.0f);
+        g.setColour(juce::Colours::white.withAlpha(0.30f));
+        g.drawLine(xx+1.1f,231.0f,xx+1.1f,242.0f,0.55f);
     }
 }
 
