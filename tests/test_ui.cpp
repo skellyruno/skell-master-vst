@@ -60,6 +60,18 @@ void checkRendered(juce::Image image) {
               << ", green=" << green << "\n";
     check(visible > 100, "editor rendered nearly blank");
     check(green > 6, "neon Skelly accents missing from UI snapshot");
+    // Inspect the real white OUTPUT/L meter face, scaled to the tested size.
+    int whiteFace=0;
+    for (int y=static_cast<int>(image.getHeight()*0.210f);
+         y<static_cast<int>(image.getHeight()*0.275f);y+=2)
+        for (int x=static_cast<int>(image.getWidth()*0.315f);
+             x<static_cast<int>(image.getWidth()*0.475f);x+=2) {
+            const auto c=image.getPixelAt(x,y);
+            if (c.getRed()>196 && c.getGreen()>196 && c.getBlue()>190
+                && std::abs(static_cast<int>(c.getRed())-
+                            static_cast<int>(c.getBlue()))<20) ++whiteFace;
+        }
+    check(whiteFace>20,"OUTPUT meter photographic face must render white");
 }
 } // namespace
 
