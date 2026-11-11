@@ -31,7 +31,9 @@ juce_add_plugin(SkellyMaster
 juce_add_binary_data(SkellyMasterPhotoAssets
     SOURCES
         Source/UI/Assets/knob_photo.png
-        Source/UI/Assets/meter_card.jpg)
+        Source/UI/Assets/meter_card.jpg
+        Source/UI/Assets/irongrain.jpg
+        Source/UI/Assets/greenpatina.jpg)
 
 juce_generate_juce_header(SkellyMaster)
 target_sources(SkellyMaster PRIVATE

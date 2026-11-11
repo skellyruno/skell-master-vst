@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <BinaryData.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -92,6 +93,25 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
     enamel.addColour(0.56,green?juce::Colour(0xff133924):juce::Colour(0xff1b1c15));
     g.setGradientFill(enamel);
     g.fillRoundedRectangle(r,radius);
+    // Authentic source-image material grain overlays only large STATIC panels.
+    // Live meter faces (310 px) remain free of tiled-image work at 30 Hz.
+    // Both photographed tiles are compiled into JUCE BinaryData, decoded once
+    // on the UI thread, and cached with the static brushed-metal artwork.
+    if (r.getWidth() > 350.0f && r.getHeight() > 60.0f) {
+        static const juce::Image originalIronGrain =
+            juce::ImageFileFormat::loadFrom(BinaryData::irongrain_jpg,
+                         static_cast<size_t>(BinaryData::irongrain_jpgSize));
+        static const juce::Image originalGreenPatina =
+            juce::ImageFileFormat::loadFrom(BinaryData::greenpatina_jpg,
+                         static_cast<size_t>(BinaryData::greenpatina_jpgSize));
+        const auto& grain = green ? originalGreenPatina : originalIronGrain;
+        if (grain.isValid()) {
+            juce::Graphics::ScopedSaveState textureScope(g);
+            g.setTiledImageFill(grain, static_cast<int>(r.getX()+4),
+                                static_cast<int>(r.getY()+4), green ? 0.33f : 0.28f);
+            g.fillRoundedRectangle(r.reduced(6.0f),juce::jmax(0.0f,radius-4.0f));
+        }
+    }
     patina(g,r.reduced(2.2f),seed,wear);
     g.setColour(juce::Colour(0xffe9c995).withAlpha(0.46f));
     g.drawRoundedRectangle(r.reduced(0.8f),radius,1.3f);

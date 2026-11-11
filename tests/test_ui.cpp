@@ -1,4 +1,5 @@
 #include <JuceHeader.h>
+#include <BinaryData.h>
 #include "../Source/PluginProcessor.h"
 #include "../Source/PluginEditor.h"
 #include <array>
@@ -65,6 +66,27 @@ void checkRendered(juce::Image image) {
 int main() {
     try {
         juce::ScopedJuceInitialiser_GUI juceInit;
+        // Enforce that the reference-derived UI resources really decode.
+        // Otherwise the vector fallback can hide a damaged asset in CI.
+        const auto photoKnob=juce::ImageFileFormat::loadFrom(
+            BinaryData::knob_photo_png,
+            static_cast<size_t>(BinaryData::knob_photo_pngSize));
+        const auto photoMeter=juce::ImageFileFormat::loadFrom(
+            BinaryData::meter_card_jpg,
+            static_cast<size_t>(BinaryData::meter_card_jpgSize));
+        const auto iron=juce::ImageFileFormat::loadFrom(
+            BinaryData::irongrain_jpg,
+            static_cast<size_t>(BinaryData::irongrain_jpgSize));
+        const auto green=juce::ImageFileFormat::loadFrom(
+            BinaryData::greenpatina_jpg,
+            static_cast<size_t>(BinaryData::greenpatina_jpgSize));
+        check(photoKnob.isValid() && photoKnob.getWidth()>60,
+              "reference rotary PNG did not decode");
+        check(photoMeter.isValid() && photoMeter.getWidth()>100,
+              "reference VU meter JPEG did not decode");
+        check(iron.isValid() && green.isValid(),
+              "photographic panel grain assets did not decode");
+        std::cout << "PASS: reference-derived hardware images decoded\n";
         SkellyMasterAudioProcessor processor;
         processor.prepareToPlay(48000.0, 512);
         SkellyMasterAudioProcessorEditor editor(processor);

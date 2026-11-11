@@ -216,6 +216,15 @@ settings, then the independent Windows workflow compiles the VST3 and runs
 portable DSP and JUCE host integration tests. Hardware materials are decorative
 and are not processed on the audio thread.
 
+## Photographic black-metal and emerald patina
+
+The two largest surface materials now tile **real photographed black iron
+grain and green enamel patina** from the supplied reference, at a restrained
+opacity under the existing engraved trim and patina code. Only green top and
+bottom plates use green; the chassis, rack face, and central hardware remain
+black. The material layer is rendered into the cached static backdrop on the
+GUI thread. Tests verify all four embedded resources decode before rendering.
+
 ## Reference-derived meter face
 
 A compact JPEG asset reproduces the vintage amber VU dial's scale, skull stamp,
