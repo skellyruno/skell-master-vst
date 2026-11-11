@@ -3,6 +3,12 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - '.github/workflows/build.yml'
+      - 'CMakeLists.txt'
+      - 'Source/**'
+      - 'tests/**'
 
 # During rapid UI/DSP iterations, do not waste Windows runners compiling
 # superseded snapshots. Always compile and publish the most recent commit.
