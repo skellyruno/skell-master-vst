@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 #include "UI/StarSkullMark.h"
 #include "UI/HardwareFinish.h"
+#include <BinaryData.h>
 #include <algorithm>
 #include <cmath>
 
@@ -180,6 +181,26 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     g.setColour(hw::brass.withAlpha(0.75f));
     g.drawEllipse(cx-radius*.91f,cy-radius*.91f,radius*1.82f,radius*1.82f,1.6f);
 
+    // The reference-derived photographic dial is intentionally its own
+    // compressed binary resource, not a flattened image of the entire UI.
+    // Knobs remain real JUCE sliders; the face rotates with the actual APVTS
+    // parameter value while the fixed graduation ring stays engraved.
+    static const juce::Image photographicKnob =
+        juce::ImageFileFormat::loadFrom(BinaryData::knob_photo_png,
+                                       static_cast<size_t>(BinaryData::knob_photo_pngSize));
+    if (photographicKnob.isValid()) {
+        juce::Graphics::ScopedSaveState transformSave(g);
+        const float imageSize=radius*1.78f;
+        // The photographed indicator is approx. +0.30 radians from 12 o'clock.
+        // Rotate its actual photo to the knob's host-automated position.
+        g.addTransform(juce::AffineTransform::rotation(angle-0.30f,cx,cy));
+        g.drawImage(photographicKnob,
+                    cx-imageSize*.5f,cy-imageSize*.5f,imageSize,imageSize,
+                    0,0,photographicKnob.getWidth(),photographicKnob.getHeight());
+        return;
+    }
+
+    // Vector fallback remains available if a resource is damaged.
     const float outerFace=radius*.81f;
     juce::ColourGradient metal(juce::Colour(0xffc8a676),cx-outerFace,cy-outerFace,
                                juce::Colour(0xff302319),cx+outerFace,cy+outerFace,false);

@@ -25,6 +25,12 @@ juce_add_plugin(SkellyMaster
     IS_MIDI_EFFECT FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
+# Image-derived hardware component assets are stored separately and compiled
+# into the plugin once. No file I/O, disk dependencies or image decoding occur
+# in the audio processing thread.
+juce_add_binary_data(SkellyMasterPhotoAssets
+    SOURCES Source/UI/Assets/knob_photo.png)
+
 juce_generate_juce_header(SkellyMaster)
 target_sources(SkellyMaster PRIVATE
     Source/PluginProcessor.cpp Source/PluginProcessor.h
@@ -37,6 +43,7 @@ target_compile_definitions(SkellyMaster PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0)
 target_compile_definitions(SkellyMaster PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0)
 target_link_libraries(SkellyMaster PRIVATE
+    SkellyMasterPhotoAssets
     juce::juce_audio_utils juce::juce_audio_processors
     juce::juce_dsp juce::juce_gui_extra)
 

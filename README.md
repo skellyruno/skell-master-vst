@@ -216,6 +216,20 @@ settings, then the independent Windows workflow compiles the VST3 and runs
 portable DSP and JUCE host integration tests. Hardware materials are decorative
 and are not processed on the audio thread.
 
+## Photographic hardware asset pass
+
+The original reference knob has been extracted as a small, transparent indexed
+PNG and compiled into the VST3 through JUCE BinaryData. The **actual JUCE
+sliders remain fully interactive, automatable, resizable and attached to the
+existing APVTS IDs**; only the knob face is a photographic sprite. The software
+rotates its gold pointer according to the real parameter value. The analog
+ring, text, readouts, meters, and heavy green/black plates remain JUCE-drawn.
+A procedural vector fallback remains available if the photo cannot decode.
+
+The design preserves a black chassis, emerald green enamel nameplate and
+bottom strip, aged-gold trim, and existing control positions. This is the
+first of the image-asset iterations; it does not change DSP or VST3 identity.
+
 ## Main controls
 
 | Control | DSP function | Range / default |
