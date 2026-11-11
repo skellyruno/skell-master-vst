@@ -166,7 +166,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     const float radius=std::min(static_cast<float>(width),static_cast<float>(height))
                        *(utility?0.455f:0.462f);
     const float startAngle=start+0.05f,endAngle=end-0.05f;
-    const float angle=startAngle+position*(endAngle-startAngle);
+    const float angle=startAngle+juce::jlimit(0.0f,1.0f,position)*(endAngle-startAngle);
 
     // Embossed machine-engraved graduation ring; no fake raster knobs.
     for (int i=0;i<=40;++i) {
@@ -191,25 +191,33 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
         juce::ImageFileFormat::loadFrom(BinaryData::knob_photo_png,
                                        static_cast<size_t>(BinaryData::knob_photo_pngSize));
     if (photographicKnob.isValid()) {
-        juce::Graphics::ScopedSaveState transformSave(g);
-        // The reference face fills the mechanical brass collar; the 84 px
-        // source stays behind the fixed engraved tick ring at every UI size.
-        const float imageSize=radius*1.92f;
-        // Calibrated against the extracted ivory pointer (+0.34 rad).
-        // Keep the actual APVTS rotary angle, including host automation.
-        g.addTransform(juce::AffineTransform::rotation(angle-0.34f,cx,cy));
-        g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
-        g.drawImage(photographicKnob,
-                    cx-imageSize*.5f,cy-imageSize*.5f,imageSize,imageSize,
-                    0,0,photographicKnob.getWidth(),photographicKnob.getHeight());
-        // Real knob texture rotates; the bevel around its seat does not.
-        // A small fixed brass reflection gives the cap physical depth.
-        g.setColour(hw::gold.withAlpha(0.27f));
-        g.drawEllipse(cx-radius*.955f,cy-radius*.955f,
-                      radius*1.91f,radius*1.91f,1.3f);
-        g.setColour(juce::Colours::black.withAlpha(0.32f));
-        g.drawEllipse(cx-radius*.87f,cy-radius*.87f,
-                      radius*1.74f,radius*1.74f,0.6f);
+        // The image contains a second ring of photographed tick marks. Mask
+        // that ring out: only the actual cap/pointer rotates, while the
+        // engraved calibration ticks and mechanical collar remain stationary.
+        // This also eliminates the apparent double rotation at small sizes.
+        {
+            juce::Graphics::ScopedSaveState dial(g);
+            juce::Path circularFace;
+            circularFace.addEllipse(cx-radius*0.835f,cy-radius*0.835f,
+                                    radius*1.67f,radius*1.67f);
+            g.reduceClipRegion(circularFace, juce::AffineTransform());
+            const float imageSize=radius*1.92f;
+            // Original photographic pointer is 0.34 radians clockwise from
+            // twelve o'clock. JUCE's rotary angle is measured from the top.
+            g.addTransform(juce::AffineTransform::rotation(angle-0.34f,cx,cy));
+            g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+            g.drawImage(photographicKnob,
+                        cx-imageSize*.5f,cy-imageSize*.5f,imageSize,imageSize,
+                        0,0,photographicKnob.getWidth(),photographicKnob.getHeight());
+        }
+        // Fixed gold retaining collar and specular glints do not spin with
+        // the pointer; only the cap itself follows automation.
+        g.setColour(hw::gold.withAlpha(0.35f));
+        g.drawEllipse(cx-radius*0.85f,cy-radius*0.85f,
+                      radius*1.70f,radius*1.70f,1.15f);
+        g.setColour(juce::Colours::white.withAlpha(0.16f));
+        g.drawArc(cx-radius*0.86f,cy-radius*0.86f,radius*1.72f,
+                  radius*1.72f,-1.0f,0.50f,1.0f);
         return;
     }
 
@@ -397,12 +405,37 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     text(g,name,40,5,230,18);
 
     constexpr float pivotX=155.0f,pivotY=141.0f,radius=111.0f;
-    // Reference-derived photographic dial: vintage numerals, enamel speckle,
-    // warm amber lens and authentic skull stamp are all packed as one small
-    // static resource. The needle and dBFS readout remain live JUCE graphics.
-    static const juce::Image photographedMeter =
-        juce::ImageFileFormat::loadFrom(BinaryData::meter_card_jpg,
-                                       static_cast<size_t>(BinaryData::meter_card_jpgSize));
+    // Reference-derived photographic face, converted to vintage neutral
+    // white once per process on the GUI thread. Dark scale numbers stay dark,
+    // red danger markings survive, and the live needle is separate artwork.
+    // No bitmap conversion happens in audio callbacks or 30 Hz repaints.
+    static const juce::Image photographedMeter = [] {
+        auto face=juce::ImageFileFormat::loadFrom(
+            BinaryData::meter_card_jpg,
+            static_cast<size_t>(BinaryData::meter_card_jpgSize));
+        if (!face.isValid()) return face;
+        face=face.createCopy();
+        juce::Image::BitmapData bitmap(face,juce::Image::BitmapData::readWrite);
+        for (int y=0;y<bitmap.height;++y)
+            for (int x=0;x<bitmap.width;++x) {
+                const auto c=bitmap.getPixelColour(x,y);
+                const float red=c.getFloatRed(),green=c.getFloatGreen(),
+                            blue=c.getFloatBlue();
+                // Keep the original red zero/over section where identifiable.
+                if (red>0.34f && red>green*1.55f && red>blue*1.9f
+                    && green<0.52f) continue;
+                const float luminance=255.0f*(0.299f*red+0.587f*green+0.114f*blue);
+                float mix=juce::jlimit(0.0f,1.0f,(luminance-82.0f)/100.0f);
+                mix=mix*mix*(3.0f-2.0f*mix);
+                const int neutral=juce::jlimit(0,255,juce::roundToInt(
+                    luminance*(1.0f-mix)+(234.0f+15.0f*luminance/255.0f)*mix));
+                bitmap.setPixelColour(x,y,juce::Colour(
+                    static_cast<juce::uint8>(neutral),
+                    static_cast<juce::uint8>(neutral),
+                    static_cast<juce::uint8>(juce::jmax(0,neutral-2)),c.getAlpha()));
+            }
+        return face;
+    }();
     if (photographedMeter.isValid()) {
         // Keep the photographic graduation scale as-is. The readout and
         // animated needle are always drawn later on top of the glass.
@@ -420,10 +453,10 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
                                27.0f,2.0f);
     } else {
     // Vector fallback for damaged or unavailable resource.
-    juce::ColourGradient paper(juce::Colour(0xffffe6ac),155,26,
-                               juce::Colour(0xffa26b2d),155,140,false);
-    paper.addColour(0.36,juce::Colour(0xffffd381));
-    paper.addColour(0.73,juce::Colour(0xffd8a350));
+    juce::ColourGradient paper(juce::Colour(0xfff7f6f0),155,26,
+                               juce::Colour(0xffb6b4ad),155,140,false);
+    paper.addColour(0.36,juce::Colour(0xfff0efea));
+    paper.addColour(0.73,juce::Colour(0xffdad8d1));
     g.setGradientFill(paper);
     g.fillRoundedRectangle(19,27,272,108,27.0f);
     g.setColour(juce::Colour(0xff2b210f).withAlpha(0.72f));
@@ -454,23 +487,30 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     text(g,"-6",222,69,32,15);
     text(g,"0",268,95,18,15);
     }
-    // Needle is clipped under the readout plate and never leaves the meter.
+    // Needle is a single tapered, anti-aliased solid mechanical pointer,
+    // not multiple overlapping lines. The pivot is covered by the readout
+    // plate, and the point stays inside the meter face at both extremes.
     const float a=(-157.0f+134.0f*normalizedPeak(value))*pi/180.0f;
-    const float tipX=pivotX+std::cos(a)*radius*.97f;
-    const float tipY=pivotY+std::sin(a)*radius*.97f;
+    const float ux=std::cos(a),uy=std::sin(a);
+    const float nx=-uy,ny=ux;
+    const float tipX=pivotX+ux*radius*0.935f;
+    const float tipY=pivotY+uy*radius*0.935f;
+    juce::Path needle;
+    needle.startNewSubPath(pivotX+nx*2.5f,pivotY+ny*2.5f);
+    needle.lineTo(tipX+nx*0.26f,tipY+ny*0.26f);
+    needle.lineTo(tipX-nx*0.26f,tipY-ny*0.26f);
+    needle.lineTo(pivotX-nx*2.5f,pivotY-ny*2.5f);
+    needle.closeSubPath();
     {
         juce::Graphics::ScopedSaveState clipped(g);
         g.reduceClipRegion(juce::Rectangle<int>(20,30,271,106));
-        g.setColour(juce::Colours::black.withAlpha(0.35f));
-        g.drawLine(pivotX+1.0f,pivotY+2.0f,tipX+1.0f,tipY+2.0f,4.0f);
-        g.setColour(juce::Colour(0xff251c12));
-        g.drawLine(pivotX,pivotY,tipX,tipY,2.0f);
-        g.setColour(hw::brass);
-        g.drawLine(pivotX,pivotY,tipX,tipY,1.05f);
-        // Small specular glint on the active needle, without making it
-        // look like an electronic line instead of a mechanical instrument.
-        g.setColour(hw::gold.withAlpha(0.58f));
-        g.drawLine(pivotX,pivotY,tipX,tipY,0.38f);
+        g.setColour(juce::Colours::black.withAlpha(0.38f));
+        g.fillPath(needle,juce::AffineTransform::translation(1.25f,1.45f));
+        g.setColour(juce::Colour(0xff32271c));
+        g.fillPath(needle);
+        g.setColour(juce::Colour(0xffa17c48).withAlpha(0.82f));
+        g.drawLine(pivotX+nx*0.35f,pivotY+ny*0.35f,
+                   tipX+nx*0.20f,tipY+ny*0.20f,0.65f);
     }
     if (heldValue>0.0001f) {
         const float ah=(-157.0f+134.0f*normalizedPeak(heldValue))*pi/180.0f;
