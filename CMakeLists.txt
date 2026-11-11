@@ -87,7 +87,8 @@ if(WIN32)
     target_sources(SkellyUITests PRIVATE tests/test_ui.cpp)
     target_compile_features(SkellyUITests PRIVATE cxx_std_17)
     target_compile_definitions(SkellyUITests PRIVATE
-        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0)
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0
+        SKELLY_MASTER_HEADER_ASSETS=${SKELLY_MASTER_HEADER_ASSETS})
     target_link_libraries(SkellyUITests PRIVATE SkellyMaster
         SkellyMasterPhotoAssets
         juce::juce_audio_utils juce::juce_audio_processors
