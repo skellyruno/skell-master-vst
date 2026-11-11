@@ -417,9 +417,16 @@ public:
 
         double wetL = delayedL * limiterGain;
         double wetR = delayedR * limiterGain;
-        // Last-resort sample clip to the user ceiling (not a certified BS.1770 TP reading).
-        wetL = clamp(wetL, -absoluteCeiling, absoluteCeiling);
-        wetR = clamp(wetR, -absoluteCeiling, absoluteCeiling);
+        // Last-resort stereo-linked ceiling guard: do not independently
+        // hard-clip L/R, which can alter the stereo ratio on unexpected
+        // delayed transients or automation. This is still a sample-peak
+        // safety measure, not a certified reconstructed true-peak limiter.
+        const double lastPeak=std::max(std::abs(wetL),std::abs(wetR));
+        if (lastPeak > absoluteCeiling) {
+            const double guardGain=absoluteCeiling/lastPeak;
+            wetL *= guardGain;
+            wetR *= guardGain;
+        }
         const double resultL = wetL * (1 - by) + dryL * by;
         const double resultR = wetR * (1 - by) + dryR * by;
         const double effectiveCompression = 1.0 - (1.0 - glueGain * dynamicsGain * limiterGain) * (1.0 - by);
