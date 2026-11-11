@@ -534,8 +534,9 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     const float ux=std::cos(a),uy=std::sin(a),nx=-uy,ny=ux;
     const float tipX=pivotX+ux*radius*0.965f;
     const float tipY=pivotY+uy*radius*0.965f;
-    juce::Graphics::ScopedSaveState needleClip(g);
-    g.reduceClipRegion(juce::Rectangle<int>(20,30,271,106));
+    {
+        juce::Graphics::ScopedSaveState needleClip(g);
+        g.reduceClipRegion(juce::Rectangle<int>(20,30,271,106));
     // Red arc *illumination* and peak marker follow audio as it approaches 0.
     if(normalized>0.83f) {
         juce::Path activeDanger;
@@ -577,6 +578,7 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         g.fillEllipse(hx-2.3f,hy-2.3f,4.6f,4.6f);
     }
 
+    }
     // Pivot and live INTEGER dBFS readout hide the needle origin.
     g.setColour(juce::Colours::black.withAlpha(0.74f));
     g.fillRoundedRectangle(101,126,108,24,6.0f);
