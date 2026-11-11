@@ -12,6 +12,16 @@ else()
     FetchContent_MakeAvailable(JUCE)
 endif()
 
+# The UI uses the exact shared SkellCore skull palette and skin state.
+FetchContent_Declare(SkellCoreShared
+    GIT_REPOSITORY https://github.com/skellyruno/skellcore-vst-template.git
+    GIT_TAG 1292336c095cde53ac17a9d6c8f0ec2042b08273
+    SOURCE_SUBDIR SkellCore
+    GIT_SHALLOW FALSE)
+set(SKELLCORE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SKELLCORE_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(SkellCoreShared)
+
 juce_add_plugin(SkellyMaster
     COMPANY_NAME "Skelly Audio"
     BUNDLE_ID "audio.skelly.master"
@@ -69,7 +79,7 @@ target_compile_definitions(SkellyMaster PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0
     SKELLY_MASTER_HEADER_ASSETS=${SKELLY_MASTER_HEADER_ASSETS})
 target_link_libraries(SkellyMaster PRIVATE
-    SkellyMasterPhotoAssets
+    SkellyMasterPhotoAssets SkellCore::UI
     juce::juce_audio_utils juce::juce_audio_processors
     juce::juce_dsp juce::juce_gui_extra)
 
@@ -103,15 +113,7 @@ endif()
 # actual plugin shared-code target and is never included in the shipped VST3.
 option(SKELLY_MASTER_BUILD_UI_RENDERER "Build real editor with pinned SkellCore renderer" OFF)
 if(SKELLY_MASTER_BUILD_UI_RENDERER)
-    FetchContent_Declare(SkellCoreRendererSource
-        GIT_REPOSITORY https://github.com/skellyruno/skell-vst-template.git
-        GIT_TAG 5ac8e885f1563f804c66072797b7038bc2939fae
-        SOURCE_SUBDIR SkellCore
-        GIT_SHALLOW FALSE)
-    set(SKELLCORE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(SKELLCORE_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(SkellCoreRendererSource)
-
+    # SkellCoreShared is already loaded and is reused here.
     # A plain executable avoids conflicting JUCE_STANDALONE_APPLICATION
     # compile definitions inherited from plugin shared code.
     add_executable(SkellyMasterUIRenderer tests/ui_renderer.cpp)
