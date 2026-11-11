@@ -149,12 +149,13 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
 juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juce::Label& label) {
     const auto size = juce::jlimit(10.0f, 22.0f,
                     static_cast<float>(label.getHeight()) * 0.80f);
-    // Monospaced numerical displays distinguish digit 0 from capital O,
-    // reduce shifts under automation, and remain sharp in the 620px UI.
+    // Use crisp, un-slashed numerals: Consolas/DejaVu Sans Mono render
+    // their zero like an Ø, which is easy to mistake for another glyph
+    // in a compact rack display. JUCE centres values in fixed-size plates.
    #if JUCE_LINUX
-    constexpr const char* family = "DejaVu Sans Mono";
+    constexpr const char* family = "DejaVu Sans";
    #else
-    constexpr const char* family = "Consolas";
+    constexpr const char* family = "Segoe UI";
    #endif
     return juce::Font(juce::FontOptions(size).withName(family).withStyle("Bold"));
 }
