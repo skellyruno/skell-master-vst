@@ -18,16 +18,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout SkellyMasterAudioProcessor::
             juce::AudioParameterFloatAttributes().withLabel(units));
         layout.add(std::move(param));
     };
-    add("input",      "Input",       -18.0f, 18.0f, 0.1f,   0.0f, "dB");
-    add("drive",      "Drive",         0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("glue",       "Glue",          0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("dynamics",   "Dynamics",      0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("lows",       "Lows",         -6.0f,   6.0f, 0.1f,  0.0f, "dB");
-    add("highs",      "Highs",        -6.0f,   6.0f, 0.1f,  0.0f, "dB");
-    add("sauce",      "Sauce",         0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("transients", "Transients",    0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("output",     "Output Trim", -18.0f, 12.0f, 0.1f,  0.0f, "dB");
-    add("ceiling",    "Peak Ceiling", -3.0f, -0.1f, 0.1f, -1.0f, "dBFS");
+    add("input",      "Input",       -18.0f, 18.0f, 1.0f,   0.0f, "dB");
+    add("drive",      "Drive",         0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("glue",       "Glue",          0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("dynamics",   "Dynamics",      0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("lows",       "Lows",         -6.0f,   6.0f, 1.0f,  0.0f, "dB");
+    add("highs",      "Highs",        -6.0f,   6.0f, 1.0f,  0.0f, "dB");
+    add("sauce",      "Sauce",         0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("transients", "Transients",    0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("output",     "Output Trim", -18.0f, 12.0f, 1.0f,  0.0f, "dB");
+    add("ceiling",    "Ceiling Adjust", -3.0f, 3.0f, 1.0f, 0.0f, "step");
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"bypass", 1}, "Bypass", false));
     return layout;
@@ -95,7 +95,8 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.sauce = parameters.getRawParameterValue("sauce")->load(std::memory_order_relaxed) * 0.01;
     p.transients = parameters.getRawParameterValue("transients")->load(std::memory_order_relaxed) * 0.01;
     p.outputDb = parameters.getRawParameterValue("output")->load(std::memory_order_relaxed);
-    p.ceilingDb = parameters.getRawParameterValue("ceiling")->load(std::memory_order_relaxed);
+    p.ceilingDb = skelly::detail::ceilingOffsetToDb(
+        parameters.getRawParameterValue("ceiling")->load(std::memory_order_relaxed));
     p.bypass = parameters.getRawParameterValue("bypass")->load(std::memory_order_relaxed) >= 0.5f;
     engine.setParameters(p);
     engine.beginBlock();
@@ -167,13 +168,33 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 }
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
-    if (auto xml = parameters.copyState().createXml()) copyXmlToBinary(*xml, dest);
+    auto snapshot=parameters.copyState();
+    snapshot.setProperty("skellMasterStateVersion",2,nullptr);
+    if (auto xml=snapshot.createXml()) copyXmlToBinary(*xml,dest);
 }
 
 void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size) {
-    if (auto xml = getXmlFromBinary(data, size)) {
-        if (xml->hasTagName(parameters.state.getType()))
-            parameters.replaceState(juce::ValueTree::fromXml(*xml));
+    if (auto xml=getXmlFromBinary(data,size)) {
+        if (!xml->hasTagName(parameters.state.getType())) return;
+        auto snapshot=juce::ValueTree::fromXml(*xml);
+        if (!snapshot.isValid()) return;
+        // Version-one presets contain the actual -3..-0.1 dBFS ceiling.
+        // Migrate just that value to the new centred adjustment, retaining
+        // the exact effective threshold without changing any other setting.
+        if (static_cast<int>(snapshot.getProperty("skellMasterStateVersion",1))<2) {
+            for (int index=0;index<snapshot.getNumChildren();++index) {
+                auto child=snapshot.getChild(index);
+                if (child.getProperty("id").toString()=="ceiling") {
+                    const double previous=static_cast<double>(
+                        child.getProperty("value",-1.0));
+                    child.setProperty("value",
+                        skelly::detail::ceilingDbToOffset(previous),nullptr);
+                    break;
+                }
+            }
+        }
+        snapshot.setProperty("skellMasterStateVersion",2,nullptr);
+        parameters.replaceState(snapshot);
     }
 }
 
