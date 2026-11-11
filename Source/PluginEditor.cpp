@@ -296,6 +296,73 @@ SkellyMasterAudioProcessorEditor::~SkellyMasterAudioProcessorEditor() {
     setLookAndFeel(nullptr);
 }
 
+skellcore::ui::SkullSkin SkellyMasterAudioProcessorEditor::loadSkin() {
+    const auto file=juce::File::getSpecialLocation(
+        juce::File::userApplicationDataDirectory)
+        .getChildFile("SkellAudio").getChildFile("skellcore-skull-skin-v1.txt");
+    return file.existsAsFile()
+        ? skellcore::ui::skinFromIndex(file.loadFileAsString().trim().getIntValue())
+        : skellcore::ui::SkullSkin::Ossuary;
+}
+
+void SkellyMasterAudioProcessorEditor::saveSkin(skellcore::ui::SkullSkin selected) {
+    const auto file=juce::File::getSpecialLocation(
+        juce::File::userApplicationDataDirectory)
+        .getChildFile("SkellAudio").getChildFile("skellcore-skull-skin-v1.txt");
+    if(file.getParentDirectory().createDirectory().wasOk())
+        file.replaceWithText(juce::String(static_cast<int>(selected))+"\n");
+}
+
+void SkellyMasterAudioProcessorEditor::switchSkin() {
+    // Purely UI/message-thread, never DSP. No new audio parameter or preset.
+    skin=skellcore::ui::nextSkin(skin);
+    lookAndFeel.setSkin(skin);
+    saveSkin(skin);
+    staticBackdrop=juce::Image(); // forces a correctly recoloured cached image
+    repaint();
+}
+
+void SkellyMasterAudioProcessorEditor::recolourStaticBackdrop(
+        juce::Image& result) const {
+    if(skin==skellcore::ui::SkullSkin::Ossuary || !result.isValid()) return;
+    // SkellCore canonical palettes. Preserve physical texture luminance,
+    // but remap brass and green enamel into each skin. Runs only when the
+    // cached backdrop is regenerated after a theme change or resizing.
+    const auto p=skellcore::ui::skullPalette(skin);
+    juce::Image::BitmapData pixels(result,juce::Image::BitmapData::readWrite);
+    for(int y=0;y<pixels.height;++y)
+        for(int x=0;x<pixels.width;++x) {
+            const auto c=pixels.getPixelColour(x,y);
+            if(c.getAlpha()==0) continue;
+            const float r=c.getFloatRed(),gg=c.getFloatGreen(),
+                        b=c.getFloatBlue();
+            const float lum=0.23f*r+0.67f*gg+0.10f*b;
+            const bool warm=r>gg*1.05f && gg>b*1.07f && r>0.22f;
+            const bool green=gg>r*1.22f && gg>b*1.13f && gg>0.10f;
+            juce::Colour base=p.panel;
+            float brightness=1.0f;
+            if(warm) {
+                base=p.bone;
+                brightness=0.72f+0.40f*lum;
+            } else if(green) {
+                base=p.accent;
+                brightness=0.48f+0.65f*lum;
+            } else if(skin==skellcore::ui::SkullSkin::Ivory) {
+                base=p.panel;
+                // Reverse lightness for legible dark engraved iron edges.
+                brightness=juce::jlimit(0.20f,1.0f,1.05f-0.75f*lum);
+            } else {
+                base=p.panel;
+                brightness=0.36f+1.20f*lum;
+            }
+            pixels.setPixelColour(x,y,juce::Colour::fromFloatRGBA(
+                juce::jlimit(0.0f,1.0f,base.getFloatRed()*brightness),
+                juce::jlimit(0.0f,1.0f,base.getFloatGreen()*brightness),
+                juce::jlimit(0.0f,1.0f,base.getFloatBlue()*brightness),
+                c.getFloatAlpha()));
+        }
+}
+
 void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     for (const char* id : ids)
         if (auto* param = processor.parameters.getParameter(id)) {
