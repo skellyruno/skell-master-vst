@@ -100,9 +100,28 @@ int main(int argc, char** argv) {
             {"bypass_default", 702, 445, 0, 1, false},
             {"drive_selected", 702, 445, 0, 2, false},
             {"eq_selected", 702, 445, 0, 3, false},
-            {"mastering_active", 702, 445, 0, 4, false}
+            {"mastering_active", 702, 445, 0, 4, false},
+            {"theme_neon", 702, 445, 0, 5, false},
+            {"theme_ivory", 702, 445, 0, 6, false},
+            {"theme_obsidian", 702, 445, 0, 7, false}
         };
         options.configure = [&](const skellcore::ui::headless::Scene& scene) {
+            // The exact same real left-skull callback used in the plugin is
+            // exercised to capture and validate each shared SkellCore skin.
+            const auto target=scene.mode==5 ? skellcore::ui::SkullSkin::Neon
+                : scene.mode==6 ? skellcore::ui::SkullSkin::Ivory
+                : scene.mode==7 ? skellcore::ui::SkullSkin::Obsidian
+                : skellcore::ui::SkullSkin::Ossuary;
+            for(int step=0;step<4 && editor.selectedSkin()!=target;++step) {
+                for(int child=0;child<editor.getNumChildComponents();++child) {
+                    auto* c=editor.getChildComponent(child);
+                    if(c && c->getComponentID()=="skellcore-theme-skull") {
+                        if(auto* b=dynamic_cast<juce::Button*>(c))
+                            if(b->onClick) b->onClick();
+                        break;
+                    }
+                }
+            }
             resetValues(processor);
             switch (scene.mode) {
                 case 1:
@@ -139,7 +158,10 @@ int main(int argc, char** argv) {
             {"default_702", "bypass_default"},
             {"default_702", "drive_selected"},
             {"default_702", "eq_selected"},
-            {"default_702", "mastering_active"}
+            {"default_702", "mastering_active"},
+            {"default_702", "theme_neon"},
+            {"default_702", "theme_ivory"},
+            {"default_702", "theme_obsidian"}
         };
         const auto report = skellcore::ui::headless::render(editor, output, options);
         for (const auto& error : report.errors) {
@@ -155,7 +177,7 @@ int main(int argc, char** argv) {
         // Contact sheet composed only of actual captured PNG files.
         const std::array<juce::String, 6> selected {{
             "minimum_620", "default_702", "reference_1200",
-            "bypass_default", "drive_selected", "mastering_active"
+            "bypass_default", "drive_selected", "theme_neon"
         }};
         constexpr int cellW = 600, cellH = 400;
         juce::Image sheet(juce::Image::RGB, cellW * 3, cellH * 2, true);
