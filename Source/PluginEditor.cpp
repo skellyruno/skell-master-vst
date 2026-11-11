@@ -75,6 +75,20 @@ SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::SkellyLookAndFeel() {
     setColour(juce::TextButton::buttonColourId, panel);
     setColour(juce::TextButton::buttonOnColourId, hw::lacquer);
 }
+void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::setSkin(
+        skellcore::ui::SkullSkin selected) {
+    const auto p=skellcore::ui::skullPalette(selected);
+    setColour(juce::Slider::textBoxTextColourId,p.bone);
+    setColour(juce::Slider::textBoxOutlineColourId,p.line);
+    setColour(juce::Slider::textBoxBackgroundColourId,p.background);
+    setColour(juce::Slider::thumbColourId,
+              selected==skellcore::ui::SkullSkin::Ossuary ? hw::gold : p.accent);
+    setColour(juce::Label::textColourId,p.bone);
+    setColour(juce::TextButton::textColourOffId,p.bone);
+    setColour(juce::TextButton::textColourOnId,p.bone);
+    setColour(juce::TextButton::buttonColourId,p.panel);
+    setColour(juce::TextButton::buttonOnColourId,p.panelHi);
+}
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
     juce::Graphics& g, juce::Label& label) {
@@ -102,7 +116,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
     }
     if (!label.isBeingEdited()) {
         g.setFont(getLabelFont(label));
-        g.setColour(hw::gold);
+        g.setColour(findColour(juce::Label::textColourId));
         const int inset=r.getWidth()>75.0f?10:4;
         g.drawFittedText(label.getText(), label.getLocalBounds().reduced(inset,2),
                          label.getJustificationType(), 1);
@@ -152,7 +166,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonText(
     juce::Graphics& g, juce::TextButton& b, bool, bool) {
     font(g,juce::jlimit(10.0f,17.0f,static_cast<float>(b.getHeight())*0.42f),true);
-    g.setColour(b.getToggleState()?hw::gold:hw::parchment);
+    g.setColour(findColour(juce::TextButton::textColourOffId));
     g.drawFittedText(b.getButtonText(),b.getLocalBounds().reduced(12,3),
                      juce::Justification::centred,1);
 }
@@ -231,22 +245,29 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
 
 SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterAudioProcessor& p)
   : AudioProcessorEditor(&p), processor(p) {
+    skin=loadSkin();
+    lookAndFeel.setSkin(skin);
     setLookAndFeel(&lookAndFeel);
+    skullHitTarget.onClick=[this] { switchSkin(); };
+    addAndMakeVisible(skullHitTarget);
 
     for (int i = 0; i < knobCount; ++i) {
         auto& s = knobs[static_cast<size_t>(i)];
-        s.setComponentID(i >= 8 ? "utility" : "primary");
+        s.setComponentID(i==8 ? "utility-output" : i==9 ? "utility-ceiling" : "primary");
         s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         s.setTextBoxStyle(juce::Slider::TextBoxRight, false, i >= 8 ? 85 : 87, 27);
         s.setRotaryParameters(pi * 1.25f, pi * 2.75f, true);
         s.setMouseDragSensitivity(190);
         s.setVelocityBasedMode(false);
-        s.setDoubleClickReturnValue(true, i == 9 ? -1.0 : 0.0);
+        s.setDoubleClickReturnValue(true, 0.0);
+        s.setNumDecimalPlacesToDisplay(0);
         const bool db = i == 0 || i == 4 || i == 5 || i == 8 || i == 9;
-        s.setTextValueSuffix(db ? " dB" : " %");
+        s.setTextValueSuffix(i==9 ? "" : db ? " dB" : " %");
         const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : "PEAK CEILING");
-        s.setTooltip(juce::String(labels[i]) + " - " + sub +
-                     " | drag to adjust, double-click to reset, right-click for menu");
+        s.setTooltip(i==9
+            ? "CEILING ADJUST: 0 = -1 dBFS limiting; -3 = -3 dBFS, +3 = -0.1 dBFS. Drag, type, or double-click to reset."
+            : juce::String(labels[i]) + " - " + sub +
+              " | drag to adjust, double-click to reset, right-click for menu");
         addAndMakeVisible(s);
         attachments[static_cast<size_t>(i)] =
             std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -547,9 +568,6 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     static const juce::Image photoSkullLeft = juce::ImageFileFormat::loadFrom(
         BinaryData::logo_skull_header_left_png,
         static_cast<size_t>(BinaryData::logo_skull_header_left_pngSize));
-    static const juce::Image photoSkullRight = juce::ImageFileFormat::loadFrom(
-        BinaryData::logo_skull_header_right_png,
-        static_cast<size_t>(BinaryData::logo_skull_header_right_pngSize));
     g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
     if (photoHeader.isValid())
         g.drawImage(photoHeader,405.0f,7.0f,391.0f,73.0f,
@@ -579,13 +597,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     hw::divider(g,861,18,861,76);
     font(g,16,true);g.setColour(hw::gold);
     text(g,"PRECISION / POWER",885,27,191,28);
-   #if SKELLY_MASTER_HEADER_ASSETS
-    if (photoSkullRight.isValid())
-        g.drawImage(photoSkullRight,1080.0f,12.0f,79.0f,69.0f,
-                    0,0,photoSkullRight.getWidth(),photoSkullRight.getHeight());
-    else
-   #endif
-        skelly::ui::drawStarSkull(g,{1080,12,79,69},0.96f,hw::gold);
+    // The skull on the right was removed; left skull alone changes skin.
 
     // Engraved meter bridge with a separate stamped status panel.
     hw::plate(g,{37,94,1126,200},false,0x33c8a7u,12.0f,0.72f);
@@ -646,9 +658,8 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     font(g,16,true);g.setColour(hw::gold);
     text(g,"M-01",1125,705,41,24);
 
-    // Twin heavy industrial rack handles, specular aged metal, permanent.
-    hw::handle(g,15.0f,173.0f,537.0f);
-    hw::handle(g,1185.0f,173.0f,537.0f);
+    // Clean uninterrupted rack edges: removable side handles intentionally
+    // omitted at the user's request. Keep the two corner mounting screws.
     for(float x : {25.0f,1176.0f})
        hw::screw(g,x,24.0f,0.75f);
 }
@@ -676,6 +687,7 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
                 static_cast<float>(rasterH) / designH));
             paintStatic(cached);
         }
+        recolourStaticBackdrop(updated); // one-time UI-thread remap per skin/size
         staticBackdrop = std::move(updated);
     }
     g.drawImage(staticBackdrop, 0, 0, designW, designH,
@@ -720,4 +732,5 @@ void SkellyMasterAudioProcessorEditor::resized() {
     place(reset,418,701,115,37);
     place(knobs[8],647,685,199,68);
     place(knobs[9],929,685,181,68);
+    place(skullHitTarget,57,10,82,72);
 }
