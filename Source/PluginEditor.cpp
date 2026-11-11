@@ -248,6 +248,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     skin=loadSkin();
     lookAndFeel.setSkin(skin);
     setLookAndFeel(&lookAndFeel);
+    skullHitTarget.setComponentID("skellcore-theme-skull");
     skullHitTarget.onClick=[this] { switchSkin(); };
     addAndMakeVisible(skullHitTarget);
 
