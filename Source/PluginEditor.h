@@ -1,11 +1,11 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include <SkellCore/SkullTheme.h>
 #include <array>
 #include <memory>
 
-// All visual elements are original JUCE vector artwork.
-// The established APVTS IDs and DSP path remain unchanged.
+// Live UI is JUCE and SkellCore; static artwork remains isolated from audio.
 class SkellyMasterAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                 private juce::Timer {
 public:
@@ -18,6 +18,7 @@ private:
     class SkellyLookAndFeel final : public juce::LookAndFeel_V4 {
     public:
         SkellyLookAndFeel();
+        void setSkin(skellcore::ui::SkullSkin selected);
         void drawRotarySlider(juce::Graphics&, int, int, int, int, float,
                               float, float, juce::Slider&) override;
         void drawButtonBackground(juce::Graphics&, juce::Button&, const juce::Colour&,
@@ -34,6 +35,22 @@ private:
     void drawReduction(juce::Graphics&) const;
     void drawScrew(juce::Graphics&, float, float) const;
     void resetToDefaults();
+    void switchSkin();
+    void recolourStaticBackdrop(juce::Image&) const;
+    static skellcore::ui::SkullSkin loadSkin();
+    static void saveSkin(skellcore::ui::SkullSkin selected);
+
+    // Invisible hit target: only the left artwork is clickable.
+    class SkullHitTarget final : public juce::Button {
+    public:
+        SkullHitTarget() : juce::Button("SkellCore theme skull") {
+            setMouseCursor(juce::MouseCursor::PointingHandCursor);
+            setTooltip("Change SKELL theme (SkellCore)");
+        }
+        void paintButton(juce::Graphics&, bool, bool) override {}
+    };
+    SkullHitTarget skullHitTarget;
+    skellcore::ui::SkullSkin skin = skellcore::ui::SkullSkin::Ossuary;
 
     SkellyMasterAudioProcessor& processor;
     static constexpr int designW = 1200, designH = 760;
