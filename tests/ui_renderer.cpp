@@ -79,6 +79,9 @@ juce::StringArray inspect(SkellyMasterAudioProcessorEditor& editor) {
 
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI juceGui;
+    bool quick = true;
+    for (int i=1;i<argc;++i)
+        if (juce::String(argv[i]) == "--full") quick=false;
     const juce::String requested = argc > 2 && juce::String(argv[1]) == "--output"
         ? juce::String::fromUTF8(argv[2]) : juce::String("ui-screenshots");
     const juce::File output = juce::File::getCurrentWorkingDirectory().getChildFile(requested);
@@ -91,7 +94,12 @@ int main(int argc, char** argv) {
         options.project = "Skelly Master Hardware Edition - real JUCE processor/editor";
         options.minimumColours = 12;
         // One existing hardware theme/page, plus bypass and automated values.
-        options.scenes = {
+        options.scenes = quick ? std::vector<skellcore::ui::headless::Scene>{
+            {"reference_1200", 1200, 760, 0, 0, false},
+            {"preset_selected", 702, 445, 0, 8, false},
+            {"mastering_active", 702, 445, 0, 4, false},
+            {"theme_neon", 702, 445, 0, 5, false}
+        } : std::vector<skellcore::ui::headless::Scene>{
             {"minimum_620", 620, 393, 0, 0, false},
             {"default_702", 702, 445, 0, 0, false},
             {"medium_960", 960, 608, 0, 0, false},
@@ -153,9 +161,21 @@ int main(int argc, char** argv) {
                     break;
             }
             synchronizeControls(editor, processor);
+            if (scene.mode==8)
+                for (int child=0;child<editor.getNumChildComponents();++child)
+                    if (auto* combo=dynamic_cast<juce::ComboBox*>(editor.getChildComponent(child)))
+                        if(combo->getComponentID()=="skell-master-preset") {
+                            combo->setSelectedId(2,juce::sendNotificationSync);
+                            synchronizeControls(editor,processor);
+                        }
         };
         options.inspect = [&] { return inspect(editor); };
-        options.mustDiffer = {
+        options.mustDiffer = quick
+            ? std::vector<std::pair<juce::String,juce::String>>{
+                {"preset_selected", "mastering_active"},
+                {"preset_selected", "theme_neon"}
+              }
+            : std::vector<std::pair<juce::String,juce::String>>{
             {"default_702", "bypass_default"},
             {"default_702", "drive_selected"},
             {"default_702", "eq_selected"},
@@ -176,12 +196,14 @@ int main(int argc, char** argv) {
         }
 
         // Contact sheet composed only of actual captured PNG files.
-        const std::array<juce::String, 6> selected {{
-            "minimum_620", "default_702", "reference_1200",
-            "bypass_default", "drive_selected", "theme_neon"
-        }};
+        const std::vector<juce::String> selected = quick
+            ? std::vector<juce::String>{"reference_1200", "preset_selected",
+                                        "mastering_active", "theme_neon"}
+            : std::vector<juce::String>{"minimum_620", "default_702", "reference_1200",
+                                        "bypass_default", "drive_selected", "theme_neon"};
         constexpr int cellW = 600, cellH = 400;
-        juce::Image sheet(juce::Image::RGB, cellW * 3, cellH * 2, true);
+        const int columns = quick ? 2 : 3;
+        juce::Image sheet(juce::Image::RGB, cellW * columns, cellH * 2, true);
         {
             juce::Graphics g(sheet);
             g.fillAll(juce::Colour(0xff111814));
@@ -192,8 +214,8 @@ int main(int argc, char** argv) {
                     ++failures;
                     continue;
                 }
-                const int x = (index % 3)*cellW;
-                const int y = (index / 3)*cellH;
+                const int x = (index % columns)*cellW;
+                const int y = (index / columns)*cellH;
                 g.setColour(juce::Colours::white);
                 g.setFont(juce::Font(juce::FontOptions(18.0f).withStyle("Bold")));
                 g.drawText(selected[static_cast<size_t>(index)].replaceCharacter('_', ' '),
