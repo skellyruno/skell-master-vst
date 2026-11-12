@@ -41,6 +41,29 @@ int main() {
             "previous saved limiter threshold is preserved");
     std::cout << "PASS: centred ceiling map and preset migration\n";
 
+    // The new clip amount is a genuine 4x audio process; zero retains
+    // all earlier sessions' transparent limiting behavior by default.
+    require(MasterParameters{}.clipper == 0.0, "legacy clipper default must be zero");
+    MasteringEngine referenceEngine, clipperEngine;
+    referenceEngine.prepare(rate, 2, lookahead);
+    clipperEngine.prepare(rate, 2, lookahead);
+    MasterParameters neutral, clipped;
+    clipped.clipper = 1.0;
+    referenceEngine.setParameters(neutral);
+    clipperEngine.setParameters(clipped);
+    double changed = 0.0;
+    for(int i=0;i<16000;++i) {
+        const float signal=static_cast<float>(1.45*std::sin(2.0*detail::pi*820.0*i/rate));
+        const auto a=referenceEngine.processFrame(signal,signal*.81f);
+        const auto b=clipperEngine.processFrame(signal,signal*.81f);
+        require(std::isfinite(b.left) && std::isfinite(b.right), "clipper output non-finite");
+        require(std::abs(b.left)<1.0f && std::abs(b.right)<1.0f,
+                "clipper must preserve output sample peak ceiling");
+        if(i>8000) changed+=std::abs(a.left-b.left);
+    }
+    require(changed>2.0, "clipper must measurably change driven audio");
+    std::cout << "PASS: 4x soft clipping, neutral default, ceiling safety\n";
+
     // Invalid input must be isolated at the boundary; no persistent poisoning.
     const auto NaN = std::numeric_limits<float>::quiet_NaN();
     const auto Inf = std::numeric_limits<float>::infinity();
