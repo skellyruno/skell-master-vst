@@ -132,6 +132,12 @@ int main(int argc, char** argv) {
                 }
             }
             resetValues(processor);
+            // A new scene must never inherit the prior scene's preset label.
+            // Reset the UI selection without changing freshly reset DSP values.
+            for(int child=0;child<editor.getNumChildComponents();++child)
+                if(auto* combo=dynamic_cast<juce::ComboBox*>(editor.getChildComponent(child)))
+                    if(combo->getComponentID()=="skell-master-preset")
+                        combo->setSelectedId(1,juce::dontSendNotification);
             switch (scene.mode) {
                 case 1:
                     setValue(processor, "bypass", 1.0f);
