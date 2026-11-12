@@ -57,12 +57,15 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
                       + lookaheadSamples / oversamplingFactor);
     safetyGuard.prepare(sampleRate);
     truePeakMonitor.reset();
+    loudnessMonitor.prepare(sampleRate,activeChannels);
     peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
+    momentaryLufs.store(-100.0f); shortTermLufs.store(-100.0f);
 }
 
 void SkellyMasterAudioProcessor::releaseResources() {
     safetyGuard.reset();
     truePeakMonitor.reset();
+    loudnessMonitor.reset();
     oversampler.reset();
     setLatencySamples(0);
 }
@@ -72,7 +75,9 @@ void SkellyMasterAudioProcessor::reset() {
     engine.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
+    loudnessMonitor.reset();
     peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
+    momentaryLufs.store(-100.0f); shortTermLufs.store(-100.0f);
 }
 
 void SkellyMasterAudioProcessor::atomicMax(std::atomic<float>& dest, float next) noexcept {
@@ -158,10 +163,13 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         maximumL = juce::jmax(maximumL, std::abs(readL[i]));
         maximumR = juce::jmax(maximumR, std::abs(readR[i]));
         maximumTP = juce::jmax(maximumTP, truePeakMonitor.process(readL[i], readR[i]));
+        loudnessMonitor.process(readL[i], readR[i]);
     }
     atomicMax(peakLeft, maximumL);
     atomicMax(peakRight, maximumR);
     atomicMax(truePeak, maximumTP);
+    momentaryLufs.store(static_cast<float>(loudnessMonitor.momentaryLufs()),std::memory_order_relaxed);
+    shortTermLufs.store(static_cast<float>(loudnessMonitor.shortTermLufs()),std::memory_order_relaxed);
     // Report the strongest gain reduction actually applied, including the
     // final safety stage after the JUCE downsampler.
     const float postReductionDb = static_cast<float>(
