@@ -20,11 +20,11 @@ const juce::Colour readoutWhite(0xfffaf9f6);
 
 constexpr const char* labels[10] = {
     "INPUT", "DRIVE", "GLUE", "DYNAMICS", "LOWS", "HIGHS",
-    "SAUCE", "TRANSIENTS", "OUTPUT", "CEILING"
+    "SAUCE", "TRANSIENTS", "OUTPUT", "CEILING", "LIMIT / CLIP"
 };
 constexpr const char* ids[10] = {
     "input", "drive", "glue", "dynamics", "lows", "highs",
-    "sauce", "transients", "output", "ceiling"
+    "sauce", "transients", "output", "ceiling", "clipper"
 };
 constexpr const char* subtitles[8] = {
     "GAIN STAGE", "HARMONIC DRIVE", "BUS COMPRESSION", "LEVEL CONTROL",
@@ -397,7 +397,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
 
     for (int i = 0; i < knobCount; ++i) {
         auto& s = knobs[static_cast<size_t>(i)];
-        s.setComponentID(i==8 ? "utility-output" : i==9 ? "utility-ceiling" : "primary");
+        s.setComponentID(i==8 ? "utility-output" : i==9 ? "utility-ceiling" : i==10 ? "utility-clipper" : "primary");
         s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         s.setTextBoxStyle(juce::Slider::TextBoxRight, false, i >= 8 ? 85 : 87, 27);
         s.setRotaryParameters(pi * 1.25f, pi * 2.75f, true);
@@ -407,9 +407,10 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         s.setNumDecimalPlacesToDisplay(0);
         const bool db = i == 0 || i == 4 || i == 5 || i == 8 || i == 9;
         s.setTextValueSuffix(i==9 ? "" : db ? " dB" : " %");
-        const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : "PEAK CEILING");
-        s.setTooltip(i==9
+        const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "SOFT CLIP AMOUNT");
+         s.setTooltip(i==9
             ? "CEILING ADJUST: 0 = -1 dBFS limiting; -3 = -3 dBFS, +3 = -0.1 dBFS. Drag, type, or double-click to reset."
+            : i==10 ? "LIMIT / CLIP: 0% = original transparent limiter, 100% = strongest soft clipping before the safety limiter."
             : juce::String(labels[i]) + " - " + sub +
               " | drag to adjust, double-click to reset, right-click for menu");
         addAndMakeVisible(s);
@@ -425,6 +426,17 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     reset.setTooltip("Restore the default values of all mastering controls");
     reset.onClick = [this] { resetToDefaults(); };
     addAndMakeVisible(reset);
+
+    const char* quickDescriptions[3] = {
+        "CLEAN: return tone-shaping controls to neutral (output and ceiling unchanged)",
+        "WARM: gentle harmonics, low-shelf warmth and smooth glue",
+        "PUNCH: modest transient lift and energetic bus compression"
+    };
+    for(int i=0;i<3;++i) {
+        quickTone[static_cast<size_t>(i)].setTooltip(quickDescriptions[i]);
+        quickTone[static_cast<size_t>(i)].onClick=[this,i] { applyQuickTone(i); };
+        addAndMakeVisible(quickTone[static_cast<size_t>(i)]);
+    }
 
     setResizable(true, true);
     setResizeLimits(620, 393, 1800, 1140);
@@ -518,6 +530,26 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
         param->beginChangeGesture();
         param->setValueNotifyingHost(param->getDefaultValue());
         param->endChangeGesture();
+    }
+}
+
+void SkellyMasterAudioProcessorEditor::applyQuickTone(int tone) {
+    // Three honest quick-start macro presets, not fake DSP modes.
+    // Keep output, ceiling, bypass and saved state intact; automate existing
+    // parameter IDs so hosts see every user-initiated change.
+    static constexpr float tones[3][8] = {
+        {0, 0, 0, 0, 0, 0, 0, 0},
+        {0, 16, 22, 10, 1, 0, 12, 0},
+        {0, 7, 28, 13, 0, 1, 8, 27}
+    };
+    if(tone < 0 || tone >= 3) return;
+    for(int i=0;i<8;++i) {
+        if(auto* p=processor.parameters.getParameter(ids[i])) {
+            const auto normalized=p->convertTo0to1(tones[tone][i]);
+            p->beginChangeGesture();
+            p->setValueNotifyingHost(normalized);
+            p->endChangeGesture();
+        }
     }
 }
 
@@ -836,9 +868,8 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     font(g,14,true);g.setColour(hw::parchment);
     text(g,"STEREO MASTERING SUITE  /  M-01",422,53,359,22);
     hw::divider(g,861,18,861,76);
-    font(g,16,true);g.setColour(hw::gold);
-    text(g,"PRECISION / POWER",907,27,239,28,
-         juce::Justification::centredRight);
+    // BYPASS and RESET are real interactive controls in the header.
+    // No baked labels or permanent graphics beneath their hitboxes.
     // The skull on the right was removed; left skull alone changes skin.
 
     // Engraved meter bridge with a separate stamped status panel.
@@ -850,11 +881,12 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     text(g,"SKELLY MASTER",65,125,182,26);
     font(g,12,true);g.setColour(hw::parchment);
     text(g,"PRECISION MASTER BUS / M-01",61,154,189,20);
-    hw::divider(g,83,182,225,182);
-    font(g,15,true);g.setColour(hw::parchment);
-    text(g,"4X OVERSAMPLING",65,191,188,19);
-    text(g,"STEREO-LINKED DSP",65,213,188,19);
-    text(g,"LOOKAHEAD LIMITING",65,235,188,19);
+    font(g,11,true);g.setColour(hw::parchment);
+    text(g,"4x OS  /  STEREO LINK  /  LIMIT",60,175,190,15);
+    hw::divider(g,63,191,247,191);
+    font(g,13,true);g.setColour(hw::gold);
+    text(g,"QUICK TONE",65,193,178,18);
+    // CLEAN, WARM and PUNCH are actual parameter macros below.
     g.setColour(juce::Colour(0xff123b1d));
     g.fillEllipse(82,259,13,13);
     g.setColour(hw::phosphor);
@@ -894,6 +926,8 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     text(g,"// MASTER BUS",48,696,205,25,juce::Justification::centredLeft);
     font(g,14,true);g.setColour(hw::parchment);
     text(g,"TONE IS EVERYTHING",66,724,184,18,juce::Justification::centredLeft);
+    font(g,14,true);g.setColour(hw::gold);
+    text(g,"LIMIT / CLIP",280,710,104,21,juce::Justification::centredLeft);
     font(g,15,true);g.setColour(hw::gold);
     text(g,"OUTPUT",566,710,84,21,juce::Justification::centredLeft);
     text(g,"CEILING",852,710,88,21,juce::Justification::centredLeft);
@@ -970,8 +1004,11 @@ void SkellyMasterAudioProcessorEditor::resized() {
         const int rowY=row==0?315:485;
         place(knobs[static_cast<size_t>(i)],cellX+15,rowY+5,247,118);
     }
-    place(bypass,289,701,115,37);
-    place(reset,418,701,115,37);
+    place(bypass,887,29,125,38);
+    place(reset,1024,29,126,38);
+    place(knobs[10],371,685,178,68);
+    for(int i=0;i<3;++i)
+        place(quickTone[static_cast<size_t>(i)],64+i*61,216,57,29);
     place(knobs[8],647,685,199,68);
     place(knobs[9],929,685,181,68);
     place(skullHitTarget,57,10,82,72);
