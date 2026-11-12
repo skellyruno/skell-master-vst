@@ -222,6 +222,50 @@ int main() {
             }
         }
         check(input && bypass && reset, "cannot locate UI controls");
+
+        // A true hardware rotary has a motionless bezel, barrel, lighting
+        // and machined scale. Render the REAL editor at three knob positions
+        // and require all pixels outside the moving pointer area to match.
+        editor.setSize(1200,760);
+        const int rotaryWidth=input->getWidth()-95; // 1200-design textbox
+        const float knobCx=static_cast<float>(input->getX())+rotaryWidth*0.5f;
+        const float knobCy=static_cast<float>(input->getY())+input->getHeight()*0.5f;
+        const float knobRadius=juce::jmin(static_cast<float>(rotaryWidth),
+                                         static_cast<float>(input->getHeight()))*0.431f;
+        const auto renderPosition=[&](double value) {
+            input->setValue(value,juce::sendNotificationSync);
+            juce::Image screenshot(juce::Image::ARGB,1200,760,true);
+            {
+                juce::Graphics g(screenshot);
+                paintDetachedTree(editor,g);
+            }
+            return screenshot;
+        };
+        const auto lowKnob=renderPosition(-18.0);
+        const auto zeroKnob=renderPosition(0.0);
+        const auto highKnob=renderPosition(18.0);
+        int movingPointerPixels=0, fixedRingPixels=0;
+        for(int y=juce::roundToInt(knobCy-knobRadius);
+                y<juce::roundToInt(knobCy+knobRadius);++y)
+            for(int x=juce::roundToInt(knobCx-knobRadius);
+                    x<juce::roundToInt(knobCx+knobRadius);++x) {
+                const float dx=x+0.5f-knobCx,dy=y+0.5f-knobCy;
+                const float radial=std::sqrt(dx*dx+dy*dy)/knobRadius;
+                const auto a=lowKnob.getPixelAt(x,y).getARGB();
+                const auto b=zeroKnob.getPixelAt(x,y).getARGB();
+                const auto c=highKnob.getPixelAt(x,y).getARGB();
+                if(radial>=0.72f && radial<=0.88f) {
+                    ++fixedRingPixels;
+                    check(a==b && b==c,
+                          "machined knob bezel/knurl/lighting moved during rotation");
+                }
+                if(radial>=0.20f && radial<=0.62f && (a!=b || b!=c))
+                    ++movingPointerPixels;
+            }
+        check(fixedRingPixels>100 && movingPointerPixels>20,
+              "rotary pointer did not move independently of the fixed metal");
+        std::cout << "PASS: physical knob ring stationary; ivory pointer moves at min/zero/max\n";
+
         input->setValue(4.0, juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("input")->load()-4.0f)<.12f,
               "input slider automation attachment failed");
