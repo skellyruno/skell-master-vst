@@ -56,11 +56,13 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
                       + lookaheadSamples / oversamplingFactor);
     safetyGuard.prepare(sampleRate);
-    peakLeft.store(0); peakRight.store(0); reduction.store(0);
+    truePeakMonitor.reset();
+    peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
 }
 
 void SkellyMasterAudioProcessor::releaseResources() {
     safetyGuard.reset();
+    truePeakMonitor.reset();
     oversampler.reset();
     setLatencySamples(0);
 }
@@ -69,7 +71,8 @@ void SkellyMasterAudioProcessor::reset() {
     if (oversampler) oversampler->reset();
     engine.reset();
     safetyGuard.reset();
-    peakLeft.store(0); peakRight.store(0); reduction.store(0);
+    truePeakMonitor.reset();
+    peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
 }
 
 void SkellyMasterAudioProcessor::atomicMax(std::atomic<float>& dest, float next) noexcept {
@@ -148,15 +151,17 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         // Bypass must be unmodified, apart from the existing aligned delay.
         safetyGuard.reset();
     }
-    float maximumL = 0.0f, maximumR = 0.0f;
+    float maximumL = 0.0f, maximumR = 0.0f, maximumTP = 0.0f;
     const auto* readL = buffer.getReadPointer(0);
     const auto* readR = channels == 2 ? buffer.getReadPointer(1) : readL;
     for (int i = 0; i < samples; ++i) {
         maximumL = juce::jmax(maximumL, std::abs(readL[i]));
         maximumR = juce::jmax(maximumR, std::abs(readR[i]));
+        maximumTP = juce::jmax(maximumTP, truePeakMonitor.process(readL[i], readR[i]));
     }
     atomicMax(peakLeft, maximumL);
     atomicMax(peakRight, maximumR);
+    atomicMax(truePeak, maximumTP);
     // Report the strongest gain reduction actually applied, including the
     // final safety stage after the JUCE downsampler.
     const float postReductionDb = static_cast<float>(
