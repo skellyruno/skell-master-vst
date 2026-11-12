@@ -64,21 +64,60 @@ inline void patina(juce::Graphics& g, juce::Rectangle<float> area, uint32_t seed
     }
 }
 
+// Three-dimensional countersunk slotted fastener. The deeper black socket,
+// offset cast shadow and directional polished edge remain legible at 60% scale.
 inline void screw(juce::Graphics& g, float x, float y, float scale=1.0f) {
-    juce::Graphics::ScopedSaveState save(g);
+    juce::Graphics::ScopedSaveState saved(g);
     g.addTransform(juce::AffineTransform::scale(scale,scale,x,y));
-    g.setColour(juce::Colours::black.withAlpha(0.85f));
-    g.fillEllipse(x-7.7f,y-7.0f,15.4f,15.4f);
-    juce::ColourGradient rim(juce::Colour(0xfff4d99d),x-5.3f,y-5.3f,
-                             juce::Colour(0xff4c321d),x+6.0f,y+6.0f,false);
-    rim.addColour(0.46,juce::Colour(0xff90704a));
-    g.setGradientFill(rim);
-    g.fillEllipse(x-5.7f,y-5.7f,11.4f,11.4f);
-    g.setColour(juce::Colour(0xff20180e));
-    g.drawEllipse(x-4.5f,y-4.5f,9.0f,9.0f,0.8f);
-    g.drawLine(x-2.5f,y+2.2f,x+2.5f,y-2.2f,1.8f);
-    g.setColour(juce::Colour(0xffe9c47c).withAlpha(0.55f));
-    g.drawLine(x-2.2f,y+1.2f,x+1.9f,y-2.6f,0.65f);
+    g.setColour(juce::Colours::black.withAlpha(0.77f));
+    g.fillEllipse(x-7.8f,y-6.6f,15.6f,15.6f);
+    juce::ColourGradient countersink(juce::Colour(0xff100d0a),x-7,y-7,
+                                      juce::Colour(0xff9d7f55),x+6,y+6,false);
+    countersink.addColour(0.64,juce::Colour(0xff282118));
+    g.setGradientFill(countersink);
+    g.fillEllipse(x-6.8f,y-6.8f,13.6f,13.6f);
+    juce::ColourGradient head(juce::Colour(0xffffe5b7),x-5.5f,y-5.2f,
+                               juce::Colour(0xff43301b),x+5.2f,y+5.6f,false);
+    head.addColour(0.22,juce::Colour(0xffc5a36f));
+    head.addColour(0.67,juce::Colour(0xff745a38));
+    g.setGradientFill(head);
+    g.fillEllipse(x-5.0f,y-5.1f,10.0f,10.0f);
+    g.setColour(juce::Colour(0xff100d08).withAlpha(0.84f));
+    g.drawEllipse(x-4.7f,y-4.7f,9.4f,9.4f,0.75f);
+    // Machined slot, with a tiny specular edge on the raised screw head.
+    g.setColour(juce::Colour(0xff21170f));
+    g.drawLine(x-2.85f,y+2.05f,x+2.85f,y-2.05f,2.05f);
+    g.setColour(juce::Colour(0xffe7c48b).withAlpha(0.77f));
+    g.drawLine(x-2.9f,y+1.20f,x+2.30f,y-2.52f,0.70f);
+    g.setColour(juce::Colours::white.withAlpha(0.24f));
+    g.drawEllipse(x-3.7f,y-3.9f,7.5f,7.5f,0.55f);
+}
+
+// Recessed glossy hardware display housing. Draw before its live text or
+// LEDs, so reflections never obscure meter values or simulate activity.
+inline void glassWindow(juce::Graphics& g, juce::Rectangle<float> r,
+                        float radius=6.0f) {
+    g.setColour(juce::Colours::black.withAlpha(0.83f));
+    g.fillRoundedRectangle(r.translated(0,1.9f),radius);
+    juce::ColourGradient bezel(juce::Colour(0xffb89862),r.getX(),r.getY(),
+                                juce::Colour(0xff332617),r.getRight(),r.getBottom(),false);
+    bezel.addColour(0.52,juce::Colour(0xff5b472c));
+    g.setGradientFill(bezel);
+    g.fillRoundedRectangle(r,radius);
+    const auto well=r.reduced(2.2f);
+    g.setColour(juce::Colour(0xff020503));
+    g.fillRoundedRectangle(well,juce::jmax(1.0f,radius-1.5f));
+    juce::ColourGradient glass(juce::Colour(0xff1c251e),well.getX(),well.getY(),
+                                juce::Colour(0xff020302),well.getRight(),well.getBottom(),false);
+    glass.addColour(0.38,juce::Colour(0xff090c09));
+    g.setGradientFill(glass);
+    g.fillRoundedRectangle(well.reduced(1.1f),juce::jmax(1.0f,radius-2.5f));
+    g.setColour(juce::Colours::white.withAlpha(0.13f));
+    g.drawLine(well.getX()+5.0f,well.getY()+2.1f,
+               well.getRight()-5.0f,well.getY()+2.1f,0.8f);
+    g.setColour(juce::Colours::black.withAlpha(0.49f));
+    g.drawLine(well.getX()+4.0f,well.getBottom()-2.0f,
+               well.getRight()-4.0f,well.getBottom()-2.0f,1.0f);
 }
 
 // Heavy aged iron surround; emerald=true replaces red enamel on reference.
