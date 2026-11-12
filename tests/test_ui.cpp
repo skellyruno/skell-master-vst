@@ -123,7 +123,7 @@ int main() {
         // Every *fresh* control starts at displayed zero. Old projects still
         // restore their saved user settings rather than resetting on open.
         for (const auto* id : {"input","drive","glue","dynamics","lows",
-                               "highs","sauce","transients","output","ceiling"}) {
+                               "highs","sauce","transients","output","ceiling","clipper"}) {
             auto* param=processor.parameters.getParameter(id);
             check(param!=nullptr,"missing mastering parameter");
             check(std::abs(param->convertFrom0to1(param->getDefaultValue()))<0.0001f,
@@ -166,7 +166,7 @@ int main() {
                     ++buttonCount; interactive.push_back(box);
                 }
             }
-            check(sliderCount==10 && buttonCount==2, "missing mastering controls");
+            check(sliderCount==11 && buttonCount==5, "missing mastering controls or quick-tone buttons");
             for (size_t i=0;i<interactive.size();++i)
                 for (size_t j=i+1;j<interactive.size();++j)
                     check(!interactive[i].intersects(interactive[j]),
@@ -209,19 +209,25 @@ int main() {
         }
 
         juce::Slider* input=nullptr;
+        juce::Slider* clipper=nullptr;
+        juce::TextButton* warm=nullptr;
+        juce::TextButton* punch=nullptr;
         juce::TextButton* bypass=nullptr;
         juce::TextButton* reset=nullptr;
         for (int i=0;i<editor.getNumChildComponents();++i) {
             auto* component=editor.getChildComponent(i);
             if (auto* slider=dynamic_cast<juce::Slider*>(component)) {
                 if (slider->getTooltip().startsWith("INPUT -")) input=slider;
+                if (slider->getComponentID()=="utility-clipper") clipper=slider;
             }
             if (auto* button=dynamic_cast<juce::TextButton*>(component)) {
                 if (button->getButtonText()=="BYPASS") bypass=button;
                 if (button->getButtonText()=="RESET") reset=button;
+                if (button->getButtonText()=="WARM") warm=button;
+                if (button->getButtonText()=="PUNCH") punch=button;
             }
         }
-        check(input && bypass && reset, "cannot locate UI controls");
+        check(input && bypass && reset && clipper && warm && punch, "cannot locate new controls");
 
         // A true hardware rotary has a motionless bezel, barrel, lighting
         // and machined scale. Render the REAL editor at three knob positions
@@ -266,6 +272,15 @@ int main() {
               "rotary pointer did not move independently of the fixed metal");
         std::cout << "PASS: physical knob ring stationary; ivory pointer moves at min/zero/max\n";
 
+        warm->onClick();
+        check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-16.0f)<.12f,
+              "WARM macro must automate drive");
+        punch->onClick();
+        check(std::abs(processor.parameters.getRawParameterValue("transients")->load()-27.0f)<.12f,
+              "PUNCH macro must automate transients");
+        clipper->setValue(43.0,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-43.0f)<.12f,
+              "clipper knob must automate real DSP parameter");
         input->setValue(4.0, juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("input")->load()-4.0f)<.12f,
               "input slider automation attachment failed");
@@ -278,7 +293,9 @@ int main() {
               "reset did not restore input default");
         check(processor.parameters.getRawParameterValue("bypass")->load()<.5f,
               "reset did not restore bypass default");
-        std::cout << "PASS: input slider, bypass, reset and automation bindings\n";
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f,
+              "reset did not restore clipper default");
+        std::cout << "PASS: presets, clipper, bypass, reset and automation bindings\n";
 
         // Host-like audio checks exercise the actual JUCE wrapper + 4x resampler.
         for (const int sampleRate : {44100, 48000, 96000}) {
