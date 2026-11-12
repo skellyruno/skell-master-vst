@@ -112,7 +112,29 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
             g.fillRoundedRectangle(r.reduced(6.0f),juce::jmax(0.0f,radius-4.0f));
         }
     }
-    patina(g,r.reduced(2.2f),seed,wear);
+    // The raised frame sits above a recessed enamel well. Broad, fixed
+    // directional light and a tight bottom-right contact shadow create metal
+    // depth without introducing any more scratches or random dirt.
+    patina(g,r.reduced(2.2f),seed,wear*0.72f);
+    {
+        juce::Graphics::ScopedSaveState lightScope(g);
+        const auto well=r.reduced(7.4f);
+        g.reduceClipRegion(well.toNearestInt());
+        juce::ColourGradient grazingLight(
+            juce::Colours::white.withAlpha(green?0.085f:0.055f),
+            well.getX(),well.getY(),
+            juce::Colours::white.withAlpha(0.0f),
+            well.getX()+well.getWidth()*0.55f,
+            well.getY()+well.getHeight()*0.68f,false);
+        g.setGradientFill(grazingLight);
+        g.fillRect(well);
+    }
+    g.setColour(juce::Colours::black.withAlpha(0.56f));
+    g.drawRoundedRectangle(r.reduced(6.9f),
+                           juce::jmax(0.0f,radius-5.0f),1.45f);
+    g.setColour(juce::Colour(0xffe1c99b).withAlpha(green?0.15f:0.10f));
+    g.drawLine(r.getX()+radius+8.0f,r.getY()+6.9f,
+               r.getRight()-radius-8.0f,r.getY()+6.9f,0.82f);
     // Gloss remains inside the painted plate. The black rack body and the
     // emerald enamel are not merged into the same green surface.
     if (green) {
