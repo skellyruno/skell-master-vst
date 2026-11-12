@@ -28,6 +28,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SkellyMasterAudioProcessor::
     add("transients", "Transients",    0.0f, 100.0f, 1.0f,  0.0f, "%");
     add("output",     "Output Trim", -18.0f, 12.0f, 1.0f,  0.0f, "dB");
     add("ceiling",    "Ceiling Adjust", -3.0f, 3.0f, 1.0f, 0.0f, "step");
+    add("clipper",    "Limiter / Clipper", 0.0f, 100.0f, 1.0f, 0.0f, "%");
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"bypass", 1}, "Bypass", false));
     return layout;
@@ -95,6 +96,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.sauce = parameters.getRawParameterValue("sauce")->load(std::memory_order_relaxed) * 0.01;
     p.transients = parameters.getRawParameterValue("transients")->load(std::memory_order_relaxed) * 0.01;
     p.outputDb = parameters.getRawParameterValue("output")->load(std::memory_order_relaxed);
+    p.clipper = parameters.getRawParameterValue("clipper")->load(std::memory_order_relaxed)*0.01;
     p.ceilingDb = skelly::detail::ceilingOffsetToDb(
         parameters.getRawParameterValue("ceiling")->load(std::memory_order_relaxed));
     p.bypass = parameters.getRawParameterValue("bypass")->load(std::memory_order_relaxed) >= 0.5f;
