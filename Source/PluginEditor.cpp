@@ -107,6 +107,13 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
         g.fillRoundedRectangle(r.reduced(2.1f),3.1f);
         g.setColour(p.accent.withAlpha(0.60f));
         g.drawRoundedRectangle(r.reduced(1.0f),3.8f,0.95f);
+        g.setColour(juce::Colours::white.withAlpha(0.11f));
+        g.drawLine(r.getX()+5.0f,r.getY()+3.0f,
+                   r.getRight()-5.0f,r.getY()+3.0f,0.65f);
+        if(r.getWidth()>75.0f) {
+            hw::screw(g,r.getX()+6.3f,r.getCentreY(),0.32f);
+            hw::screw(g,r.getRight()-6.3f,r.getCentreY(),0.32f);
+        }
         if (!label.isBeingEdited()) {
             g.setFont(getLabelFont(label));
             g.setColour(p.bone);
@@ -116,26 +123,11 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
         }
         return;
     }
-    g.setColour(juce::Colour(0xff030302));
-    g.fillRoundedRectangle(r.translated(0,1.4f),4.5f);
-    juce::ColourGradient metal(juce::Colour(0xff5b4328),r.getX(),r.getY(),
-                               juce::Colour(0xff1b150c),r.getX(),r.getBottom(),false);
-    metal.addColour(0.20,juce::Colour(0xff9c7641));
-    g.setGradientFill(metal);
-    g.fillRoundedRectangle(r,4.5f);
-    g.setColour(juce::Colour(0xff0d0c08));
-    g.fillRoundedRectangle(r.reduced(2.5f),3.0f);
-    g.setColour(hw::gold.withAlpha(0.48f));
-    g.drawRoundedRectangle(r.reduced(0.8f),4.0f,0.8f);
-    g.setColour(hw::brass.withAlpha(0.33f));
-    g.drawLine(r.getX()+5,r.getBottom()-3,r.getRight()-5,r.getBottom()-3,0.8f);
-    if (r.getWidth() > 75.0f) {
-        for (float cx : {r.getX()+5.5f,r.getRight()-5.5f}) {
-            g.setColour(juce::Colour(0xffa98d5e));
-            g.fillEllipse(cx-1.8f,r.getCentreY()-1.8f,3.6f,3.6f);
-            g.setColour(juce::Colour(0xff2a170c));
-            g.drawLine(cx-1.1f,r.getCentreY()+0.9f,cx+1.0f,r.getCentreY()-1.1f,0.75f);
-        }
+    // Readout is a recessed glass lens with a manufactured metal rim.
+    hw::glassWindow(g,r,4.5f);
+    if(r.getWidth()>75.0f) {
+        hw::screw(g,r.getX()+6.4f,r.getCentreY(),0.33f);
+        hw::screw(g,r.getRight()-6.4f,r.getCentreY(),0.33f);
     }
     if (!label.isBeingEdited()) {
         g.setFont(getLabelFont(label));
@@ -614,7 +606,7 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         r.getWidth()/310.0f,r.getHeight()/156.0f).translated(r.getX(),r.getY()));
     hw::plate(g,{0,0,310,156},false,0x52b4u,9.0f,0.24f);
     for(float xx : {11.5f,298.5f})
-        for(float yy : {12.0f,144.0f}) hw::screw(g,xx,yy,0.72f);
+        for(float yy : {12.0f,144.0f}) hw::screw(g,xx,yy,0.89f);
     g.setColour(juce::Colour(0xff040404));
     g.fillRoundedRectangle(16,23,278,120,29.0f);
     font(g,14,true);g.setColour(hw::parchment);
@@ -768,8 +760,18 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
          108,128,94,19);
     hw::screw(g,107,137,0.28f);
     hw::screw(g,203,137,0.28f);
-    g.setColour(juce::Colours::white.withAlpha(0.08f));
-    g.drawLine(43,29,264,29,0.9f);
+    // Glass curvature sits IN FRONT of the mechanical needle and scale.
+    // It never draws a second permanent needle or fake audio indication.
+    juce::ColourGradient lensLight(
+        juce::Colours::white.withAlpha(0.13f),34.0f,30.0f,
+        juce::Colours::white.withAlpha(0.0f),115.0f,77.0f,false);
+    g.setGradientFill(lensLight);
+    g.fillRoundedRectangle(27.0f,31.0f,246.0f,26.0f,13.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.20f));
+    g.drawLine(42.0f,29.5f,268.0f,29.5f,0.8f);
+    g.setColour(juce::Colours::black.withAlpha(0.44f));
+    g.drawRoundedRectangle(juce::Rectangle<float>(18.3f,23.2f,273.4f,119.7f),
+                           27.0f,2.3f);
 }
 
 void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
@@ -778,29 +780,17 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
     // The label and recessed unlit glass stay visible as physical hardware.
     hw::plate(g,{953,108,216,170},false,0x300ad5u,9.0f,0.34f);
     for(float xx : {965.0f,1157.0f})
-        for(float yy : {120.0f,265.0f}) hw::screw(g,xx,yy,0.63f);
+        for(float yy : {120.0f,265.0f}) hw::screw(g,xx,yy,0.85f);
     font(g,12,true);g.setColour(hw::parchment);
     text(g,"GAIN REDUCTION",969,125,185,17);
 
-    g.setColour(juce::Colours::black.withAlpha(0.76f));
-    g.fillRoundedRectangle(975,153.5f,175,56.5f,9.0f);
-    juce::ColourGradient glass(juce::Colour(0xff030604),979,156,
-                               juce::Colour(0xff010201),1139,206,false);
-    glass.addColour(0.52,juce::Colour(0xff050a06));
-    g.setGradientFill(glass);
-    g.fillRoundedRectangle(979,155.5f,167,50.5f,7.0f);
-    g.setColour(hw::brass.withAlpha(0.28f));
-    g.drawRoundedRectangle(juce::Rectangle<float>(975,152,175,57),8.5f,0.9f);
-    g.setColour(juce::Colours::white.withAlpha(0.075f));
-    g.drawLine(983,157,1139,157,0.7f);
+    // Deep lens with a believable glass cover; light stays off at idle.
+    hw::glassWindow(g,{975,152,175,57},9.0f);
 
     const bool active=std::isfinite(displayedReduction)
                    && displayedReduction>=0.5f;
     // Recessed light-pipe holder stays dark when no compressor/limiter GR.
-    g.setColour(juce::Colour(0xff050704));
-    g.fillRoundedRectangle(972,225,176,24,3.1f);
-    g.setColour(hw::brass.withAlpha(0.22f));
-    g.drawRoundedRectangle(juce::Rectangle<float>(972,225,176,24),3.1f,0.7f);
+    hw::glassWindow(g,{972,225,176,24},3.1f);
     if (!active) return;
 
     font(g,37,true);
@@ -876,7 +866,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     hw::plate(g,{37,94,1126,200},false,0x33c8a7u,12.0f,0.72f);
     hw::plate(g,{48,109,213,176},false,0x641b4fu,9.0f,0.52f);
     for(float x : {60.0f,249.0f})
-        for(float y : {121.0f,273.0f}) hw::screw(g,x,y,0.67f);
+        for(float y : {121.0f,273.0f}) hw::screw(g,x,y,0.88f);
     font(g,18,true);g.setColour(hw::gold);
     text(g,"SKELLY MASTER",65,125,182,26);
     font(g,12,true);g.setColour(hw::parchment);
@@ -897,7 +887,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     // Modular lower rack: same genuine APVTS controls as previous build.
     hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.0f);
     for(float x : {51.0f,1149.0f})
-        for(float y : {310.0f,641.0f}) hw::screw(g,x,y,0.75f);
+        for(float y : {310.0f,641.0f}) hw::screw(g,x,y,0.90f);
     hw::divider(g,64,480,1138,480);
     for(int col=1;col<4;++col) {
         const float x=34.0f+col*283.0f;
@@ -917,7 +907,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     // Emerald (not red) heavy lacquer utility deck.
     hw::plate(g,{13,673,1174,80},true,0x731ac4u,9.0f,0.99f);
     for(float x : {29.0f,1172.0f})
-        for(float y : {685.0f,741.0f}) hw::screw(g,x,y,0.78f);
+        for(float y : {685.0f,741.0f}) hw::screw(g,x,y,0.90f);
     hw::divider(g,267,685,267,744);
     hw::divider(g,553,685,553,744);
     hw::divider(g,850,685,850,744);
