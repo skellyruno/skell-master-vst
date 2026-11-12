@@ -30,6 +30,7 @@ private:
                                   bool, bool) override;
         void drawButtonText(juce::Graphics&, juce::TextButton&, bool, bool) override;
         void drawLabel(juce::Graphics&, juce::Label&) override;
+        void drawComboBox(juce::Graphics&, int, int, bool, int, int, int, int, juce::ComboBox&) override;
         juce::Font getLabelFont(juce::Label&) override;
     } lookAndFeel;
 
@@ -40,6 +41,7 @@ private:
     void drawReduction(juce::Graphics&) const;
     void drawScrew(juce::Graphics&, float, float) const;
     void resetToDefaults();
+    void applyFactoryPreset(int presetId);
     void clearMeterHolds();
     void switchSkin();
     void recolourStaticBackdrop(juce::Image&) const;
@@ -72,6 +74,7 @@ private:
     std::array<juce::Slider, knobCount> knobs;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, knobCount> attachments;
     juce::TextButton bypass { "BYPASS" }, reset { "RESET" };
+    juce::ComboBox presetSelector;
     std::array<juce::TextButton,3> monitorButtons {juce::TextButton("PEAK"), juce::TextButton("TRUE"), juce::TextButton("CLEAR")};
     bool monitorTruePeak = true;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
