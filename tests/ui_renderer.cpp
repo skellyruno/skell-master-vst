@@ -17,7 +17,7 @@ void setValue(SkellyMasterAudioProcessor& p, const char* id, float plainValue) {
 void resetValues(SkellyMasterAudioProcessor& p) {
     static constexpr std::array<const char*, 12> ids {{
        "input", "drive", "glue", "dynamics", "lows", "highs",
-       "sauce", "transients", "output", "ceiling", "clipper", "clipper", "bypass"
+       "sauce", "transients", "output", "ceiling", "clipper", "bypass"
     }};
     for (const auto* id : ids)
         if (auto* param = p.parameters.getParameter(id))
@@ -31,7 +31,7 @@ void synchronizeControls(SkellyMasterAudioProcessorEditor& editor,
                          SkellyMasterAudioProcessor& p) {
     static constexpr std::array<const char*, 11> ids {{
         "input", "drive", "glue", "dynamics", "lows", "highs",
-        "sauce", "transients", "output", "ceiling"
+        "sauce", "transients", "output", "ceiling", "clipper"
     }};
     int index = 0;
     for (int i=0;i<editor.getNumChildComponents();++i) {
