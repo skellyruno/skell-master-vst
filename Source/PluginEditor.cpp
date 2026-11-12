@@ -49,7 +49,7 @@ juce::Colour hardwareEnamel(skellcore::ui::SkullSkin skin) {
 
 constexpr const char* labels[11] = {
     "INPUT", "DRIVE", "GLUE", "DYNAMICS", "LOWS", "HIGHS",
-    "SAUCE", "TRANSIENTS", "OUTPUT", "CEILING", "LIMIT / CLIP"
+    "SAUCE", "TRANSIENTS", "OUTPUT", "CEILING", "CLIP"
 };
 constexpr const char* ids[11] = {
     "input", "drive", "glue", "dynamics", "lows", "highs",
@@ -126,13 +126,13 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
     // Readout is a recessed glass lens with a manufactured metal rim.
     hw::glassWindow(g,r,4.5f);
     if(r.getWidth()>75.0f) {
-        hw::screw(g,r.getX()+6.4f,r.getCentreY(),0.33f);
-        hw::screw(g,r.getRight()-6.4f,r.getCentreY(),0.33f);
+        hw::screw(g,r.getX()+8.0f,r.getCentreY(),0.59f);
+        hw::screw(g,r.getRight()-8.0f,r.getCentreY(),0.59f);
     }
     if (!label.isBeingEdited()) {
         g.setFont(getLabelFont(label));
         g.setColour(findColour(juce::Label::textColourId));
-        const int inset=r.getWidth()>75.0f?10:4;
+        const int inset=r.getWidth()>75.0f?13:4;
         g.drawFittedText(label.getText(), label.getLocalBounds().reduced(inset,2),
                          label.getJustificationType(), 1);
     }
@@ -175,10 +175,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
     g.drawRoundedRectangle(inner,6.8f,1.1f);
     g.setColour(juce::Colours::white.withAlpha(hover?0.22f:0.10f));
     g.drawLine(inner.getX()+8,inner.getY()+2,inner.getRight()-8,inner.getY()+2,0.9f);
-    if (r.getWidth()>70) {
-        hw::screw(g,r.getX()+8.0f,r.getCentreY(),0.44f);
-        hw::screw(g,r.getRight()-8.0f,r.getCentreY(),0.44f);
-    }
+    // Small pushbuttons use a clean milled bezel, not unreadable micro-rivets.
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonText(
@@ -393,7 +390,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "SOFT CLIP AMOUNT");
          s.setTooltip(i==9
             ? "CEILING ADJUST: 0 = -1 dBFS limiting; -3 = -3 dBFS, +3 = -0.1 dBFS. Drag, type, or double-click to reset."
-            : i==10 ? "LIMIT / CLIP: 0% = original transparent limiter, 100% = strongest soft clipping before the safety limiter."
+            : i==10 ? "CLIP: 0% = transparent lookahead limiting; higher settings blend oversampled soft clipping before the limiter."
             : juce::String(labels[i]) + " - " + sub +
               " | drag to adjust, double-click to reset, right-click for menu");
         addAndMakeVisible(s);
@@ -413,7 +410,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     // These are genuine monitoring controls; none changes an exported mix.
     monitorButtons[0].setTooltip("PEAK: show stereo sample-peak hold in dBFS.");
     monitorButtons[1].setTooltip("TRUE: show 4x reconstructed output peaks in dBTP.");
-    monitorButtons[2].setTooltip("CLEAR: release the peak holds and monitor history.");
+    monitorButtons[2].setTooltip("CLEAR: reset displayed sample-peak and true-peak holds; audio stays untouched.");
     monitorButtons[0].setClickingTogglesState(true);
     monitorButtons[1].setClickingTogglesState(true);
     monitorButtons[0].setRadioGroupId(2301);
@@ -733,8 +730,8 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     font(g,12,true);g.setColour(readoutWhite);
     text(g,juce::String(juce::roundToInt(peakDb(value)))+" dBFS",
          108,128,94,19);
-    hw::screw(g,107,137,0.28f);
-    hw::screw(g,203,137,0.28f);
+    hw::screw(g,107,137,0.53f);
+    hw::screw(g,203,137,0.53f);
     // Glass curvature sits IN FRONT of the mechanical needle and scale.
     // It never draws a second permanent needle or fake audio indication.
     juce::ColourGradient lensLight(
@@ -880,7 +877,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     font(g,14,true);g.setColour(hw::parchment);
     text(g,"TONE IS EVERYTHING",66,724,184,18,juce::Justification::centredLeft);
     font(g,14,true);g.setColour(hw::gold);
-    text(g,"LIMIT / CLIP",280,710,104,21,juce::Justification::centredLeft);
+    text(g,"CLIP",294,710,85,21,juce::Justification::centredLeft);
     font(g,15,true);g.setColour(hw::gold);
     text(g,"OUTPUT",566,710,84,21,juce::Justification::centredLeft);
     text(g,"CEILING",852,710,88,21,juce::Justification::centredLeft);
@@ -933,7 +930,7 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
     const float db=juce::Decibels::gainToDecibels(
         juce::jmax(observed,0.0001f),-80.0f);
     font(g,13,true);g.setColour(readoutWhite);
-    text(g,(monitorTruePeak ? "TP " : "SP ")
+    text(g,juce::String(monitorTruePeak ? "TP " : "SP ")
             + juce::String(db,1) + (monitorTruePeak ? " dBTP" : " dBFS"),
          73,252,167,20,juce::Justification::centred);
 }
