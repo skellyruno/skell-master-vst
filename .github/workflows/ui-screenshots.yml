@@ -1,14 +1,9 @@
 name: Skelly Master / SkellCore Headless UI
 
+# Routine UI capture runs locally in ~2 seconds. CI screenshot capture
+# remains available ONLY on explicit request for an emergency/full regression.
+# Windows VST3 build and DSP validation are a SEPARATE workflow.
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/ui-screenshots.yml'
-      - 'CMakeLists.txt'
-      - 'Source/**'
-      - 'tests/ui_renderer.cpp'
-  pull_request:
   workflow_dispatch:
 
 concurrency:
