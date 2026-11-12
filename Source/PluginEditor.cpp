@@ -18,11 +18,11 @@ const juce::Colour muted(0xffbda776);
 // Warm near-white for all live numeric readouts; status LEDs remain green.
 const juce::Colour readoutWhite(0xfffaf9f6);
 
-constexpr const char* labels[10] = {
+constexpr const char* labels[11] = {
     "INPUT", "DRIVE", "GLUE", "DYNAMICS", "LOWS", "HIGHS",
     "SAUCE", "TRANSIENTS", "OUTPUT", "CEILING", "LIMIT / CLIP"
 };
-constexpr const char* ids[10] = {
+constexpr const char* ids[11] = {
     "input", "drive", "glue", "dynamics", "lows", "highs",
     "sauce", "transients", "output", "ceiling", "clipper"
 };
