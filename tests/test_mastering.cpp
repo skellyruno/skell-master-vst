@@ -29,6 +29,30 @@ int main() {
         }
     }
 
+    // 4x ITU-reference intersample monitor detects a reconstructed peak
+    // higher than every actual host-rate sample. This is a monitor, not a
+    // proof that the independent limiter enforces a true-peak ceiling.
+    StereoTruePeakMonitor truePeak;
+    truePeak.reset();
+    double sampleMaximum=0.0, reconstructedMaximum=0.0;
+    for(int i=0;i<2500;++i) {
+        const float sample=static_cast<float>(
+            0.95*std::sin(2.0*detail::pi*0.25*i+detail::pi/4.0));
+        sampleMaximum=std::max(sampleMaximum,static_cast<double>(std::abs(sample)));
+        const double tp=truePeak.process(sample, sample*0.7f);
+        if(i>128) reconstructedMaximum=std::max(reconstructedMaximum,tp);
+    }
+    require(reconstructedMaximum>0.88 && reconstructedMaximum>sampleMaximum*1.25,
+            "4x true-peak monitor must detect intersample peaks");
+    truePeak.reset();
+    require(truePeak.process(0.0f,0.0f)==0.0f,
+            "true-peak history must reset to true silence");
+    require(std::isfinite(truePeak.process(
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::infinity())),
+            "true-peak monitor must reject invalid input");
+    std::cout << "PASS: streaming intersample peak reconstruction and reset\n";
+
     require(std::abs(detail::ceilingOffsetToDb(0.0)+1.0)<1.e-12,
             "zero ceiling adjustment preserves -1 dBFS factory limiter");
     require(std::abs(detail::ceilingOffsetToDb(-3.0)+3.0)<1.e-12,
