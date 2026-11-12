@@ -40,6 +40,7 @@ private:
     void drawReduction(juce::Graphics&) const;
     void drawScrew(juce::Graphics&, float, float) const;
     void resetToDefaults();
+    void applyQuickTone(int tone);
     void switchSkin();
     void recolourStaticBackdrop(juce::Image&) const;
     static skellcore::ui::SkullSkin loadSkin();
@@ -67,10 +68,11 @@ private:
 
     SkellyMasterAudioProcessor& processor;
     static constexpr int designW = 1200, designH = 760;
-    static constexpr int knobCount = 10;
+    static constexpr int knobCount = 11;
     std::array<juce::Slider, knobCount> knobs;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, knobCount> attachments;
     juce::TextButton bypass { "BYPASS" }, reset { "RESET" };
+    std::array<juce::TextButton,3> quickTone {juce::TextButton("CLEAN"), juce::TextButton("WARM"), juce::TextButton("PUNCH")};
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
     juce::Image staticBackdrop;
     std::array<float, 2> meterValues {0.0f, 0.0f};
