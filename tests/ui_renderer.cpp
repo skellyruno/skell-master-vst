@@ -9,15 +9,15 @@
 #include <vector>
 
 namespace {
-constexpr int expectedControls = 12;
+constexpr int expectedControls = 16; // 11 knobs and 5 mechanical text buttons
 void setValue(SkellyMasterAudioProcessor& p, const char* id, float plainValue) {
     if (auto* param = p.parameters.getParameter(id))
         param->setValueNotifyingHost(param->convertTo0to1(plainValue));
 }
 void resetValues(SkellyMasterAudioProcessor& p) {
-    static constexpr std::array<const char*, 11> ids {{
+    static constexpr std::array<const char*, 12> ids {{
        "input", "drive", "glue", "dynamics", "lows", "highs",
-       "sauce", "transients", "output", "ceiling", "bypass"
+       "sauce", "transients", "output", "ceiling", "clipper", "clipper", "bypass"
     }};
     for (const auto* id : ids)
         if (auto* param = p.parameters.getParameter(id))
@@ -29,7 +29,7 @@ void resetValues(SkellyMasterAudioProcessor& p) {
 // This is visual test setup, not a mock UI or alternate rendering code.
 void synchronizeControls(SkellyMasterAudioProcessorEditor& editor,
                          SkellyMasterAudioProcessor& p) {
-    static constexpr std::array<const char*, 10> ids {{
+    static constexpr std::array<const char*, 11> ids {{
         "input", "drive", "glue", "dynamics", "lows", "highs",
         "sauce", "transients", "output", "ceiling"
     }};
@@ -71,7 +71,7 @@ juce::StringArray inspect(SkellyMasterAudioProcessorEditor& editor) {
         rectangles.push_back(bounds);
     }
     if (count != expectedControls)
-        issues.add("Expected 10 rotary controls and two buttons, found " + juce::String(count));
+        issues.add("Expected 11 rotary controls and five buttons, found " + juce::String(count));
     return issues;
 }
 } // namespace
