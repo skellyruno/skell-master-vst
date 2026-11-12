@@ -346,7 +346,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     // Only the physical ivory pointer moves. Body/knurling/shadows stay
     // centred and the pointer follows the DAW-automated parameter exactly.
     const float sn=std::sin(angle),cs=-std::cos(angle);
-    const float d0=face*0.25f,d1=face*0.96f;
+    const float d0=face*0.25f,d1=face*0.84f;
     const float nx=-cs,ny=sn;
     juce::Path tip;
     tip.startNewSubPath(cx+sn*d0+nx*4.6f,cy+cs*d0+ny*4.6f);
