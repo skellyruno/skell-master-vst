@@ -18,6 +18,35 @@ const juce::Colour muted(0xffbda776);
 // Warm near-white for all live numeric readouts; status LEDs remain green.
 const juce::Colour readoutWhite(0xfffaf9f6);
 
+// SkellCore selects skins, SKELL Master renders coherent physical materials.
+juce::Colour hardwareAccent(skellcore::ui::SkullSkin skin) {
+    using Skin=skellcore::ui::SkullSkin;
+    switch(skin) {
+        case Skin::Neon: return juce::Colour(0xff9aff5c);
+        case Skin::Ivory: return juce::Colour(0xffe6ce9e);
+        case Skin::Obsidian: return juce::Colour(0xffb1c7d0);
+        default: return juce::Colour(0xffe1bd7c);
+    }
+}
+juce::Colour hardwareText(skellcore::ui::SkullSkin skin) {
+    using Skin=skellcore::ui::SkullSkin;
+    switch(skin) {
+        case Skin::Neon: return juce::Colour(0xfff0fff0);
+        case Skin::Ivory: return juce::Colour(0xfffcf3df);
+        case Skin::Obsidian: return juce::Colour(0xffe9f2f4);
+        default: return juce::Colour(0xfff6ebd6);
+    }
+}
+juce::Colour hardwareEnamel(skellcore::ui::SkullSkin skin) {
+    using Skin=skellcore::ui::SkullSkin;
+    switch(skin) {
+        case Skin::Neon: return juce::Colour(0xff4baf50);
+        case Skin::Ivory: return juce::Colour(0xff977950);
+        case Skin::Obsidian: return juce::Colour(0xff46616a);
+        default: return juce::Colour(0xff31744b);
+    }
+}
+
 constexpr const char* labels[11] = {
     "INPUT", "DRIVE", "GLUE", "DYNAMICS", "LOWS", "HIGHS",
     "SAUCE", "TRANSIENTS", "OUTPUT", "CEILING", "LIMIT / CLIP"
@@ -78,51 +107,22 @@ SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::SkellyLookAndFeel() {
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::setSkin(
         skellcore::ui::SkullSkin selected) {
     activeSkin=selected;
-    const auto p=skellcore::ui::skullPalette(selected);
-    setColour(juce::Slider::textBoxTextColourId,p.bone);
-    setColour(juce::Slider::textBoxOutlineColourId,p.line);
-    setColour(juce::Slider::textBoxBackgroundColourId,p.background);
-    setColour(juce::Slider::thumbColourId,
-              selected==skellcore::ui::SkullSkin::Ossuary ? hw::gold : p.accent);
-    setColour(juce::Label::textColourId,p.bone);
-    setColour(juce::TextButton::textColourOffId,p.bone);
-    setColour(juce::TextButton::textColourOnId,p.bone);
-    setColour(juce::TextButton::buttonColourId,p.panel);
-    setColour(juce::TextButton::buttonOnColourId,p.panelHi);
+    const auto accent=hardwareAccent(selected), lettering=hardwareText(selected);
+    setColour(juce::Slider::textBoxTextColourId,lettering);
+    setColour(juce::Slider::textBoxOutlineColourId,accent);
+    setColour(juce::Slider::textBoxBackgroundColourId,juce::Colour(0xff060806));
+    setColour(juce::Slider::textBoxHighlightColourId,accent.withAlpha(0.65f));
+    setColour(juce::Slider::thumbColourId,accent);
+    setColour(juce::Label::textColourId,lettering);
+    setColour(juce::TextButton::textColourOffId,lettering);
+    setColour(juce::TextButton::textColourOnId,lettering);
+    setColour(juce::TextButton::buttonColourId,juce::Colour(0xff1b1e19));
+    setColour(juce::TextButton::buttonOnColourId,accent.darker(0.70f));
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
     juce::Graphics& g, juce::Label& label) {
     const auto r=label.getLocalBounds().toFloat().reduced(0.65f);
-    // Hardware-style number plates retain their geometry in every skin.
-    // Use the actual SkellCore palette for contrast instead of leaving
-    // ivory/obsidian controls stuck with gold-on-black artwork.
-    if (activeSkin != skellcore::ui::SkullSkin::Ossuary) {
-        const auto p=skellcore::ui::skullPalette(activeSkin);
-        g.setColour(juce::Colours::black.withAlpha(0.24f));
-        g.fillRoundedRectangle(r.translated(0,1.2f),4.5f);
-        g.setColour(p.line);
-        g.fillRoundedRectangle(r,4.5f);
-        g.setColour(p.panel);
-        g.fillRoundedRectangle(r.reduced(2.1f),3.1f);
-        g.setColour(p.accent.withAlpha(0.60f));
-        g.drawRoundedRectangle(r.reduced(1.0f),3.8f,0.95f);
-        g.setColour(juce::Colours::white.withAlpha(0.11f));
-        g.drawLine(r.getX()+5.0f,r.getY()+3.0f,
-                   r.getRight()-5.0f,r.getY()+3.0f,0.65f);
-        if(r.getWidth()>75.0f) {
-            hw::screw(g,r.getX()+6.3f,r.getCentreY(),0.32f);
-            hw::screw(g,r.getRight()-6.3f,r.getCentreY(),0.32f);
-        }
-        if (!label.isBeingEdited()) {
-            g.setFont(getLabelFont(label));
-            g.setColour(p.bone);
-            g.drawFittedText(label.getText(),
-                             label.getLocalBounds().reduced(6,2),
-                             label.getJustificationType(),1);
-        }
-        return;
-    }
     // Readout is a recessed glass lens with a manufactured metal rim.
     hw::glassWindow(g,r,4.5f);
     if(r.getWidth()>75.0f) {
@@ -156,20 +156,6 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
     juce::Graphics& g, juce::Button& b, const juce::Colour&, bool hover, bool down) {
     const auto r=b.getLocalBounds().toFloat().reduced(1.0f);
     const bool active=b.getToggleState();
-    if (activeSkin != skellcore::ui::SkullSkin::Ossuary) {
-        const auto p=skellcore::ui::skullPalette(activeSkin);
-        const auto frame=p.line;
-        const auto surface=active ? p.panelHi : p.panel;
-        g.setColour(juce::Colours::black.withAlpha(0.27f));
-        g.fillRoundedRectangle(r.translated(0,1.5f),8.0f);
-        g.setColour(frame);
-        g.fillRoundedRectangle(r,8.0f);
-        g.setColour(down ? surface.darker(0.25f) : surface);
-        g.fillRoundedRectangle(r.reduced(2.3f),6.0f);
-        g.setColour(p.accent.withAlpha(hover ? 0.95f : active ? 0.72f : 0.28f));
-        g.drawRoundedRectangle(r.reduced(2.3f),6.0f,hover ? 1.7f : 1.0f);
-        return;
-    }
     g.setColour(juce::Colour(0xff030403));
     g.fillRoundedRectangle(r.translated(0,2),9.0f);
     juce::ColourGradient bezel(juce::Colour(0xffd1b27b),r.getX(),r.getY(),
@@ -185,7 +171,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
     face.addColour(0.30,active?juce::Colour(0xff265637):juce::Colour(0xff28251c));
     g.setGradientFill(face);
     g.fillRoundedRectangle(inner,6.8f);
-    g.setColour(active?hw::emerald.brighter(0.3f):hw::brass.withAlpha(0.70f));
+    g.setColour(active?hardwareAccent(activeSkin):hardwareAccent(activeSkin).withAlpha(0.54f));
     g.drawRoundedRectangle(inner,6.8f,1.1f);
     g.setColour(juce::Colours::white.withAlpha(hover?0.22f:0.10f));
     g.drawLine(inner.getX()+8,inner.getY()+2,inner.getRight()-8,inner.getY()+2,0.9f);
@@ -482,41 +468,26 @@ void SkellyMasterAudioProcessorEditor::switchSkin() {
 void SkellyMasterAudioProcessorEditor::recolourStaticBackdrop(
         juce::Image& result) const {
     if(skin==skellcore::ui::SkullSkin::Ossuary || !result.isValid()) return;
-    // SkellCore canonical palettes. Preserve physical texture luminance,
-    // but remap brass and green enamel into each skin. Runs only when the
-    // cached backdrop is regenerated after a theme change or resizing.
-    const auto p=skellcore::ui::skullPalette(skin);
+    // Only brass and enamel are tinted. Dark iron, texture highlights and
+    // glass remain physical, instead of flattening into a solid skin color.
+    const auto metal=hardwareAccent(skin), enamel=hardwareEnamel(skin);
     juce::Image::BitmapData pixels(result,juce::Image::BitmapData::readWrite);
     for(int y=0;y<pixels.height;++y)
         for(int x=0;x<pixels.width;++x) {
             const auto c=pixels.getPixelColour(x,y);
             if(c.getAlpha()==0) continue;
-            const float r=c.getFloatRed(),gg=c.getFloatGreen(),
-                        b=c.getFloatBlue();
-            const float lum=0.23f*r+0.67f*gg+0.10f*b;
-            const bool warm=r>gg*1.05f && gg>b*1.07f && r>0.22f;
-            const bool green=gg>r*1.22f && gg>b*1.13f && gg>0.10f;
-            juce::Colour base=p.panel;
-            float brightness=1.0f;
-            if(warm) {
-                base=p.bone;
-                brightness=0.72f+0.40f*lum;
-            } else if(green) {
-                base=p.accent;
-                brightness=0.48f+0.65f*lum;
-            } else if(skin==skellcore::ui::SkullSkin::Ivory) {
-                base=p.panel;
-                // Reverse lightness for legible dark engraved iron edges.
-                brightness=juce::jlimit(0.20f,1.0f,1.05f-0.75f*lum);
-            } else {
-                base=p.panel;
-                brightness=0.36f+1.20f*lum;
-            }
-            pixels.setPixelColour(x,y,juce::Colour::fromFloatRGBA(
-                juce::jlimit(0.0f,1.0f,base.getFloatRed()*brightness),
-                juce::jlimit(0.0f,1.0f,base.getFloatGreen()*brightness),
-                juce::jlimit(0.0f,1.0f,base.getFloatBlue()*brightness),
-                c.getFloatAlpha()));
+            const float red=c.getFloatRed(),green=c.getFloatGreen(),
+                        blue=c.getFloatBlue();
+            const bool brass=red>green*1.055f && green>blue*1.08f
+                             && red>0.18f;
+            const bool greenEnamel=green>red*1.17f && green>blue*1.10f
+                                   && green>0.095f;
+            if(!brass && !greenEnamel) continue;
+            const float sourceLuma=0.24f*red+0.66f*green+0.10f*blue;
+            const float shading=juce::jlimit(0.20f,1.0f,sourceLuma*1.58f);
+            const auto target=(brass?metal:enamel)
+                                 .withMultipliedBrightness(shading);
+            pixels.setPixelColour(x,y,c.interpolatedWith(target,0.68f));
         }
 }
 
