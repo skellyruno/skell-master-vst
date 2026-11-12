@@ -288,9 +288,9 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     sidewall.addColour(0.29,juce::Colour(0xff4c473b));
     sidewall.addColour(0.70,juce::Colour(0xff29291f));
     g.setGradientFill(sidewall);
-    g.fillEllipse(cx-grip,cy-grip+lift*0.65f,2*grip,2*grip);
+    g.fillEllipse(cx-grip,cy-grip,2*grip,2*grip);
     g.setColour(bright.withAlpha(0.29f));
-    g.drawEllipse(cx-grip+0.8f,cy-grip+lift*0.65f+0.8f,
+    g.drawEllipse(cx-grip+0.8f,cy-grip+0.8f,
                   2*(grip-0.8f),2*(grip-0.8f),0.85f);
 
     // Machining ridges have shadowed grooves and tiny illuminated flanks.
