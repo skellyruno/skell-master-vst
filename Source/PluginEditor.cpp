@@ -155,6 +155,19 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
         g.drawFittedText(label.getText(), label.getLocalBounds().reduced(inset,2),
                          label.getJustificationType(), 1);
     }
+    // Curved transparent cover lies IN FRONT of the numerals, with a
+    // narrow diagonal reflected light and a deep lower edge.
+    juce::Graphics::ScopedSaveState glassClip(g);
+    g.reduceClipRegion(r.toNearestInt());
+    juce::ColourGradient glare(juce::Colours::white.withAlpha(0.13f),
+                               r.getX()+3.0f,r.getY()+1.0f,
+                               juce::Colours::white.withAlpha(0.0f),
+                               r.getX()+r.getWidth()*0.65f,r.getBottom(),false);
+    g.setGradientFill(glare);
+    g.fillRoundedRectangle(r.reduced(3.0f),3.0f);
+    g.setColour(juce::Colours::black.withAlpha(0.44f));
+    g.drawLine(r.getX()+4.0f,r.getBottom()-3.0f,
+               r.getRight()-4.0f,r.getBottom()-3.0f,1.0f);
 }
 
 juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juce::Label& label) {
@@ -834,6 +847,15 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
     font(g,12,true);
     g.setColour(hw::gold);
     text(g,"dB",1117,178,27,14);
+    // The GR numerals sit behind the same curved front glass as the readouts.
+    juce::ColourGradient lens(juce::Colours::white.withAlpha(0.13f),
+                              983.0f,155.0f,
+                              juce::Colours::white.withAlpha(0.0f),
+                              1138.0f,202.0f,false);
+    g.setGradientFill(lens);
+    g.fillRoundedRectangle(981.0f,156.0f,163.0f,43.0f,6.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.16f));
+    g.drawLine(989.0f,155.0f,1135.0f,155.0f,0.75f);
     // Gain reduction is displayed only in the upper electronic lens.
 }
 
