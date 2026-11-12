@@ -129,6 +129,28 @@ int main() {
     }
     require(changed>2.0, "clipper must measurably change driven audio");
     std::cout << "PASS: 4x soft clipping, neutral default, ceiling safety\n";
+    // CLIP must be stereo-linked, not two unrelated nonlinear curves.
+    // Check a sustained asymmetric waveform after smoothing and lookahead.
+    MasteringEngine stereoClip;
+    stereoClip.prepare(rate,2,lookahead);
+    MasterParameters stereoClipParams;
+    stereoClipParams.clipper=1.0;
+    stereoClip.setParameters(stereoClipParams);
+    double clipStereoError=0.0;
+    int comparedFrames=0;
+    for(int i=0;i<16000;++i) {
+        const float x=(i%3072<900) ? 1.9f : 0.35f;
+        const auto out=stereoClip.processFrame(x,x*0.31f);
+        if(i>lookahead+3000 && std::abs(out.left)>0.05f) {
+            clipStereoError=std::max(clipStereoError,
+                std::abs(static_cast<double>(out.right)/out.left-0.31));
+            ++comparedFrames;
+        }
+    }
+    require(comparedFrames>500 && clipStereoError<0.001,
+            "oversampled CLIP must preserve asymmetric stereo ratio");
+    std::cout << "PASS: linked soft-clip imaging under asymmetric transients\\n";
+
 
     // Invalid input must be isolated at the boundary; no persistent poisoning.
     const auto NaN = std::numeric_limits<float>::quiet_NaN();
