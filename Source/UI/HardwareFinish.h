@@ -15,8 +15,8 @@ const juce::Colour parchment(0xffefdcad);
 const juce::Colour lacquer(0xff103b29);
 const juce::Colour emerald(0xff23734c);
 const juce::Colour phosphor(0xffbef65e);
-const juce::Colour iron(0xff161710);
-const juce::Colour black(0xff080907);
+const juce::Colour iron(0xff10120e);
+const juce::Colour black(0xff050605);
 
 inline uint32_t noise(uint32_t x) noexcept {
     x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15;
@@ -30,10 +30,10 @@ inline void patina(juce::Graphics& g, juce::Rectangle<float> area, uint32_t seed
                    float intensity = 1.0f) {
     juce::Graphics::ScopedSaveState save(g);
     g.reduceClipRegion(area.toNearestInt());
-    const int count = juce::jlimit(70, 3000,
-          static_cast<int>(area.getWidth() * area.getHeight() / 225.0f * intensity));
+    const int count = juce::jlimit(70, 3400,
+          static_cast<int>(area.getWidth() * area.getHeight() / 195.0f * intensity));
     for (int pass=0; pass<2; ++pass) {
-        g.setColour(pass == 0 ? juce::Colour(0xffcaa46b).withAlpha(0.12f)
+        g.setColour(pass == 0 ? juce::Colour(0xffb5a07b).withAlpha(0.15f)
                               : juce::Colour(0xff020302).withAlpha(0.35f));
         for (int i=0; i<count; ++i) {
             const auto h=noise(seed + static_cast<uint32_t>(i*731 + pass*9973));
@@ -59,7 +59,7 @@ inline void patina(juce::Graphics& g, juce::Rectangle<float> area, uint32_t seed
         const float x=area.getX()+static_cast<float>(h%10007u)/10007.0f*area.getWidth();
         const float y=area.getY()+static_cast<float>((h>>13)%9973u)/9973.0f*area.getHeight();
         const float len=2.0f+static_cast<float>((h>>22)&15u)*1.9f;
-        g.setColour(juce::Colour(0xfff8dfaf).withAlpha(i%3==0?0.18f:0.065f));
+        g.setColour(juce::Colour(0xffd6c4a0).withAlpha(i%3==0?0.22f:0.075f));
         g.drawLine(x,y,x+len,y-0.6f, i%7==0?1.1f:0.6f);
     }
 }
@@ -123,11 +123,11 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
                   uint32_t seed=0x6172u, float radius=9.0f, float wear=1.0f) {
     g.setColour(juce::Colours::black.withAlpha(0.9f));
     g.fillRoundedRectangle(r.translated(0,3.5f),radius);
-    juce::ColourGradient enamel(green?juce::Colour(0xff2a6947):juce::Colour(0xff2b2a24),
-                r.getX(),r.getY(),green?juce::Colour(0xff071b13):juce::Colour(0xff0c0d0b),
+    juce::ColourGradient enamel(green?juce::Colour(0xff1d5137):juce::Colour(0xff1a1b17),
+                r.getX(),r.getY(),green?juce::Colour(0xff04130d):juce::Colour(0xff070907),
                 r.getX()+r.getWidth()*0.8f,r.getBottom(),false);
-    enamel.addColour(0.27,green?juce::Colour(0xff1d5337):juce::Colour(0xff1f201a));
-    enamel.addColour(0.56,green?juce::Colour(0xff123622):juce::Colour(0xff171811));
+    enamel.addColour(0.27,green?juce::Colour(0xff143e2a):juce::Colour(0xff141713));
+    enamel.addColour(0.56,green?juce::Colour(0xff0c281b):juce::Colour(0xff10120e));
     g.setGradientFill(enamel);
     g.fillRoundedRectangle(r,radius);
     // Authentic source-image material grain overlays only large STATIC panels.
@@ -145,14 +145,14 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
         if (grain.isValid()) {
             juce::Graphics::ScopedSaveState textureScope(g);
             g.setTiledImageFill(grain, static_cast<int>(r.getX()+4),
-                                static_cast<int>(r.getY()+4), green ? 0.38f : 0.35f);
+                                static_cast<int>(r.getY()+4), green ? 0.43f : 0.41f);
             g.fillRoundedRectangle(r.reduced(6.0f),juce::jmax(0.0f,radius-4.0f));
         }
     }
     // The raised frame sits above a recessed enamel well. Broad, fixed
     // directional light and a tight bottom-right contact shadow create metal
     // depth without introducing any more scratches or random dirt.
-    patina(g,r.reduced(2.2f),seed,wear*0.72f);
+    patina(g,r.reduced(2.2f),seed,wear*1.08f);
     {
         juce::Graphics::ScopedSaveState lightScope(g);
         const auto well=r.reduced(7.4f);
