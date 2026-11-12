@@ -466,18 +466,19 @@ public:
         if (clipAmount > 1.0e-5) {
             const double knee = absoluteCeiling * 0.82;
             const double headroom = absoluteCeiling - knee;
-            const auto soften = [&](double sample) noexcept {
-                const double magnitude = std::abs(sample);
-                if (magnitude <= knee) return sample;
+            // Derive ONE soft-clip gain from the dominant stereo channel.
+            // Independent L/R shaping previously changed the stereo ratio
+            // on hard transients. Linked gain preserves imaging, even when
+            // one channel is much louder or the programme is anti-phase.
+            const double magnitude = std::max(std::abs(l), std::abs(r));
+            if (magnitude > knee) {
                 const double excess = magnitude - knee;
                 const double rounded = knee + headroom * excess / (headroom + excess);
-                const double shaped = std::copysign(rounded, sample);
-                const double mixed = sample + clipAmount * (shaped - sample);
-                clipGain = std::min(clipGain, std::abs(mixed) / magnitude);
-                return mixed;
-            };
-            l = soften(l);
-            r = soften(r);
+                const double mixed = magnitude + clipAmount * (rounded - magnitude);
+                clipGain = detail::clamp(mixed / magnitude, 0.0, 1.0);
+                l *= clipGain;
+                r *= clipGain;
+            }
         }
 
         // Lookahead feed-forward brickwall-style limiter. Detector looks ahead by
