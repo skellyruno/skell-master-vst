@@ -40,7 +40,7 @@ private:
     void drawReduction(juce::Graphics&) const;
     void drawScrew(juce::Graphics&, float, float) const;
     void resetToDefaults();
-    void applyQuickTone(int tone);
+    void clearMeterHolds();
     void switchSkin();
     void recolourStaticBackdrop(juce::Image&) const;
     static skellcore::ui::SkullSkin loadSkin();
@@ -72,18 +72,21 @@ private:
     std::array<juce::Slider, knobCount> knobs;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, knobCount> attachments;
     juce::TextButton bypass { "BYPASS" }, reset { "RESET" };
-    std::array<juce::TextButton,3> quickTone {juce::TextButton("CLEAN"), juce::TextButton("WARM"), juce::TextButton("PUNCH")};
+    std::array<juce::TextButton,3> monitorButtons {juce::TextButton("PEAK"), juce::TextButton("TRUE"), juce::TextButton("CLEAR")};
+    bool monitorTruePeak = true;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
     juce::Image staticBackdrop;
     std::array<float, 2> meterValues {0.0f, 0.0f};
     std::array<float, 2> peakHoldValues {0.0f, 0.0f};
     std::array<int, 2> peakHoldTicks {0, 0};
     float displayedReduction = 0.0f;
+    float displayedTruePeak = 0.0f;
     // Compare against the values last submitted for painting, not last timer
     // tick: otherwise tiny continuous decreases may never be drawn.
     std::array<float, 2> lastPaintedMeterValues {0.0f, 0.0f};
     std::array<float, 2> lastPaintedPeakHoldValues {0.0f, 0.0f};
     float lastPaintedReduction = 0.0f;
+    float lastPaintedTruePeak = 0.0f;
     bool lastDisplayedBypass = false;
     int lastTextBoxWidth = -1, lastTextBoxHeight = -1;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyMasterAudioProcessorEditor)
