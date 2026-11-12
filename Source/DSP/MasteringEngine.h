@@ -220,6 +220,63 @@ private:
     double gain = 1.0, release = 0.0;
 };
 
+// Host-output true-peak MONITOR; does not modify samples or guarantee a
+// dBTP ceiling. ITU-R BS.1770-5 Annex 2 48-tap, four-phase interpolating
+// FIR example, arranged as 12 taps per phase. This reports reconstructed
+// intersample peaks, unlike the existing sample-peak limiter. No heap,
+// allocations, or filter design occurs on the audio callback.
+// https://www.itu.int/rec/R-REC-BS.1770/en
+class StereoTruePeakMonitor {
+public:
+    void reset() noexcept {
+        for (auto& channel : history) channel.fill(0.0);
+        newest = 0;
+    }
+    // Maximum of the 4 reconstructed phases for this frame, across channels.
+    float process(float left, float right) noexcept {
+        history[0][static_cast<std::size_t>(newest)] =
+            detail::finiteSample(static_cast<double>(left));
+        history[1][static_cast<std::size_t>(newest)] =
+            detail::finiteSample(static_cast<double>(right));
+        double maximum = std::max(std::abs(history[0][static_cast<std::size_t>(newest)]),
+                                  std::abs(history[1][static_cast<std::size_t>(newest)]));
+        for (int channel = 0; channel < 2; ++channel) {
+            for (int phase = 0; phase < 4; ++phase) {
+                double reconstructed = 0.0;
+                int idx = newest;
+                for (int k = 0; k < 12; ++k) {
+                    reconstructed += history[static_cast<std::size_t>(channel)]
+                                             [static_cast<std::size_t>(idx)]
+                                     * fir[static_cast<std::size_t>(k)]
+                                          [static_cast<std::size_t>(phase)];
+                    if (--idx < 0) idx = 11;
+                }
+                maximum = std::max(maximum, std::abs(reconstructed));
+            }
+        }
+        if (++newest == 12) newest = 0;
+        return static_cast<float>(maximum);
+    }
+private:
+    // Original coefficients of the ITU Annex 2 reference interpolation FIR.
+    static constexpr std::array<std::array<double,4>,12> fir {{
+        {{ 0.001708984375,  -0.0291748046875, -0.0189208984375, -0.00830078125 }},
+        {{ 0.010986328125,   0.029296875,      0.0330810546875,  0.014892578125 }},
+        {{-0.0196533203125, -0.0517578125,    -0.0582275390625, -0.026611328125 }},
+        {{ 0.033203125,      0.089111328125,   0.1015625,       0.047607421875 }},
+        {{-0.0594482421875, -0.16650390625,   -0.2003173828125, -0.102294921875 }},
+        {{ 0.1373291015625,  0.465087890625,   0.77978515625,    0.97216796875 }},
+        {{ 0.97216796875,    0.77978515625,    0.465087890625,   0.1373291015625 }},
+        {{-0.102294921875,  -0.2003173828125, -0.16650390625,  -0.0594482421875 }},
+        {{ 0.047607421875,   0.1015625,       0.089111328125,   0.033203125 }},
+        {{-0.026611328125,  -0.0582275390625, -0.0517578125,   -0.0196533203125 }},
+        {{ 0.014892578125,   0.0330810546875,  0.029296875,      0.010986328125 }},
+        {{-0.00830078125,   -0.0189208984375, -0.0291748046875,  0.001708984375 }}
+    }};
+    std::array<std::array<double,12>,2> history {};
+    int newest = 0;
+};
+
 // Gentle mastering width enhancement with two safeguards:
 // (1) a 220 Hz side low-pass leaves bass largely unaffected;
 // (2) a slow mid/side energy estimate suppresses widening when L/R are
