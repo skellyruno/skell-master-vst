@@ -126,6 +126,9 @@ int main() {
                                "highs","sauce","transients","output","ceiling","clipper"}) {
             auto* param=processor.parameters.getParameter(id);
             check(param!=nullptr,"missing mastering parameter");
+            if(juce::String(id)=="clipper")
+                check(param->getName(64)=="Clip",
+                      "CLIP must be the host-facing name without changing its parameter ID");
             check(std::abs(param->convertFrom0to1(param->getDefaultValue()))<0.0001f,
                   "mastering control default must be zero");
         }
