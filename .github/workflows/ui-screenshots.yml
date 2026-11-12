@@ -3,12 +3,9 @@ name: Skelly Master / SkellCore Headless UI
 # Routine UI capture runs locally in ~2 seconds. CI screenshot capture
 # remains available ONLY on explicit request for an emergency/full regression.
 # Windows VST3 build and DSP validation are a SEPARATE workflow.
-# One-time offline source/SDK bootstrap for local-only future builds.
-# Restore workflow_dispatch-only after the bootstrap artifact is collected.
+# Manual-only fallback. Routine four-scene UI captures and source builds run locally.
+# Separate Windows/DSP validations stay in build.yml.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/ui-screenshots.yml'
   workflow_dispatch:
 
 concurrency:
@@ -37,41 +34,6 @@ jobs:
             -DSKELLY_MASTER_BUILD_UI_RENDERER=ON
       - name: Compile real-editor development executable
         run: cmake --build build-ui --target SkellyMasterUIRenderer --parallel 3
-      - name: Export one-time offline development sources and headers
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p offline-linux-dev/checkout offline-linux-dev/vendor offline-linux-dev/debs
-          git archive HEAD | tar -xf - -C offline-linux-dev/checkout
-          test -f build-ui/_deps/juce-src/CMakeLists.txt
-          test -d build-ui/_deps/skellcoreshared-src/SkellCore
-          mkdir -p offline-linux-dev/vendor/juce offline-linux-dev/vendor/skellcore
-          tar --exclude=.git -cf - -C build-ui/_deps/juce-src . | tar -xf - -C offline-linux-dev/vendor/juce
-          tar --exclude=.git -cf - -C build-ui/_deps/skellcoreshared-src . | tar -xf - -C offline-linux-dev/vendor/skellcore
-          (cd offline-linux-dev/debs && apt-get download -qq             libasound2-dev libjack-jackd2-dev libfreetype6-dev libfontconfig1-dev             libx11-dev libxext-dev libxinerama-dev libxcursor-dev libxrandr-dev             libxcomposite-dev libxrender-dev libgl1-mesa-dev libglu1-mesa-dev             libxkbcommon-dev libxkbcommon-x11-dev libgtk-3-dev pkg-config) || true
-          # Package the developer headers, linker symlinks and pkg-config
-          # metadata already installed on this Ubuntu builder. 'apt download'
-          # can be disabled in the runner, so that alone is not sufficient.
-          dpkg-query -W -f='${binary:Package}\n'             | grep -- '-dev'             | grep -v -E 'libstdc|linux-libc-dev|libgcc-'             > /tmp/skell-dev-packages.txt
-          : > /tmp/skell-dev-files.txt
-          while IFS= read -r pkg; do
-            dpkg -L "$pkg" 2>/dev/null               | grep -E '^/usr/(include/|lib/|share/pkgconfig/)'               | sed -e 's#^/##' >> /tmp/skell-dev-files.txt || true
-          done < /tmp/skell-dev-packages.txt
-          printf '%s\n' 'usr/lib/x86_64-linux-gnu/pkgconfig'             'usr/share/pkgconfig' >> /tmp/skell-dev-files.txt
-          sort -u /tmp/skell-dev-files.txt -o /tmp/skell-dev-files.txt
-          tar -czf offline-linux-dev/dev-sysroot.tar.gz -C /             -T /tmp/skell-dev-files.txt
-          ls -lh offline-linux-dev/dev-sysroot.tar.gz
-          printf '%s\n' 'One-time Linux source/bootstrap archive for native local builds.'             'checkout/ = SKELL Master source at this artifact commit'             'vendor/juce/ = pinned JUCE 8.0.12'             'vendor/skellcore/ = pinned SkellCore revision'             'debs/ = selected Ubuntu 24.04 development packages (not Debian-native)'             'For a Debian 13 build, prefer matching Debian development packages or a compatible sysroot.'             'This is SOURCE, not a claim that the native compilation succeeds in every environment.'             > offline-linux-dev/README.txt
-          find offline-linux-dev/vendor -maxdepth 2 -name CMakeLists.txt | head
-          tar -czf SKELL-Master-Offline-Linux-Dev-Bootstrap.tar.gz offline-linux-dev
-          ls -lh SKELL-Master-Offline-Linux-Dev-Bootstrap.tar.gz
-      - name: Upload one-time local build SDK
-        uses: actions/upload-artifact@v6
-        with:
-          name: SkellyMaster-Offline-Source-DevSDK
-          path: SKELL-Master-Offline-Linux-Dev-Bootstrap.tar.gz
-          retention-days: 14
-          if-no-files-found: error
       - name: Export reusable offline Linux renderer
         shell: bash
         run: |
