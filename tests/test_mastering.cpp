@@ -1,4 +1,5 @@
 #include "../Source/DSP/MasteringEngine.h"
+#include "../Source/DSP/LoudnessMeter.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -15,6 +16,47 @@ int main() {
     using namespace skelly;
     constexpr double rate = 192000;
     const int lookahead = static_cast<int>(rate * 0.0015);
+    // K-weighting output metering: 400 ms and 3 s rectangular windows.
+    // 997 Hz at -20 dBFS peak stereo should read close to -20 LUFS.
+    // Mono is 3.01 LU lower and MUST NOT be counted twice.
+    for (const int sr : {44100, 48000, 96000}) {
+        StereoLoudnessMonitor stereo;
+        StereoLoudnessMonitor mono;
+        stereo.prepare(sr, 2);
+        mono.prepare(sr, 1);
+        require(stereo.momentaryLufs() <= -99.0 && stereo.shortTermLufs() <= -99.0,
+                "LUFS meter must be silent before audio");
+        constexpr double amplitude = 0.1;
+        for (int i=0; i<sr*4; ++i) {
+            const float x=static_cast<float>(
+                amplitude*std::sin(2.0*detail::pi*997.0*i/sr));
+            stereo.process(x,x);
+            mono.process(x,x);
+        }
+        const double m=stereo.momentaryLufs();
+        const double st=stereo.shortTermLufs();
+        const double mMono=mono.momentaryLufs();
+        require(std::abs(m+20.0)<0.32, "K-weighted momentary stereo tone calibration");
+        require(std::abs(st+20.0)<0.32, "K-weighted 3s stereo tone calibration");
+        require(std::abs((m-mMono)-3.01029995664)<0.03,
+                "mono output must not be treated as phantom dual mono");
+        for(int i=0;i<sr*4;++i) stereo.process(0.0f,0.0f);
+        require(stereo.momentaryLufs()<=-99.0 && stereo.shortTermLufs()<=-99.0,
+                "meter must decay to silence without stale LUFS values");
+        stereo.reset();
+        require(stereo.momentaryLufs()<=-99.0, "meter reset clears history");
+    }
+    StereoLoudnessMonitor malformedLoudness;
+    malformedLoudness.prepare(48000,2);
+    for (int i=0;i<1000;++i)
+        malformedLoudness.process(i%2
+            ? std::numeric_limits<float>::quiet_NaN()
+            : std::numeric_limits<float>::infinity(), 0.0f);
+    require(std::isfinite(malformedLoudness.momentaryLufs())
+            && std::isfinite(malformedLoudness.shortTermLufs()),
+            "malformed audio must not poison loudness monitor");
+    std::cout << "PASS: 400ms/3s LUFS-M/S, 44.1/48/96k, stereo/mono, silence\n";
+
     // Drive normalization must track the original transfer within audible
     // precision without repeating tanh(drive) per oversampled stereo frame.
     detail::DriveShaper shaper;
