@@ -166,7 +166,7 @@ int main() {
                     ++buttonCount; interactive.push_back(box);
                 }
             }
-            check(sliderCount==11 && buttonCount==5, "missing mastering controls or quick-tone buttons");
+            check(sliderCount==11 && buttonCount==5, "missing mastering controls or monitor buttons");
             for (size_t i=0;i<interactive.size();++i)
                 for (size_t j=i+1;j<interactive.size();++j)
                     check(!interactive[i].intersects(interactive[j]),
@@ -210,8 +210,9 @@ int main() {
 
         juce::Slider* input=nullptr;
         juce::Slider* clipper=nullptr;
-        juce::TextButton* warm=nullptr;
-        juce::TextButton* punch=nullptr;
+        juce::TextButton* peak=nullptr;
+        juce::TextButton* truePeak=nullptr;
+        juce::TextButton* clear=nullptr;
         juce::TextButton* bypass=nullptr;
         juce::TextButton* reset=nullptr;
         for (int i=0;i<editor.getNumChildComponents();++i) {
@@ -223,11 +224,13 @@ int main() {
             if (auto* button=dynamic_cast<juce::TextButton*>(component)) {
                 if (button->getButtonText()=="BYPASS") bypass=button;
                 if (button->getButtonText()=="RESET") reset=button;
-                if (button->getButtonText()=="WARM") warm=button;
-                if (button->getButtonText()=="PUNCH") punch=button;
+                if (button->getButtonText()=="PEAK") peak=button;
+                if (button->getButtonText()=="TRUE") truePeak=button;
+                if (button->getButtonText()=="CLEAR") clear=button;
             }
         }
-        check(input && bypass && reset && clipper && warm && punch, "cannot locate new controls");
+        check(input && bypass && reset && clipper && peak && truePeak && clear,
+              "cannot locate actual hardware monitor controls");
 
         // A true hardware rotary has a motionless bezel, barrel, lighting
         // and machined scale. Render the REAL editor at three knob positions
@@ -272,12 +275,16 @@ int main() {
               "rotary pointer did not move independently of the fixed metal");
         std::cout << "PASS: physical knob ring stationary; ivory pointer moves at min/zero/max\n";
 
-        warm->onClick();
-        check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-16.0f)<.12f,
-              "WARM macro must automate drive");
-        punch->onClick();
-        check(std::abs(processor.parameters.getRawParameterValue("transients")->load()-27.0f)<.12f,
-              "PUNCH macro must automate transients");
+        // Monitoring toggles and CLEAR must never change mix/audio parameters.
+        check(static_cast<bool>(peak->onClick) && static_cast<bool>(truePeak->onClick)
+              && static_cast<bool>(clear->onClick),
+              "monitor buttons must have working actions");
+        const float beforeDrive=processor.parameters.getRawParameterValue("drive")->load();
+        peak->onClick();
+        truePeak->onClick();
+        clear->onClick();
+        check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
+              "passive output monitoring modified audio");
         clipper->setValue(43.0,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-43.0f)<.12f,
               "clipper knob must automate real DSP parameter");
@@ -295,7 +302,7 @@ int main() {
               "reset did not restore bypass default");
         check(std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f,
               "reset did not restore clipper default");
-        std::cout << "PASS: presets, clipper, bypass, reset and automation bindings\n";
+        std::cout << "PASS: passive peak monitoring, clipper, bypass, reset and automation bindings\n";
 
         // Host-like audio checks exercise the actual JUCE wrapper + 4x resampler.
         for (const int sampleRate : {44100, 48000, 96000}) {
