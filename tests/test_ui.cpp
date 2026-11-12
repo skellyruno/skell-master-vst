@@ -156,7 +156,7 @@ int main() {
             const int height=juce::roundToInt(width * 760.0 / 1200.0);
             editor.setSize(width,height);
             const auto screen=editor.getLocalBounds();
-            int sliderCount=0, buttonCount=0;
+            int sliderCount=0, buttonCount=0, presetCount=0;
             std::vector<juce::Rectangle<int>> interactive;
             for (int i=0;i<editor.getNumChildComponents();++i) {
                 const auto* component=editor.getChildComponent(i);
@@ -167,9 +167,12 @@ int main() {
                     ++sliderCount; interactive.push_back(box);
                 } else if (dynamic_cast<const juce::TextButton*>(component) != nullptr) {
                     ++buttonCount; interactive.push_back(box);
+                } else if (dynamic_cast<const juce::ComboBox*>(component) != nullptr) {
+                    ++presetCount; interactive.push_back(box);
                 }
             }
-            check(sliderCount==11 && buttonCount==5, "missing mastering controls or monitor buttons");
+            check(sliderCount==11 && buttonCount==5 && presetCount==1,
+                  "missing mastering controls, monitor buttons or preset dropdown");
             for (size_t i=0;i<interactive.size();++i)
                 for (size_t j=i+1;j<interactive.size();++j)
                     check(!interactive[i].intersects(interactive[j]),
@@ -213,6 +216,7 @@ int main() {
 
         juce::Slider* input=nullptr;
         juce::Slider* clipper=nullptr;
+        juce::ComboBox* preset=nullptr;
         juce::TextButton* peak=nullptr;
         juce::TextButton* truePeak=nullptr;
         juce::TextButton* clear=nullptr;
@@ -224,6 +228,8 @@ int main() {
                 if (slider->getTooltip().startsWith("INPUT -")) input=slider;
                 if (slider->getComponentID()=="utility-clipper") clipper=slider;
             }
+            if (auto* combo=dynamic_cast<juce::ComboBox*>(component))
+                if(combo->getComponentID()=="skell-master-preset") preset=combo;
             if (auto* button=dynamic_cast<juce::TextButton*>(component)) {
                 if (button->getButtonText()=="BYPASS") bypass=button;
                 if (button->getButtonText()=="RESET") reset=button;
@@ -232,7 +238,7 @@ int main() {
                 if (button->getButtonText()=="CLEAR") clear=button;
             }
         }
-        check(input && bypass && reset && clipper && peak && truePeak && clear,
+        check(input && bypass && reset && clipper && peak && truePeak && clear && preset,
               "cannot locate actual hardware monitor controls");
 
         // A true hardware rotary has a motionless bezel, barrel, lighting
@@ -288,6 +294,16 @@ int main() {
         clear->onClick();
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
               "passive output monitoring modified audio");
+        check(preset->getNumItems()==4, "factory preset selector must list four working choices");
+        preset->setSelectedId(2,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-15.0f)<.12f,
+              "WARM factory preset must apply its real DSP drive setting");
+        preset->setSelectedId(3,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("transients")->load()-22.0f)<.12f,
+              "PUNCH factory preset must apply its real DSP transient setting");
+        preset->setSelectedId(1,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("drive")->load())<.12f,
+              "INIT factory preset must restore zero drive");
         clipper->setValue(43.0,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-43.0f)<.12f,
               "clipper knob must automate real DSP parameter");
