@@ -171,7 +171,7 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",2,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",3,nullptr);
     if (auto xml=snapshot.createXml()) copyXmlToBinary(*xml,dest);
 }
 
@@ -195,7 +195,22 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
                 }
             }
         }
-        snapshot.setProperty("skellMasterStateVersion",2,nullptr);
+        // V1/V2 projects predate the LIMIT / CLIP control. Insert its neutral
+        // state explicitly, even if a previous preset left the knob nonzero.
+        bool hasClipper=false;
+        for(int index=0;index<snapshot.getNumChildren();++index) {
+            if(snapshot.getChild(index).getProperty("id").toString()=="clipper") {
+                hasClipper=true;
+                break;
+            }
+        }
+        if(!hasClipper && snapshot.getNumChildren()>0) {
+            juce::ValueTree clipperState(snapshot.getChild(0).getType());
+            clipperState.setProperty("id","clipper",nullptr);
+            clipperState.setProperty("value",0.0f,nullptr);
+            snapshot.appendChild(clipperState,nullptr);
+        }
+        snapshot.setProperty("skellMasterStateVersion",3,nullptr);
         parameters.replaceState(snapshot);
     }
 }
