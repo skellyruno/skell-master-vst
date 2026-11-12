@@ -64,33 +64,31 @@ inline void patina(juce::Graphics& g, juce::Rectangle<float> area, uint32_t seed
     }
 }
 
-// Three-dimensional countersunk slotted fastener. The deeper black socket,
-// offset cast shadow and directional polished edge remain legible at 60% scale.
-inline void screw(juce::Graphics& g, float x, float y, float scale=1.0f) {
-    juce::Graphics::ScopedSaveState saved(g);
+// Small metallic cross-head fastener. Deep countersink and four machined
+// recess arms remain truly centred. No fake painted dots at panel corners.
+inline void screw(juce::Graphics& g,float x,float y,float scale=1.0f) {
+    juce::Graphics::ScopedSaveState save(g);
     g.addTransform(juce::AffineTransform::scale(scale,scale,x,y));
-    g.setColour(juce::Colours::black.withAlpha(0.77f));
-    g.fillEllipse(x-7.8f,y-6.6f,15.6f,15.6f);
-    juce::ColourGradient countersink(juce::Colour(0xff100d0a),x-7,y-7,
-                                      juce::Colour(0xff9d7f55),x+6,y+6,false);
-    countersink.addColour(0.64,juce::Colour(0xff282118));
-    g.setGradientFill(countersink);
-    g.fillEllipse(x-6.8f,y-6.8f,13.6f,13.6f);
-    juce::ColourGradient head(juce::Colour(0xffffe5b7),x-5.5f,y-5.2f,
-                               juce::Colour(0xff43301b),x+5.2f,y+5.6f,false);
-    head.addColour(0.22,juce::Colour(0xffc5a36f));
-    head.addColour(0.67,juce::Colour(0xff745a38));
-    g.setGradientFill(head);
-    g.fillEllipse(x-5.0f,y-5.1f,10.0f,10.0f);
-    g.setColour(juce::Colour(0xff100d08).withAlpha(0.84f));
-    g.drawEllipse(x-4.7f,y-4.7f,9.4f,9.4f,0.75f);
-    // Machined slot, with a tiny specular edge on the raised screw head.
-    g.setColour(juce::Colour(0xff21170f));
-    g.drawLine(x-2.85f,y+2.05f,x+2.85f,y-2.05f,2.05f);
-    g.setColour(juce::Colour(0xffe7c48b).withAlpha(0.77f));
-    g.drawLine(x-2.9f,y+1.20f,x+2.30f,y-2.52f,0.70f);
-    g.setColour(juce::Colours::white.withAlpha(0.24f));
-    g.drawEllipse(x-3.7f,y-3.9f,7.5f,7.5f,0.55f);
+    g.setColour(juce::Colours::black.withAlpha(0.76f));
+    g.fillEllipse(x-5.5f,y-5.0f,11.0f,11.0f);
+    juce::ColourGradient socket(juce::Colour(0xff0a0b0a),x-5,y-5,
+                                 juce::Colour(0xff756f62),x+5,y+5,false);
+    g.setGradientFill(socket);
+    g.fillEllipse(x-4.85f,y-4.85f,9.7f,9.7f);
+    juce::ColourGradient steel(juce::Colour(0xfffbf7e9),x-3.7f,y-4.1f,
+                                juce::Colour(0xff454842),x+3.8f,y+4.3f,false);
+    steel.addColour(0.31,juce::Colour(0xffbec2ba));
+    steel.addColour(0.68,juce::Colour(0xff777b75));
+    g.setGradientFill(steel);
+    g.fillEllipse(x-3.78f,y-3.78f,7.56f,7.56f);
+    // A crisply cut X, with near-black recessed floors and a thin edge
+    // reflecting the fixed top-left light. Hardware-size, not a giant rivet.
+    g.setColour(juce::Colour(0xff171c1a));
+    g.drawLine(x-2.05f,y-2.05f,x+2.05f,y+2.05f,1.35f);
+    g.drawLine(x-2.05f,y+2.05f,x+2.05f,y-2.05f,1.35f);
+    g.setColour(juce::Colour(0xfff3f2e4).withAlpha(0.72f));
+    g.drawLine(x-2.17f,y-2.72f,x+1.70f,y+1.15f,0.43f);
+    g.drawLine(x-2.18f,y+1.54f,x+1.25f,y-1.89f,0.43f);
 }
 
 // Recessed glossy hardware display housing. Draw before its live text or
