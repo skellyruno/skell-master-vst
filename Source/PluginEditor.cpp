@@ -313,6 +313,15 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     g.setGradientFill(crown);
     g.fillEllipse(cx-face+1.0f,cy-face+1.0f,
                   2*(face-1.0f),2*(face-1.0f));
+    // A broad stationary grazing highlight gives the solid knob cap weight.
+    juce::ColourGradient capLustre(
+        juce::Colours::white.withAlpha(0.105f),
+        cx-face*0.60f,cy-face*0.64f,
+        juce::Colours::white.withAlpha(0.0f),
+        cx+face*0.48f,cy+face*0.62f,false);
+    g.setGradientFill(capLustre);
+    g.fillEllipse(cx-face+2.0f,cy-face+2.0f,
+                  2*(face-2.0f),2*(face-2.0f));
     for(int ring=0;ring<2;++ring) {
         const float rr=face*(0.47f+ring*0.29f);
         g.setColour((ring%2==0?juce::Colours::black:juce::Colours::white)
@@ -842,7 +851,8 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     font(g,13,true);g.setColour(hw::gold);
     text(g,"OUTPUT MONITOR",65,193,178,18);
     // The dedicated monitor is passive: no audio processing changes.
-    hw::glassWindow(g,{65,247,182,30},5.0f);
+    // Leave a visible clearance around the lower panel mounting screws.
+    hw::glassWindow(g,{70,247,169,30},5.0f);
 
     // Modular lower rack: same genuine APVTS controls as previous build.
     hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.0f);
@@ -932,7 +942,7 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
     font(g,13,true);g.setColour(readoutWhite);
     text(g,juce::String(monitorTruePeak ? "TP " : "SP ")
             + juce::String(db,1) + (monitorTruePeak ? " dBTP" : " dBFS"),
-         73,252,167,20,juce::Justification::centred);
+         73,252,163,20,juce::Justification::centred);
 }
 
 void SkellyMasterAudioProcessorEditor::resized() {
