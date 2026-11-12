@@ -118,6 +118,25 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::setSkin(
     setColour(juce::TextButton::textColourOnId,lettering);
     setColour(juce::TextButton::buttonColourId,juce::Colour(0xff1b1e19));
     setColour(juce::TextButton::buttonOnColourId,accent.darker(0.70f));
+    setColour(juce::ComboBox::textColourId,lettering);
+    setColour(juce::ComboBox::arrowColourId,accent);
+    setColour(juce::ComboBox::backgroundColourId,juce::Colour(0xff080a08));
+    setColour(juce::PopupMenu::backgroundColourId,juce::Colour(0xff111410));
+    setColour(juce::PopupMenu::textColourId,lettering);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId,accent.darker(0.72f));
+}
+
+void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawComboBox(
+    juce::Graphics& g,int width,int height,bool,int,int,int,int,juce::ComboBox&) {
+    hw::glassWindow(g,{0.0f,0.0f,static_cast<float>(width),static_cast<float>(height)},4.0f);
+    const auto accent=hardwareAccent(activeSkin);
+    g.setColour(accent.withAlpha(0.78f));
+    juce::Path arrow;
+    const float cx=static_cast<float>(width)-13.0f,cy=static_cast<float>(height)*0.5f;
+    arrow.startNewSubPath(cx-4.0f,cy-2.0f);
+    arrow.lineTo(cx,cy+2.0f);
+    arrow.lineTo(cx+4.0f,cy-2.0f);
+    g.strokePath(arrow,juce::PathStrokeType(1.6f));
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
@@ -416,6 +435,18 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     reset.onClick = [this] { resetToDefaults(); };
     addAndMakeVisible(reset);
 
+    // The small GR-module rectangle is now a working factory-preset selector.
+    // Each selection writes actual APVTS parameters through host gestures.
+    presetSelector.setComponentID("skell-master-preset");
+    presetSelector.addItem("INIT / CLEAN",1);
+    presetSelector.addItem("WARM MASTER",2);
+    presetSelector.addItem("PUNCH MASTER",3);
+    presetSelector.addItem("LOUD MASTER",4);
+    presetSelector.setSelectedId(1,juce::dontSendNotification);
+    presetSelector.setTooltip("Choose a factory mastering starting point. All values are editable and automatable.");
+    presetSelector.onChange=[this] { applyFactoryPreset(presetSelector.getSelectedId()); };
+    addAndMakeVisible(presetSelector);
+
     // These are genuine monitoring controls; none changes an exported mix.
     monitorButtons[0].setTooltip("PEAK: show stereo sample-peak hold in dBFS.");
     monitorButtons[1].setTooltip("TRUE: show 4x reconstructed output peaks in dBTP.");
@@ -508,6 +539,26 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
         param->beginChangeGesture();
         param->setValueNotifyingHost(param->getDefaultValue());
         param->endChangeGesture();
+    }
+}
+
+void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
+    if(presetId<1 || presetId>4) return;
+    // Ordered exactly as ids[]: Input, Drive, Glue, Dynamics, Lows, Highs,
+    // Sauce, Transients, Output, Ceiling offset, Clip. All conservative
+    // starting points; no hidden bypass, DSP mode or latency changes.
+    static constexpr float values[4][11]={
+        {0,0,0,0,0,0,0,0,0,0,0},
+        {0,15,18,10,0,0,12,0,0,0,0},
+        {0,8,12,7,0,0,0,22,0,0,0},
+        {0,10,24,18,0,0,8,8,0,0,12}
+    };
+    for(int i=0;i<knobCount;++i) {
+        if(auto* p=processor.parameters.getParameter(ids[i])) {
+            p->beginChangeGesture();
+            p->setValueNotifyingHost(p->convertTo0to1(values[presetId-1][i]));
+            p->endChangeGesture();
+        }
     }
 }
 
@@ -770,8 +821,10 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
 
     const bool active=std::isfinite(displayedReduction)
                    && displayedReduction>=0.5f;
-    // Recessed light-pipe holder stays dark when no compressor/limiter GR.
-    hw::glassWindow(g,{972,225,176,24},3.1f);
+    // The former GR light-pipe rectangle now houses the preset dropdown.
+    // Its label is engraved above the recessed glass, never faked as LEDs.
+    font(g,11,true);g.setColour(hw::parchment);
+    text(g,"PRESET",983,210,157,15,juce::Justification::centredLeft);
     if (!active) return;
 
     font(g,37,true);
@@ -780,17 +833,7 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
     font(g,12,true);
     g.setColour(hw::gold);
     text(g,"dB",1117,178,27,14);
-    const int lit=juce::jlimit(1,16,juce::roundToInt(
-        displayedReduction*(16.0f/18.0f)));
-    for(int i=0;i<lit;++i) {
-        const float xx=977.0f+i*10.4f;
-        g.setColour(juce::Colours::black.withAlpha(0.7f));
-        g.fillRoundedRectangle(xx+0.7f,230.2f,7.3f,15.3f,1.9f);
-        g.setColour(i>12?juce::Colour(0xffefb653):hw::phosphor);
-        g.fillRoundedRectangle(xx,229.1f,6.9f,16.0f,2.0f);
-        g.setColour(juce::Colours::white.withAlpha(0.30f));
-        g.drawLine(xx+1.1f,231.0f,xx+1.1f,242.0f,0.55f);
-    }
+    // Gain reduction is displayed only in the upper electronic lens.
 }
 
 void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
@@ -970,6 +1013,7 @@ void SkellyMasterAudioProcessorEditor::resized() {
     }
     place(bypass,887,29,125,38);
     place(reset,1024,29,126,38);
+    place(presetSelector,976,228,170,26);
     place(knobs[10],371,685,178,68);
     for(int i=0;i<3;++i)
         place(monitorButtons[static_cast<size_t>(i)],64+i*61,216,57,29);
