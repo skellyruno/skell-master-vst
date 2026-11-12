@@ -197,9 +197,14 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonText(
     juce::Graphics& g, juce::TextButton& b, bool, bool) {
-    font(g,juce::jlimit(10.0f,17.0f,static_cast<float>(b.getHeight())*0.42f),true);
+    const float size=juce::jlimit(9.0f,17.0f,
+                                  static_cast<float>(b.getHeight())*0.43f);
+    font(g,size,true);
     g.setColour(findColour(juce::TextButton::textColourOffId));
-    g.drawFittedText(b.getButtonText(),b.getLocalBounds().reduced(12,3),
+    // Compact 620px editor leaves only ~30px for the left mini-buttons.
+    // A fixed 12px inset previously crushed their text into a tiny sliver.
+    const int sidePad=b.getWidth()<45?2:b.getWidth()<95?6:12;
+    g.drawFittedText(b.getButtonText(),b.getLocalBounds().reduced(sidePad,3),
                      juce::Justification::centred,1);
 }
 
