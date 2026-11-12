@@ -28,7 +28,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SkellyMasterAudioProcessor::
     add("transients", "Transients",    0.0f, 100.0f, 1.0f,  0.0f, "%");
     add("output",     "Output Trim", -18.0f, 12.0f, 1.0f,  0.0f, "dB");
     add("ceiling",    "Ceiling Adjust", -3.0f, 3.0f, 1.0f, 0.0f, "step");
-    add("clipper",    "Limiter / Clipper", 0.0f, 100.0f, 1.0f, 0.0f, "%");
+    add("clipper",    "Clip", 0.0f, 100.0f, 1.0f, 0.0f, "%");
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"bypass", 1}, "Bypass", false));
     return layout;
@@ -200,7 +200,7 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
                 }
             }
         }
-        // V1/V2 projects predate the LIMIT / CLIP control. Insert its neutral
+        // V1/V2 projects predate the CLIP control. Insert its neutral
         // state explicitly, even if a previous preset left the knob nonzero.
         bool hasClipper=false;
         for(int index=0;index<snapshot.getNumChildren();++index) {
