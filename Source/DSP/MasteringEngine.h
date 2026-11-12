@@ -180,6 +180,7 @@ struct MasterParameters {
     double sauce = 0.0;     // 0..1
     double transients = 0.0;// 0..1
     double outputDb = 0.0;
+    double clipper = 0.0;  // 0=original transparent limiter, 1=pre-limit soft clipper
     double ceilingDb = -1.0;
     bool bypass = false;
 };
@@ -272,6 +273,7 @@ public:
         lows.prepare(rate, 35, 0); highs.prepare(rate, 35, 0);
         sauceAmt.prepare(rate, 30, 0); transientsAmt.prepare(rate, 30, 0);
         output.prepare(rate, 15, 1); ceiling.prepare(rate, 15, detail::dbToLinear(-1));
+        clipperMix.prepare(rate, 18, 0);
         bypassMix.prepare(rate, 12, 0);
         glueComp.prepare(rate, 27, 220);
         dynamicsComp.prepare(rate, 8, 110);
@@ -312,6 +314,7 @@ public:
         sauceAmt.setTarget(detail::clamp(p.sauce, 0, 1));
         transientsAmt.setTarget(detail::clamp(p.transients, 0, 1));
         output.setTarget(detail::dbToLinear(detail::clamp(p.outputDb, -18, 12)));
+        clipperMix.setTarget(detail::clamp(p.clipper, 0, 1));
         ceiling.setTarget(detail::dbToLinear(detail::clamp(p.ceilingDb, -3, -0.1)));
         bypassMix.setTarget(p.bypass ? 1.0 : 0.0);
     }
@@ -333,6 +336,7 @@ public:
         const double s = sauceAmt.next(), tr = transientsAmt.next();
         const double outGain = output.next();
         const double absoluteCeiling = ceiling.next();
+        const double clipAmount = clipperMix.next();
         const double targetCeiling = absoluteCeiling * 0.977237220956; // 0.2dB reconstruction margin
         const double by = bypassMix.next();
         l *= inputGain; r *= inputGain;
@@ -397,6 +401,28 @@ public:
             stereoImager.process(l, r, s);
         l *= outGain; r *= outGain;
 
+        // Optional oversampled soft clipping ahead of the existing lookahead
+        // limiter. At zero this is exactly a no-op for old projects. The
+        // rational soft knee is continuous and avoids exp/tanh on the audio
+        // thread; the linked limiter and post-downsample ceiling stay active.
+        double clipGain = 1.0;
+        if (clipAmount > 1.0e-5) {
+            const double knee = absoluteCeiling * 0.82;
+            const double headroom = absoluteCeiling - knee;
+            const auto soften = [&](double sample) noexcept {
+                const double magnitude = std::abs(sample);
+                if (magnitude <= knee) return sample;
+                const double excess = magnitude - knee;
+                const double rounded = knee + headroom * excess / (headroom + excess);
+                const double shaped = std::copysign(rounded, sample);
+                const double mixed = sample + clipAmount * (shaped - sample);
+                clipGain = std::min(clipGain, std::abs(mixed) / magnitude);
+                return mixed;
+            };
+            l = soften(l);
+            r = soften(r);
+        }
+
         // Lookahead feed-forward brickwall-style limiter. Detector looks ahead by
         // delaying the programme signal; release is stereo-linked and smooth.
         const double peak = std::max(std::abs(l), std::abs(r));
@@ -438,7 +464,7 @@ public:
         }
         const double resultL = wetL * (1 - by) + dryL * by;
         const double resultR = wetR * (1 - by) + dryR * by;
-        const double effectiveCompression = 1.0 - (1.0 - glueGain * dynamicsGain * limiterGain) * (1.0 - by);
+        const double effectiveCompression = 1.0 - (1.0 - glueGain * dynamicsGain * limiterGain * clipGain) * (1.0 - by);
         gainReduction = std::min(gainReduction, std::max(1.0e-9, effectiveCompression));
         outputPeak = std::max(outputPeak, std::max(std::abs(resultL), std::abs(resultR)));
         return { static_cast<float>(resultL), static_cast<float>(resultR) };
@@ -451,7 +477,7 @@ private:
     double rate = 192000, dcR = 0.999;
     int channels = 2, lookahead = 288, writeIndex = 0, eqCounter = 0;
     std::array<std::vector<double>, 2> programDelay, dryDelay;
-    detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, bypassMix;
+    detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, bypassMix;
     std::array<detail::Biquad, 2> lowShelf, highShelf;
     std::array<detail::OnePole, 2> hf;
     StereoImager stereoImager;
