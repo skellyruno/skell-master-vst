@@ -52,7 +52,7 @@ jobs:
           # Package the developer headers, linker symlinks and pkg-config
           # metadata already installed on this Ubuntu builder. 'apt download'
           # can be disabled in the runner, so that alone is not sufficient.
-          dpkg-query -W -f='\${binary:Package}\n'             | grep -- '-dev'             | grep -v -E 'libstdc\\+\\+|linux-libc-dev|libgcc-'             > /tmp/skell-dev-packages.txt
+          dpkg-query -W -f='${binary:Package}\n'             | grep -- '-dev'             | grep -v -E 'libstdc|linux-libc-dev|libgcc-'             > /tmp/skell-dev-packages.txt
           : > /tmp/skell-dev-files.txt
           while IFS= read -r pkg; do
             dpkg -L "$pkg" 2>/dev/null               | grep -E '^/usr/(include/|lib/|share/pkgconfig/)'               | sed -e 's#^/##' >> /tmp/skell-dev-files.txt || true
