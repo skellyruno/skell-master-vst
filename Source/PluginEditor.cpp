@@ -424,16 +424,20 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     reset.onClick = [this] { resetToDefaults(); };
     addAndMakeVisible(reset);
 
-    const char* quickDescriptions[3] = {
-        "CLEAN: return tone-shaping controls to neutral (output and ceiling unchanged)",
-        "WARM: gentle harmonics, low-shelf warmth and smooth glue",
-        "PUNCH: modest transient lift and energetic bus compression"
-    };
-    for(int i=0;i<3;++i) {
-        quickTone[static_cast<size_t>(i)].setTooltip(quickDescriptions[i]);
-        quickTone[static_cast<size_t>(i)].onClick=[this,i] { applyQuickTone(i); };
-        addAndMakeVisible(quickTone[static_cast<size_t>(i)]);
-    }
+    // These are genuine monitoring controls; none changes an exported mix.
+    monitorButtons[0].setTooltip("PEAK: show stereo sample-peak hold in dBFS.");
+    monitorButtons[1].setTooltip("TRUE: show 4x reconstructed output peaks in dBTP.");
+    monitorButtons[2].setTooltip("CLEAR: release the peak holds and monitor history.");
+    monitorButtons[0].setClickingTogglesState(true);
+    monitorButtons[1].setClickingTogglesState(true);
+    monitorButtons[0].setRadioGroupId(2301);
+    monitorButtons[1].setRadioGroupId(2301);
+    monitorButtons[1].setToggleState(true,juce::dontSendNotification);
+    monitorButtons[0].onClick=[this] { monitorTruePeak=false; repaint(); };
+    monitorButtons[1].onClick=[this] { monitorTruePeak=true; repaint(); };
+    monitorButtons[2].onClick=[this] { clearMeterHolds(); };
+    for(auto& button : monitorButtons)
+        addAndMakeVisible(button);
 
     setResizable(true, true);
     setResizeLimits(620, 393, 1800, 1140);
@@ -530,24 +534,13 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     }
 }
 
-void SkellyMasterAudioProcessorEditor::applyQuickTone(int tone) {
-    // Three honest quick-start macro presets, not fake DSP modes.
-    // Keep output, ceiling, bypass and saved state intact; automate existing
-    // parameter IDs so hosts see every user-initiated change.
-    static constexpr float tones[3][8] = {
-        {0, 0, 0, 0, 0, 0, 0, 0},
-        {0, 16, 22, 10, 1, 0, 12, 0},
-        {0, 7, 28, 13, 0, 1, 8, 27}
-    };
-    if(tone < 0 || tone >= 3) return;
-    for(int i=0;i<8;++i) {
-        if(auto* p=processor.parameters.getParameter(ids[i])) {
-            const auto normalized=p->convertTo0to1(tones[tone][i]);
-            p->beginChangeGesture();
-            p->setValueNotifyingHost(normalized);
-            p->endChangeGesture();
-        }
-    }
+void SkellyMasterAudioProcessorEditor::clearMeterHolds() {
+    meterValues.fill(0.0f);
+    peakHoldValues.fill(0.0f);
+    peakHoldTicks.fill(0);
+    displayedTruePeak=0.0f;
+    lastPaintedTruePeak=0.0f;
+    repaint();
 }
 
 void SkellyMasterAudioProcessorEditor::timerCallback() {
@@ -564,6 +557,7 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
         }
     }
     displayedReduction = juce::jmax(processor.consumeMaxReduction(), displayedReduction * 0.86f);
+    displayedTruePeak = juce::jmax(processor.consumeTruePeak(), displayedTruePeak * 0.90f);
     const bool bypassed = bypass.getToggleState();
 
     // Meter graphics are relatively expensive at a compact size. While the
@@ -592,6 +586,11 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
         lastPaintedPeakHoldValues = peakHoldValues;
         lastPaintedReduction = displayedReduction;
         dirty(270, 105, 901, 177);
+    }
+    // The live glass display changes only on meaningful metering movement.
+    if(std::abs(displayedTruePeak-lastPaintedTruePeak) >= 0.002f) {
+        lastPaintedTruePeak=displayedTruePeak;
+        dirty(64,245,185,35);
     }
     if (bypassed != lastDisplayedBypass) {
         lastDisplayedBypass = bypassed;
@@ -682,7 +681,7 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         text(f,"-12",171,48,40,15);
         text(f,"-6",225,72,31,15);
         text(f,"0",266,93,19,15);
-        skelly::ui::drawMachinedSkull(f,{142,80,26,23},0.75f,
+        skelly::ui::drawStarSkull(f,{142,80,26,23},0.75f,
                                   juce::Colour(0xff392e22));
         font(f,8,true);f.setColour(juce::Colour(0xff342b1f));
         text(f,"SKELLY",126,105,58,11);
@@ -873,14 +872,9 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     text(g,"4x OS  /  STEREO LINK  /  LIMIT",60,175,190,15);
     hw::divider(g,63,191,247,191);
     font(g,13,true);g.setColour(hw::gold);
-    text(g,"QUICK TONE",65,193,178,18);
-    // CLEAN, WARM and PUNCH are actual parameter macros below.
-    g.setColour(juce::Colour(0xff123b1d));
-    g.fillEllipse(82,259,13,13);
-    g.setColour(hw::phosphor);
-    g.fillEllipse(85.4f,262.4f,6.2f,6.2f);
-    font(g,11,true);g.setColour(hw::phosphor);
-    text(g,"ENGINE",99,253,66,20,juce::Justification::centredLeft);
+    text(g,"OUTPUT MONITOR",65,193,178,18);
+    // The dedicated monitor is passive: no audio processing changes.
+    hw::glassWindow(g,{65,247,182,30},5.0f);
 
     // Modular lower rack: same genuine APVTS controls as previous build.
     hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.0f);
@@ -961,12 +955,16 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
     drawMeter(g,{612,112,325,159},meterValues[1],peakHoldValues[1],"OUTPUT  /  R");
     drawReduction(g);
 
-    // Read the actual attached state, so DAW automation updates the status.
-    const bool bypassed = bypass.getToggleState();
-    font(g,12,true);
-    g.setColour(bypassed ? hw::gold : neon);
-    text(g,bypassed ? "BYPASSED" : "ACTIVE",
-         174,253,80,19,juce::Justification::centredLeft);
+    // Readout is separate from artwork and continuously uses actual DSP data.
+    // -80 dB is a visual noise-floor marker rather than fabricated activity.
+    const float observed=monitorTruePeak ? displayedTruePeak
+        : juce::jmax(peakHoldValues[0],peakHoldValues[1]);
+    const float db=juce::Decibels::gainToDecibels(
+        juce::jmax(observed,0.0001f),-80.0f);
+    font(g,13,true);g.setColour(readoutWhite);
+    text(g,(monitorTruePeak ? "TP " : "SP ")
+            + juce::String(db,1) + (monitorTruePeak ? " dBTP" : " dBFS"),
+         73,252,167,20,juce::Justification::centred);
 }
 
 void SkellyMasterAudioProcessorEditor::resized() {
@@ -996,7 +994,7 @@ void SkellyMasterAudioProcessorEditor::resized() {
     place(reset,1024,29,126,38);
     place(knobs[10],371,685,178,68);
     for(int i=0;i<3;++i)
-        place(quickTone[static_cast<size_t>(i)],64+i*61,216,57,29);
+        place(monitorButtons[static_cast<size_t>(i)],64+i*61,216,57,29);
     place(knobs[8],647,685,199,68);
     place(knobs[9],929,685,181,68);
     place(skullHitTarget,57,10,82,72);
