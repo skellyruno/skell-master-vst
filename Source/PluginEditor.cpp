@@ -677,7 +677,7 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         text(f,"-12",171,48,40,15);
         text(f,"-6",225,72,31,15);
         text(f,"0",266,93,19,15);
-        skelly::ui::drawStarSkull(f,{142,80,26,23},0.75f,
+        skelly::ui::drawMachinedSkull(f,{142,80,26,23},0.75f,
                                   juce::Colour(0xff392e22));
         font(f,8,true);f.setColour(juce::Colour(0xff342b1f));
         text(f,"SKELLY",126,105,58,11);
@@ -828,9 +828,6 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     static const juce::Image photoHeader = juce::ImageFileFormat::loadFrom(
         BinaryData::header_nameplate_green_blank_png,
         static_cast<size_t>(BinaryData::header_nameplate_green_blank_pngSize));
-    static const juce::Image photoSkullLeft = juce::ImageFileFormat::loadFrom(
-        BinaryData::logo_skull_header_left_png,
-        static_cast<size_t>(BinaryData::logo_skull_header_left_pngSize));
     g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
     if (photoHeader.isValid())
         g.drawImage(photoHeader,405.0f,7.0f,391.0f,73.0f,
@@ -841,13 +838,9 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
         for(float x : {417.0f,784.0f})
             for(float y : {21.0f,66.0f}) hw::screw(g,x,y,0.83f);
     }
-   #if SKELLY_MASTER_HEADER_ASSETS
-    if (photoSkullLeft.isValid())
-        g.drawImage(photoSkullLeft,57.0f,10.0f,82.0f,72.0f,
-                    0,0,photoSkullLeft.getWidth(),photoSkullLeft.getHeight());
-    else
-   #endif
-        skelly::ui::drawStarSkull(g,{57,10,82,72},0.98f,hw::gold);
+    // Mastering hardware uses the new machined medallion consistently.
+    // One selectable left logo, no old star-eyes and no right skull.
+    skelly::ui::drawMachinedSkull(g,{57,10,82,72},0.98f,hw::gold);
     font(g,31,true);g.setColour(hw::gold);
     text(g,"SKELLY",145,15,185,38,juce::Justification::centredLeft);
     font(g,16,true);g.setColour(hw::parchment);
