@@ -60,6 +60,18 @@ void checkRendered(juce::Image image) {
               << ", green=" << green << "\n";
     check(visible > 100, "editor rendered nearly blank");
     check(green > 6, "neon Skelly accents missing from UI snapshot");
+    // Inspect the real white OUTPUT/L meter face, scaled to the tested size.
+    int whiteFace=0;
+    for (int y=static_cast<int>(image.getHeight()*0.210f);
+         y<static_cast<int>(image.getHeight()*0.275f);y+=2)
+        for (int x=static_cast<int>(image.getWidth()*0.315f);
+             x<static_cast<int>(image.getWidth()*0.475f);x+=2) {
+            const auto c=image.getPixelAt(x,y);
+            if (c.getRed()>196 && c.getGreen()>196 && c.getBlue()>190
+                && std::abs(static_cast<int>(c.getRed())-
+                            static_cast<int>(c.getBlue()))<20) ++whiteFace;
+        }
+    check(whiteFace>20,"OUTPUT meter photographic face must render white");
 }
 } // namespace
 
@@ -89,10 +101,54 @@ int main() {
               "reference VU meter JPEG missing or unexpectedly low resolution");
         check(iron.isValid() && green.isValid(),
               "photographic panel grain assets did not decode");
+       #if SKELLY_MASTER_HEADER_ASSETS
+        const auto header = juce::ImageFileFormat::loadFrom(
+            BinaryData::header_nameplate_green_blank_png,
+            static_cast<size_t>(BinaryData::header_nameplate_green_blank_pngSize));
+        const auto skullLeft = juce::ImageFileFormat::loadFrom(
+            BinaryData::logo_skull_header_left_png,
+            static_cast<size_t>(BinaryData::logo_skull_header_left_pngSize));
+        check(header.isValid() && skullLeft.isValid(),
+              "reference header artwork did not decode");
+        check(header.getWidth() >= 391 && header.getHeight() >= 73,
+              "header nameplate below display resolution");
+        check(skullLeft.getPixelAt(0,0).getAlpha() < 32,
+              "transparent header skull assets have opaque corners");
+        std::cout << "PASS: reference-kit header graphics decoded\n";
+       #endif
         std::cout << "PASS: reference-derived hardware images decoded\n";
         SkellyMasterAudioProcessor processor;
         processor.prepareToPlay(48000.0, 512);
         SkellyMasterAudioProcessorEditor editor(processor);
+        // Every *fresh* control starts at displayed zero. Old projects still
+        // restore their saved user settings rather than resetting on open.
+        for (const auto* id : {"input","drive","glue","dynamics","lows",
+                               "highs","sauce","transients","output","ceiling","clipper"}) {
+            auto* param=processor.parameters.getParameter(id);
+            check(param!=nullptr,"missing mastering parameter");
+            if(juce::String(id)=="clipper")
+                check(param->getName(64)=="Clip",
+                      "CLIP must be the host-facing name without changing its parameter ID");
+            check(std::abs(param->convertFrom0to1(param->getDefaultValue()))<0.0001f,
+                  "mastering control default must be zero");
+        }
+        check(std::abs(skelly::detail::ceilingOffsetToDb(0.0)+1.0)<1e-9,
+              "zero ceiling adjustment must preserve safe -1 dBFS target");
+        juce::Button* skinButton=nullptr;
+        for (int childIndex=0;childIndex<editor.getNumChildComponents();++childIndex) {
+            auto* child=editor.getChildComponent(childIndex);
+            if(child && child->getComponentID()=="skellcore-theme-skull")
+                skinButton=dynamic_cast<juce::Button*>(child);
+        }
+        check(skinButton && static_cast<bool>(skinButton->onClick),
+              "left skull must have functional SkellCore skin callback");
+        const auto originalSkin=editor.selectedSkin();
+        skinButton->onClick();
+        check(editor.selectedSkin()==skellcore::ui::nextSkin(originalSkin),
+              "skull click advances shared SkellCore theme");
+        for(int remaining=0;remaining<3;++remaining) skinButton->onClick();
+        check(editor.selectedSkin()==originalSkin,
+              "four skull clicks return to the original palette");
         editor.setVisible(true); // Offscreen component has no native desktop peer.
 
         // Visual coverage: compact min/default, intermediate, design, large.
@@ -100,7 +156,7 @@ int main() {
             const int height=juce::roundToInt(width * 760.0 / 1200.0);
             editor.setSize(width,height);
             const auto screen=editor.getLocalBounds();
-            int sliderCount=0, buttonCount=0;
+            int sliderCount=0, buttonCount=0, presetCount=0;
             std::vector<juce::Rectangle<int>> interactive;
             for (int i=0;i<editor.getNumChildComponents();++i) {
                 const auto* component=editor.getChildComponent(i);
@@ -111,9 +167,12 @@ int main() {
                     ++sliderCount; interactive.push_back(box);
                 } else if (dynamic_cast<const juce::TextButton*>(component) != nullptr) {
                     ++buttonCount; interactive.push_back(box);
+                } else if (dynamic_cast<const juce::ComboBox*>(component) != nullptr) {
+                    ++presetCount; interactive.push_back(box);
                 }
             }
-            check(sliderCount==10 && buttonCount==2, "missing mastering controls");
+            check(sliderCount==11 && buttonCount==5 && presetCount==1,
+                  "missing mastering controls, monitor buttons or preset dropdown");
             for (size_t i=0;i<interactive.size();++i)
                 for (size_t j=i+1;j<interactive.size();++j)
                     check(!interactive[i].intersects(interactive[j]),
@@ -131,24 +190,125 @@ int main() {
             if (width==620 || width==702 || width==1200)
                 saveSnapshot(rendered,width,height);
             checkRendered(rendered);
+            if (width==1200) {
+                // A new mastering instance must show completely unlit
+                // gain-reduction digits and LEDs: the chassis frame itself
+                // remains visible, but no fake GR is reported at idle.
+                int illuminatedPixels=0;
+                for(int yy=165;yy<202;yy+=2)
+                    for(int xx=984;xx<1130;xx+=2) {
+                        const auto c=rendered.getPixelAt(xx,yy);
+                        if(c.getGreen()>130 && c.getGreen()>c.getRed()+28
+                            && c.getGreen()>c.getBlue()+20) ++illuminatedPixels;
+                    }
+                for(int yy=229;yy<245;yy+=2)
+                    for(int xx=978;xx<1145;xx+=2) {
+                        const auto c=rendered.getPixelAt(xx,yy);
+                        if(c.getGreen()>130 && c.getGreen()>c.getRed()+28
+                            && c.getGreen()>c.getBlue()+20) ++illuminatedPixels;
+                    }
+                check(illuminatedPixels==0,
+                    "idle gain-reduction display/LEDs must remain completely dark");
+            }
             std::cout << "PASS: JUCE UI render, bounds, contrast " << width
                       << "x" << height << "\n";
         }
 
         juce::Slider* input=nullptr;
+        juce::Slider* clipper=nullptr;
+        juce::ComboBox* preset=nullptr;
+        juce::TextButton* peak=nullptr;
+        juce::TextButton* truePeak=nullptr;
+        juce::TextButton* clear=nullptr;
         juce::TextButton* bypass=nullptr;
         juce::TextButton* reset=nullptr;
         for (int i=0;i<editor.getNumChildComponents();++i) {
             auto* component=editor.getChildComponent(i);
             if (auto* slider=dynamic_cast<juce::Slider*>(component)) {
                 if (slider->getTooltip().startsWith("INPUT -")) input=slider;
+                if (slider->getComponentID()=="utility-clipper") clipper=slider;
             }
+            if (auto* combo=dynamic_cast<juce::ComboBox*>(component))
+                if(combo->getComponentID()=="skell-master-preset") preset=combo;
             if (auto* button=dynamic_cast<juce::TextButton*>(component)) {
                 if (button->getButtonText()=="BYPASS") bypass=button;
                 if (button->getButtonText()=="RESET") reset=button;
+                if (button->getButtonText()=="PEAK") peak=button;
+                if (button->getButtonText()=="TRUE") truePeak=button;
+                if (button->getButtonText()=="CLEAR") clear=button;
             }
         }
-        check(input && bypass && reset, "cannot locate UI controls");
+        check(input && bypass && reset && clipper && peak && truePeak && clear && preset,
+              "cannot locate actual hardware monitor controls");
+
+        // A true hardware rotary has a motionless bezel, barrel, lighting
+        // and machined scale. Render the REAL editor at three knob positions
+        // and require all pixels outside the moving pointer area to match.
+        editor.setSize(1200,760);
+        const int rotaryWidth=input->getWidth()-95; // 1200-design textbox
+        const float knobCx=static_cast<float>(input->getX())+rotaryWidth*0.5f;
+        const float knobCy=static_cast<float>(input->getY())+input->getHeight()*0.5f;
+        const float knobRadius=juce::jmin(static_cast<float>(rotaryWidth),
+                                         static_cast<float>(input->getHeight()))*0.431f;
+        const auto renderPosition=[&](double value) {
+            input->setValue(value,juce::sendNotificationSync);
+            juce::Image screenshot(juce::Image::ARGB,1200,760,true);
+            {
+                juce::Graphics g(screenshot);
+                paintDetachedTree(editor,g);
+            }
+            return screenshot;
+        };
+        const auto lowKnob=renderPosition(-18.0);
+        const auto zeroKnob=renderPosition(0.0);
+        const auto highKnob=renderPosition(18.0);
+        int movingPointerPixels=0, fixedRingPixels=0;
+        for(int y=juce::roundToInt(knobCy-knobRadius);
+                y<juce::roundToInt(knobCy+knobRadius);++y)
+            for(int x=juce::roundToInt(knobCx-knobRadius);
+                    x<juce::roundToInt(knobCx+knobRadius);++x) {
+                const float dx=x+0.5f-knobCx,dy=y+0.5f-knobCy;
+                const float radial=std::sqrt(dx*dx+dy*dy)/knobRadius;
+                const auto a=lowKnob.getPixelAt(x,y).getARGB();
+                const auto b=zeroKnob.getPixelAt(x,y).getARGB();
+                const auto c=highKnob.getPixelAt(x,y).getARGB();
+                if(radial>=0.72f && radial<=0.88f) {
+                    ++fixedRingPixels;
+                    check(a==b && b==c,
+                          "machined knob bezel/knurl/lighting moved during rotation");
+                }
+                if(radial>=0.20f && radial<=0.62f && (a!=b || b!=c))
+                    ++movingPointerPixels;
+            }
+        check(fixedRingPixels>100 && movingPointerPixels>20,
+              "rotary pointer did not move independently of the fixed metal");
+        std::cout << "PASS: physical knob ring stationary; ivory pointer moves at min/zero/max\n";
+
+        // Monitoring toggles and CLEAR must never change mix/audio parameters.
+        check(static_cast<bool>(peak->onClick) && static_cast<bool>(truePeak->onClick)
+              && static_cast<bool>(clear->onClick),
+              "monitor buttons must have working actions");
+        const float beforeDrive=processor.parameters.getRawParameterValue("drive")->load();
+        peak->onClick();
+        truePeak->onClick();
+        clear->onClick();
+        check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
+              "passive output monitoring modified audio");
+        check(preset->getNumItems()==4, "factory preset selector must list four working choices");
+        check(preset->getSelectedId()==0 && preset->getText().isEmpty(),
+              "initial preset UI must not display INIT / CLEAN by default");
+        preset->setSelectedId(2,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-15.0f)<.12f,
+              "WARM factory preset must apply its real DSP drive setting");
+        preset->setSelectedId(3,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("transients")->load()-22.0f)<.12f,
+              "PUNCH factory preset must apply its real DSP transient setting");
+        preset->setSelectedId(1,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("drive")->load())<.12f,
+              "INIT factory preset must restore zero drive");
+        clipper->setValue(43.0,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-43.0f)<.12f,
+              "clipper knob must automate real DSP parameter");
         input->setValue(4.0, juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("input")->load()-4.0f)<.12f,
               "input slider automation attachment failed");
@@ -157,11 +317,15 @@ int main() {
               "bypass button automation attachment failed");
         check(static_cast<bool>(reset->onClick), "reset callback missing");
         reset->onClick();
+        check(preset->getSelectedId()==0,
+              "reset must clear the preset label without changing audio defaults");
         check(std::abs(processor.parameters.getRawParameterValue("input")->load())<.12f,
               "reset did not restore input default");
         check(processor.parameters.getRawParameterValue("bypass")->load()<.5f,
               "reset did not restore bypass default");
-        std::cout << "PASS: input slider, bypass, reset and automation bindings\n";
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f,
+              "reset did not restore clipper default");
+        std::cout << "PASS: passive peak monitoring, clipper, bypass, reset and automation bindings\n";
 
         // Host-like audio checks exercise the actual JUCE wrapper + 4x resampler.
         for (const int sampleRate : {44100, 48000, 96000}) {

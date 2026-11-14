@@ -1,14 +1,11 @@
 name: Skelly Master / SkellCore Headless UI
 
+# Routine UI capture runs locally in ~2 seconds. CI screenshot capture
+# remains available ONLY on explicit request for an emergency/full regression.
+# Windows VST3 build and DSP validation are a SEPARATE workflow.
+# Manual-only fallback. Routine four-scene UI captures and source builds run locally.
+# Separate Windows/DSP validations stay in build.yml.
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/ui-screenshots.yml'
-      - 'CMakeLists.txt'
-      - 'Source/**'
-      - 'tests/ui_renderer.cpp'
-  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -37,14 +34,37 @@ jobs:
             -DSKELLY_MASTER_BUILD_UI_RENDERER=ON
       - name: Compile real-editor development executable
         run: cmake --build build-ui --target SkellyMasterUIRenderer --parallel 3
+      - name: Export reusable offline Linux renderer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p offline-ui-renderer
+          renderer=$(find build-ui -type f -name SkellyMasterUIRenderer -executable | head -n 1)
+          test -n "$renderer"
+          cp "$renderer" offline-ui-renderer/SkellyMasterUIRenderer
+          chmod +x offline-ui-renderer/SkellyMasterUIRenderer
+          ldd "$renderer" > offline-ui-renderer/linux-runtime-dependencies.txt
+          printf '%s\n' '# SKELL Master local UI renderer (development only)' \
+            'Run from this folder on Linux with a virtual display:' \
+            "  xvfb-run -a -s '-screen 0 1920x1200x24' ./SkellyMasterUIRenderer --output ui-screenshots" \
+            'This executable renders the JUCE UI built at the commit embedded in this artifact.' \
+            'Editing C++ requires rebuilding this executable; it is NOT a dynamic source interpreter.' \
+            'Do not distribute as a VST3, host plugin, or user-facing release.' > offline-ui-renderer/README.txt
+      - name: Upload offline renderer executable
+        uses: actions/upload-artifact@v6
+        with:
+          name: SkellyMaster-Offline-Linux-UI-Renderer
+          path: offline-ui-renderer/*
+          retention-days: 30
+          if-no-files-found: error
       - name: Capture real JUCE screenshots and inspect layouts
         shell: bash
         run: |
           set -euo pipefail
           renderer=$(find build-ui -type f -name SkellyMasterUIRenderer -executable | head -n 1)
           test -n "$renderer"
-          xvfb-run -a -s '-screen 0 1920x1200x24' "$renderer" --output ui-screenshots
-          test "$(find ui-screenshots -maxdepth 1 -name '*.png' | wc -l)" -eq 11
+          xvfb-run -a -s '-screen 0 1920x1200x24' "$renderer" --output ui-screenshots --full
+          test "$(find ui-screenshots -maxdepth 1 -name '*.png' | wc -l)" -eq 14
           test -s ui-screenshots/contact-sheet.png
           test -s ui-screenshots/manifest.json
       - name: Upload SkellCore screenshots and contact sheet

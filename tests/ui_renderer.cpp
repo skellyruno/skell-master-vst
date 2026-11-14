@@ -9,15 +9,15 @@
 #include <vector>
 
 namespace {
-constexpr int expectedControls = 12;
+constexpr int expectedControls = 17; // 11 knobs, 5 buttons and 1 preset dropdown
 void setValue(SkellyMasterAudioProcessor& p, const char* id, float plainValue) {
     if (auto* param = p.parameters.getParameter(id))
         param->setValueNotifyingHost(param->convertTo0to1(plainValue));
 }
 void resetValues(SkellyMasterAudioProcessor& p) {
-    static constexpr std::array<const char*, 11> ids {{
+    static constexpr std::array<const char*, 12> ids {{
        "input", "drive", "glue", "dynamics", "lows", "highs",
-       "sauce", "transients", "output", "ceiling", "bypass"
+       "sauce", "transients", "output", "ceiling", "clipper", "bypass"
     }};
     for (const auto* id : ids)
         if (auto* param = p.parameters.getParameter(id))
@@ -29,9 +29,9 @@ void resetValues(SkellyMasterAudioProcessor& p) {
 // This is visual test setup, not a mock UI or alternate rendering code.
 void synchronizeControls(SkellyMasterAudioProcessorEditor& editor,
                          SkellyMasterAudioProcessor& p) {
-    static constexpr std::array<const char*, 10> ids {{
+    static constexpr std::array<const char*, 11> ids {{
         "input", "drive", "glue", "dynamics", "lows", "highs",
-        "sauce", "transients", "output", "ceiling"
+        "sauce", "transients", "output", "ceiling", "clipper"
     }};
     int index = 0;
     for (int i=0;i<editor.getNumChildComponents();++i) {
@@ -59,7 +59,8 @@ juce::StringArray inspect(SkellyMasterAudioProcessorEditor& editor) {
         const auto* component = editor.getChildComponent(i);
         if (!component || !component->isVisible()) continue;
         if (dynamic_cast<const juce::Slider*>(component) == nullptr
-          && dynamic_cast<const juce::TextButton*>(component) == nullptr)
+          && dynamic_cast<const juce::TextButton*>(component) == nullptr
+          && dynamic_cast<const juce::ComboBox*>(component) == nullptr)
             continue;
         ++count;
         const auto bounds = component->getBounds();
@@ -71,13 +72,16 @@ juce::StringArray inspect(SkellyMasterAudioProcessorEditor& editor) {
         rectangles.push_back(bounds);
     }
     if (count != expectedControls)
-        issues.add("Expected 10 rotary controls and two buttons, found " + juce::String(count));
+        issues.add("Expected 11 rotary controls, five buttons and one preset dropdown, found " + juce::String(count));
     return issues;
 }
 } // namespace
 
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI juceGui;
+    bool quick = true;
+    for (int i=1;i<argc;++i)
+        if (juce::String(argv[i]) == "--full") quick=false;
     const juce::String requested = argc > 2 && juce::String(argv[1]) == "--output"
         ? juce::String::fromUTF8(argv[2]) : juce::String("ui-screenshots");
     const juce::File output = juce::File::getCurrentWorkingDirectory().getChildFile(requested);
@@ -90,7 +94,12 @@ int main(int argc, char** argv) {
         options.project = "Skelly Master Hardware Edition - real JUCE processor/editor";
         options.minimumColours = 12;
         // One existing hardware theme/page, plus bypass and automated values.
-        options.scenes = {
+        options.scenes = quick ? std::vector<skellcore::ui::headless::Scene>{
+            {"reference_1200", 1200, 760, 0, 0, false},
+            {"preset_selected", 702, 445, 0, 8, false},
+            {"mastering_active", 702, 445, 0, 4, false},
+            {"theme_neon", 702, 445, 0, 5, false}
+        } : std::vector<skellcore::ui::headless::Scene>{
             {"minimum_620", 620, 393, 0, 0, false},
             {"default_702", 702, 445, 0, 0, false},
             {"medium_960", 960, 608, 0, 0, false},
@@ -100,10 +109,35 @@ int main(int argc, char** argv) {
             {"bypass_default", 702, 445, 0, 1, false},
             {"drive_selected", 702, 445, 0, 2, false},
             {"eq_selected", 702, 445, 0, 3, false},
-            {"mastering_active", 702, 445, 0, 4, false}
+            {"mastering_active", 702, 445, 0, 4, false},
+            {"theme_neon", 702, 445, 0, 5, false},
+            {"theme_ivory", 702, 445, 0, 6, false},
+            {"theme_obsidian", 702, 445, 0, 7, false}
         };
         options.configure = [&](const skellcore::ui::headless::Scene& scene) {
+            // The exact same real left-skull callback used in the plugin is
+            // exercised to capture and validate each shared SkellCore skin.
+            const auto target=scene.mode==5 ? skellcore::ui::SkullSkin::Neon
+                : scene.mode==6 ? skellcore::ui::SkullSkin::Ivory
+                : scene.mode==7 ? skellcore::ui::SkullSkin::Obsidian
+                : skellcore::ui::SkullSkin::Ossuary;
+            for(int step=0;step<4 && editor.selectedSkin()!=target;++step) {
+                for(int child=0;child<editor.getNumChildComponents();++child) {
+                    auto* c=editor.getChildComponent(child);
+                    if(c && c->getComponentID()=="skellcore-theme-skull") {
+                        if(auto* b=dynamic_cast<juce::Button*>(c))
+                            if(b->onClick) b->onClick();
+                        break;
+                    }
+                }
+            }
             resetValues(processor);
+            // A new scene must never inherit the prior scene's preset label.
+            // Reset the UI selection without changing freshly reset DSP values.
+            for(int child=0;child<editor.getNumChildComponents();++child)
+                if(auto* combo=dynamic_cast<juce::ComboBox*>(editor.getChildComponent(child)))
+                    if(combo->getComponentID()=="skell-master-preset")
+                        combo->setSelectedId(0,juce::dontSendNotification);
             switch (scene.mode) {
                 case 1:
                     setValue(processor, "bypass", 1.0f);
@@ -133,13 +167,28 @@ int main(int argc, char** argv) {
                     break;
             }
             synchronizeControls(editor, processor);
+            if (scene.mode==8)
+                for (int child=0;child<editor.getNumChildComponents();++child)
+                    if (auto* combo=dynamic_cast<juce::ComboBox*>(editor.getChildComponent(child)))
+                        if(combo->getComponentID()=="skell-master-preset") {
+                            combo->setSelectedId(2,juce::sendNotificationSync);
+                            synchronizeControls(editor,processor);
+                        }
         };
         options.inspect = [&] { return inspect(editor); };
-        options.mustDiffer = {
+        options.mustDiffer = quick
+            ? std::vector<std::pair<juce::String,juce::String>>{
+                {"preset_selected", "mastering_active"},
+                {"preset_selected", "theme_neon"}
+              }
+            : std::vector<std::pair<juce::String,juce::String>>{
             {"default_702", "bypass_default"},
             {"default_702", "drive_selected"},
             {"default_702", "eq_selected"},
-            {"default_702", "mastering_active"}
+            {"default_702", "mastering_active"},
+            {"default_702", "theme_neon"},
+            {"default_702", "theme_ivory"},
+            {"default_702", "theme_obsidian"}
         };
         const auto report = skellcore::ui::headless::render(editor, output, options);
         for (const auto& error : report.errors) {
@@ -153,12 +202,14 @@ int main(int argc, char** argv) {
         }
 
         // Contact sheet composed only of actual captured PNG files.
-        const std::array<juce::String, 6> selected {{
-            "minimum_620", "default_702", "reference_1200",
-            "bypass_default", "drive_selected", "mastering_active"
-        }};
+        const std::vector<juce::String> selected = quick
+            ? std::vector<juce::String>{"reference_1200", "preset_selected",
+                                        "mastering_active", "theme_neon"}
+            : std::vector<juce::String>{"minimum_620", "default_702", "reference_1200",
+                                        "bypass_default", "drive_selected", "theme_neon"};
         constexpr int cellW = 600, cellH = 400;
-        juce::Image sheet(juce::Image::RGB, cellW * 3, cellH * 2, true);
+        const int columns = quick ? 2 : 3;
+        juce::Image sheet(juce::Image::RGB, cellW * columns, cellH * 2, true);
         {
             juce::Graphics g(sheet);
             g.fillAll(juce::Colour(0xff111814));
@@ -169,8 +220,8 @@ int main(int argc, char** argv) {
                     ++failures;
                     continue;
                 }
-                const int x = (index % 3)*cellW;
-                const int y = (index / 3)*cellH;
+                const int x = (index % columns)*cellW;
+                const int y = (index / columns)*cellH;
                 g.setColour(juce::Colours::white);
                 g.setFont(juce::Font(juce::FontOptions(18.0f).withStyle("Bold")));
                 g.drawText(selected[static_cast<size_t>(index)].replaceCharacter('_', ' '),

@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "DSP/MasteringEngine.h"
+#include "DSP/LoudnessMeter.h"
 #include <atomic>
 #include <memory>
 
@@ -36,6 +37,9 @@ public:
     float consumePeakLeft() noexcept { return peakLeft.exchange(0.0f, std::memory_order_relaxed); }
     float consumePeakRight() noexcept { return peakRight.exchange(0.0f, std::memory_order_relaxed); }
     float consumeMaxReduction() noexcept { return reduction.exchange(0.0f, std::memory_order_relaxed); }
+    float consumeTruePeak() noexcept { return truePeak.exchange(0.0f, std::memory_order_relaxed); }
+    float getMomentaryLufs() const noexcept { return momentaryLufs.load(std::memory_order_relaxed); }
+    float getShortTermLufs() const noexcept { return shortTermLufs.load(std::memory_order_relaxed); }
     static constexpr int oversamplingFactor = 4;
 
 private:
@@ -43,6 +47,10 @@ private:
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
     skelly::MasteringEngine engine;
     std::atomic<float> peakLeft { 0.0f }, peakRight { 0.0f }, reduction { 0.0f };
+    std::atomic<float> truePeak { 0.0f };
+    skelly::StereoTruePeakMonitor truePeakMonitor;
+    skelly::StereoLoudnessMonitor loudnessMonitor;
+    std::atomic<float> momentaryLufs {-100.0f}, shortTermLufs {-100.0f};
     int activeChannels = 2;
     int lookaheadSamples = 0;
     // Fixed-size stereo-linked final safety processing; no audio-thread allocation.

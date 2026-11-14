@@ -58,6 +58,19 @@ public:
         const double shaped = std::tanh(input * (1.0 + 4.0 * amount)) * normalization;
         return input + amount * (shaped - input);
     }
+
+    // One shared nonlinear gain keeps asymmetric stereo images stable, rather
+    // than reshaping each channel to an unrelated instantaneous gain. Equal
+    // magnitude (mono or anti-phase) retains the original DRIVE curve. The
+    // dominant channel still sets saturation; nothing is allocated in DSP.
+    void processStereo(double& left, double& right, double drive) const noexcept {
+        if (drive <= 1.0e-5) return;
+        const double magnitude = std::max(std::abs(left), std::abs(right));
+        if (magnitude <= 1.0e-24) return;
+        const double gain = process(magnitude, drive) / magnitude;
+        left *= gain;
+        right *= gain;
+    }
 private:
     std::array<double, 1025> table {};
 };
@@ -159,6 +172,15 @@ public:
 private:
     double a = 0.0, z = 0.0;
 };
+// Control zero maps to the safe factory ceiling of -1 dBFS.
+inline double ceilingOffsetToDb(double offset) noexcept {
+    const double x=std::isfinite(offset) ? std::clamp(offset,-3.0,3.0) : 0.0;
+    return x<0.0 ? -1.0+(2.0/3.0)*x : -1.0+0.3*x;
+}
+inline double ceilingDbToOffset(double db) noexcept {
+    const double x=std::isfinite(db) ? std::clamp(db,-3.0,-0.1) : -1.0;
+    return x<-1.0 ? (x+1.0)*1.5 : (x+1.0)/0.3;
+}
 } // namespace detail
 
 struct MasterParameters {
@@ -171,6 +193,7 @@ struct MasterParameters {
     double sauce = 0.0;     // 0..1
     double transients = 0.0;// 0..1
     double outputDb = 0.0;
+    double clipper = 0.0;  // 0=original transparent limiter, 1=pre-limit soft clipper
     double ceilingDb = -1.0;
     bool bypass = false;
 };
@@ -208,6 +231,67 @@ public:
     double currentGain() const noexcept { return gain; }
 private:
     double gain = 1.0, release = 0.0;
+};
+
+// Host-output true-peak MONITOR; does not modify samples or guarantee a
+// dBTP ceiling. ITU-R BS.1770-5 Annex 2 48-tap, four-phase interpolating
+// FIR example, arranged as 12 taps per phase. This reports reconstructed
+// intersample peaks, unlike the existing sample-peak limiter. No heap,
+// allocations, or filter design occurs on the audio callback.
+// https://www.itu.int/rec/R-REC-BS.1770/en
+class StereoTruePeakMonitor {
+public:
+    void reset() noexcept {
+        for (auto& channel : history) channel.fill(0.0);
+        newest = 0;
+    }
+    // Maximum of the 4 reconstructed phases for this frame, across channels.
+    float process(float left, float right) noexcept {
+        history[0][static_cast<std::size_t>(newest)] =
+            detail::finiteSample(static_cast<double>(left));
+        history[1][static_cast<std::size_t>(newest)] =
+            detail::finiteSample(static_cast<double>(right));
+        double maximum = std::max(std::abs(history[0][static_cast<std::size_t>(newest)]),
+                                  std::abs(history[1][static_cast<std::size_t>(newest)]));
+        // One traversal of the 12-frame ring reconstructs all four phases
+        // for both channels. This preserves the reference FIR sum order for
+        // every phase, while avoiding 8 redundant ring walks per sample.
+        double reconstructed[2][4] {};
+        int idx = newest;
+        for (int k = 0; k < 12; ++k) {
+            const auto& taps = fir[static_cast<std::size_t>(k)];
+            const double l = history[0][static_cast<std::size_t>(idx)];
+            const double r = history[1][static_cast<std::size_t>(idx)];
+            for (int phase = 0; phase < 4; ++phase) {
+                reconstructed[0][phase] += l * taps[static_cast<std::size_t>(phase)];
+                reconstructed[1][phase] += r * taps[static_cast<std::size_t>(phase)];
+            }
+            if (--idx < 0) idx = 11;
+        }
+        for (const auto& channel : reconstructed)
+            for (const auto phase : channel)
+                maximum = std::max(maximum, std::abs(phase));
+        if (++newest == 12) newest = 0;
+        return static_cast<float>(maximum);
+    }
+private:
+    // Original coefficients of the ITU Annex 2 reference interpolation FIR.
+    static constexpr std::array<std::array<double,4>,12> fir {{
+        {{ 0.001708984375,  -0.0291748046875, -0.0189208984375, -0.00830078125 }},
+        {{ 0.010986328125,   0.029296875,      0.0330810546875,  0.014892578125 }},
+        {{-0.0196533203125, -0.0517578125,    -0.0582275390625, -0.026611328125 }},
+        {{ 0.033203125,      0.089111328125,   0.1015625,       0.047607421875 }},
+        {{-0.0594482421875, -0.16650390625,   -0.2003173828125, -0.102294921875 }},
+        {{ 0.1373291015625,  0.465087890625,   0.77978515625,    0.97216796875 }},
+        {{ 0.97216796875,    0.77978515625,    0.465087890625,   0.1373291015625 }},
+        {{-0.102294921875,  -0.2003173828125, -0.16650390625,  -0.0594482421875 }},
+        {{ 0.047607421875,   0.1015625,       0.089111328125,   0.033203125 }},
+        {{-0.026611328125,  -0.0582275390625, -0.0517578125,   -0.0196533203125 }},
+        {{ 0.014892578125,   0.0330810546875,  0.029296875,      0.010986328125 }},
+        {{-0.00830078125,   -0.0189208984375, -0.0291748046875,  0.001708984375 }}
+    }};
+    std::array<std::array<double,12>,2> history {};
+    int newest = 0;
 };
 
 // Gentle mastering width enhancement with two safeguards:
@@ -263,6 +347,7 @@ public:
         lows.prepare(rate, 35, 0); highs.prepare(rate, 35, 0);
         sauceAmt.prepare(rate, 30, 0); transientsAmt.prepare(rate, 30, 0);
         output.prepare(rate, 15, 1); ceiling.prepare(rate, 15, detail::dbToLinear(-1));
+        clipperMix.prepare(rate, 18, 0);
         bypassMix.prepare(rate, 12, 0);
         glueComp.prepare(rate, 27, 220);
         dynamicsComp.prepare(rate, 8, 110);
@@ -303,6 +388,7 @@ public:
         sauceAmt.setTarget(detail::clamp(p.sauce, 0, 1));
         transientsAmt.setTarget(detail::clamp(p.transients, 0, 1));
         output.setTarget(detail::dbToLinear(detail::clamp(p.outputDb, -18, 12)));
+        clipperMix.setTarget(detail::clamp(p.clipper, 0, 1));
         ceiling.setTarget(detail::dbToLinear(detail::clamp(p.ceilingDb, -3, -0.1)));
         bypassMix.setTarget(p.bypass ? 1.0 : 0.0);
     }
@@ -324,14 +410,14 @@ public:
         const double s = sauceAmt.next(), tr = transientsAmt.next();
         const double outGain = output.next();
         const double absoluteCeiling = ceiling.next();
+        const double clipAmount = clipperMix.next();
         const double targetCeiling = absoluteCeiling * 0.977237220956; // 0.2dB reconstruction margin
         const double by = bypassMix.next();
         l *= inputGain; r *= inputGain;
 
         // Symmetric soft saturation, level matched at its operating point.
         if (d > 1.0e-5) {
-            l = driveShaper.process(l, d);
-            r = driveShaper.process(r, d);
+            driveShaper.processStereo(l, r, d);
             // Post-saturation high-pass removes potential near-DC energy.
             const double yl = l - dcInput[0] + dcR * dcOutput[0];
             const double yr = r - dcInput[1] + dcR * dcOutput[1];
@@ -388,6 +474,29 @@ public:
             stereoImager.process(l, r, s);
         l *= outGain; r *= outGain;
 
+        // Optional oversampled soft clipping ahead of the existing lookahead
+        // limiter. At zero this is exactly a no-op for old projects. The
+        // rational soft knee is continuous and avoids exp/tanh on the audio
+        // thread; the linked limiter and post-downsample ceiling stay active.
+        double clipGain = 1.0;
+        if (clipAmount > 1.0e-5) {
+            const double knee = absoluteCeiling * 0.82;
+            const double headroom = absoluteCeiling - knee;
+            // Derive ONE soft-clip gain from the dominant stereo channel.
+            // Independent L/R shaping previously changed the stereo ratio
+            // on hard transients. Linked gain preserves imaging, even when
+            // one channel is much louder or the programme is anti-phase.
+            const double magnitude = std::max(std::abs(l), std::abs(r));
+            if (magnitude > knee) {
+                const double excess = magnitude - knee;
+                const double rounded = knee + headroom * excess / (headroom + excess);
+                const double mixed = magnitude + clipAmount * (rounded - magnitude);
+                clipGain = detail::clamp(mixed / magnitude, 0.0, 1.0);
+                l *= clipGain;
+                r *= clipGain;
+            }
+        }
+
         // Lookahead feed-forward brickwall-style limiter. Detector looks ahead by
         // delaying the programme signal; release is stereo-linked and smooth.
         const double peak = std::max(std::abs(l), std::abs(r));
@@ -417,12 +526,19 @@ public:
 
         double wetL = delayedL * limiterGain;
         double wetR = delayedR * limiterGain;
-        // Last-resort sample clip to the user ceiling (not a certified BS.1770 TP reading).
-        wetL = clamp(wetL, -absoluteCeiling, absoluteCeiling);
-        wetR = clamp(wetR, -absoluteCeiling, absoluteCeiling);
+        // Last-resort stereo-linked ceiling guard: do not independently
+        // hard-clip L/R, which can alter the stereo ratio on unexpected
+        // delayed transients or automation. This is still a sample-peak
+        // safety measure, not a certified reconstructed true-peak limiter.
+        const double lastPeak=std::max(std::abs(wetL),std::abs(wetR));
+        if (lastPeak > absoluteCeiling) {
+            const double guardGain=absoluteCeiling/lastPeak;
+            wetL *= guardGain;
+            wetR *= guardGain;
+        }
         const double resultL = wetL * (1 - by) + dryL * by;
         const double resultR = wetR * (1 - by) + dryR * by;
-        const double effectiveCompression = 1.0 - (1.0 - glueGain * dynamicsGain * limiterGain) * (1.0 - by);
+        const double effectiveCompression = 1.0 - (1.0 - glueGain * dynamicsGain * limiterGain * clipGain) * (1.0 - by);
         gainReduction = std::min(gainReduction, std::max(1.0e-9, effectiveCompression));
         outputPeak = std::max(outputPeak, std::max(std::abs(resultL), std::abs(resultR)));
         return { static_cast<float>(resultL), static_cast<float>(resultR) };
@@ -435,7 +551,7 @@ private:
     double rate = 192000, dcR = 0.999;
     int channels = 2, lookahead = 288, writeIndex = 0, eqCounter = 0;
     std::array<std::vector<double>, 2> programDelay, dryDelay;
-    detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, bypassMix;
+    detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, bypassMix;
     std::array<detail::Biquad, 2> lowShelf, highShelf;
     std::array<detail::OnePole, 2> hf;
     StereoImager stereoImager;
