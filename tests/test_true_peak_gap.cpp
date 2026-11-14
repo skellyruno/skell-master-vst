@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 
 static void require(bool condition, const char* message) {
     if (!condition) {
@@ -62,6 +63,41 @@ int main() {
               << " dBTP; excess "
               << detail::linearToDb(maximumReconstructed / ceiling)
               << " dB\n";
+
+    // Optimized mono-only host metering must match the exact result of the
+    // original dual-channel FIR, including ring wrap, impulses, reset and
+    // malformed inputs. It never changes the audio samples.
+    StereoTruePeakMonitor singleChannel;
+    StereoTruePeakMonitor twoIdenticalChannels;
+    singleChannel.reset();
+    twoIdenticalChannels.reset();
+    float worstMonoError = 0.0f;
+    unsigned int seed = 0x5a17c0deu;
+    for (int i = 0; i < 80000; ++i) {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        float sample = 0.73f * static_cast<float>(
+            std::sin(2.0 * detail::pi * 17117.0 * i / sampleRate));
+        sample += 0.22f * (static_cast<float>(seed % 1000u) / 1000.0f - 0.5f);
+        if (i % 4093 == 0) sample = 2.1f;
+        if (i == 20000) sample = std::numeric_limits<float>::infinity();
+        if (i == 20001) sample = std::numeric_limits<float>::quiet_NaN();
+        if (i == 40000) {
+            singleChannel.reset();
+            twoIdenticalChannels.reset();
+        }
+        const auto monoResult = singleChannel.processMono(sample);
+        const auto stereoResult = twoIdenticalChannels.process(sample, sample);
+        require(std::isfinite(monoResult),
+                "mono true-peak FIR must remain finite after malformed audio");
+        worstMonoError = std::max(worstMonoError,
+                                 std::abs(monoResult - stereoResult));
+        require(std::abs(monoResult - stereoResult) < 1.0e-6f,
+                "mono true-peak optimization changed metering result");
+    }
+    std::cout << "PASS: 80k frame mono TP FIR matches dual-channel reference (max "
+              << worstMonoError << ")\\n";
 
     // Below-ceiling material is untouched, and the TP meter must remain
     // finite through a long, ordinary lower-frequency stereo program.
