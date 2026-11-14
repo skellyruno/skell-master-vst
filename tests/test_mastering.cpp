@@ -118,6 +118,31 @@ int main() {
         }
     }
 
+    // DRIVE must retain the previously approved mono transfer while applying
+    // the SAME instantaneous nonlinear gain to both stereo channels.
+    // This guards against pan/phase shifts when one channel has stronger peaks.
+    double worstMonoNull=0.0, worstStereoError=0.0;
+    for (double amount : {0.0, 0.12, 0.45, 0.83, 1.0}) {
+        for (double x : {-1.7, -0.8, -0.13, 0.0, 0.0001, 0.18, 0.77, 2.0}) {
+            double monoL=x, monoR=x;
+            shaper.processStereo(monoL,monoR,amount);
+            worstMonoNull=std::max(worstMonoNull,std::abs(monoL-shaper.process(x,amount)));
+            require(std::abs(monoL-monoR)<1.e-12,"linked DRIVE preserves mono");
+            for (double ratio : {-1.0, -0.72, 0.0, 0.17, 0.35, 0.95}) {
+                double l=x, r=x*ratio;
+                shaper.processStereo(l,r,amount);
+                require(std::isfinite(l) && std::isfinite(r),"linked DRIVE is finite");
+                worstStereoError=std::max(worstStereoError,std::abs(r-ratio*l));
+                if(amount==0.0)
+                    require(l==x && r==x*ratio,"zero DRIVE is exactly neutral");
+            }
+        }
+    }
+    require(worstMonoNull<1.e-12,"DRIVE changes original mono sound");
+    require(worstStereoError<1.e-12,"DRIVE changes stereo magnitude ratio");
+    std::cout << "PASS: DRIVE mono null and stereo-linked saturation, max error "
+              << worstStereoError << "\n";
+
     // 4x ITU-reference intersample monitor detects a reconstructed peak
     // higher than every actual host-rate sample. This is a monitor, not a
     // proof that the independent limiter enforces a true-peak ceiling.
@@ -228,6 +253,39 @@ int main() {
     require(comparedFrames>500 && clipStereoError<0.001,
             "oversampled CLIP must preserve asymmetric stereo ratio");
     std::cout << "PASS: linked soft-clip imaging under asymmetric transients\\n";
+    // Combined DRIVE + CLIP + compressors through repeated hard hits and
+    // sustained bass. Verify safe sample ceiling, finite recovery and the
+    // same L/R ratio even when dynamics engage aggressively.
+    MasteringEngine masteringStress;
+    masteringStress.prepare(rate, 2, lookahead);
+    MasterParameters masteringP;
+    masteringP.drive=.83; masteringP.clipper=.64;
+    masteringP.glue=.16; masteringP.dynamics=.12;
+    masteringStress.setParameters(masteringP);
+    double stressPeak=0.0, stressError=0.0, stressEnergy=0.0;
+    int stressCompared=0;
+    for(int i=0;i<static_cast<int>(rate*2.0);++i) {
+        const double time=i/rate;
+        const bool attack=(i%24000)<18;
+        const double bass=0.16*std::sin(2*detail::pi*67.0*time);
+        const float x=static_cast<float>(bass+(attack?2.1*std::exp(-(i%24000)/11.0):0.0));
+        const auto out=masteringStress.processFrame(x,-x*0.36f);
+        require(std::isfinite(out.left) && std::isfinite(out.right),
+                "hard limiting or saturation produced invalid audio");
+        stressPeak=std::max(stressPeak,static_cast<double>(std::max(std::abs(out.left),std::abs(out.right))));
+        stressEnergy+=static_cast<double>(out.left)*out.left;
+        if(i>lookahead+15000 && std::abs(out.left)>0.004f) {
+            stressError=std::max(stressError,std::abs(out.right/out.left+0.36));
+            ++stressCompared;
+        }
+    }
+    require(stressPeak<=detail::dbToLinear(-1.0)+5.e-6,
+            "hard transient train exceeded the sample ceiling");
+    require(stressPeak>0.6 && stressEnergy>50.0,"transient train is muted");
+    require(stressCompared>100000 && stressError<.001,
+            "linked mastering chain modified stereo ratio under heavy limiting");
+    std::cout << "PASS: severe DRIVE+CLIP+limiter stereo transient stress, peak "
+              << stressPeak << " ratio error " << stressError << "\n";
 
 
     // Invalid input must be isolated at the boundary; no persistent poisoning.

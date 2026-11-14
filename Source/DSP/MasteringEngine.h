@@ -58,6 +58,19 @@ public:
         const double shaped = std::tanh(input * (1.0 + 4.0 * amount)) * normalization;
         return input + amount * (shaped - input);
     }
+
+    // One shared nonlinear gain keeps asymmetric stereo images stable, rather
+    // than reshaping each channel to an unrelated instantaneous gain. Equal
+    // magnitude (mono or anti-phase) retains the original DRIVE curve. The
+    // dominant channel still sets saturation; nothing is allocated in DSP.
+    void processStereo(double& left, double& right, double drive) const noexcept {
+        if (drive <= 1.0e-5) return;
+        const double magnitude = std::max(std::abs(left), std::abs(right));
+        if (magnitude <= 1.0e-24) return;
+        const double gain = process(magnitude, drive) / magnitude;
+        left *= gain;
+        right *= gain;
+    }
 private:
     std::array<double, 1025> table {};
 };
@@ -404,8 +417,7 @@ public:
 
         // Symmetric soft saturation, level matched at its operating point.
         if (d > 1.0e-5) {
-            l = driveShaper.process(l, d);
-            r = driveShaper.process(r, d);
+            driveShaper.processStereo(l, r, d);
             // Post-saturation high-pass removes potential near-DC energy.
             const double yl = l - dcInput[0] + dcR * dcOutput[0];
             const double yr = r - dcInput[1] + dcR * dcOutput[1];
