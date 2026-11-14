@@ -14,18 +14,15 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     skellcore::ui::SkullSkin selectedSkin() const noexcept { return skin; }
-    bool isEmeraldBlackTheme() const noexcept { return emeraldBlackTheme; }
 
 private:
     class SkellyLookAndFeel final : public juce::LookAndFeel_V4 {
     public:
         SkellyLookAndFeel();
         void setSkin(skellcore::ui::SkullSkin selected);
-        void setEmeraldBlackTheme(bool enabled) noexcept { metallicBlackKnobs=enabled; }
         skellcore::ui::SkullSkin getSkin() const noexcept { return activeSkin; }
     private:
         skellcore::ui::SkullSkin activeSkin = skellcore::ui::SkullSkin::Ossuary;
-        bool metallicBlackKnobs = false;
     public:
         void drawRotarySlider(juce::Graphics&, int, int, int, int, float,
                               float, float, juce::Slider&) override;
@@ -50,8 +47,6 @@ private:
     void switchSkin();
     static skellcore::ui::SkullSkin loadSkin();
     static void saveSkin(skellcore::ui::SkullSkin selected);
-    static bool loadEmeraldBlackTheme();
-    static void saveEmeraldBlackTheme(bool enabled);
 
     // Invisible hit target: only the left artwork is clickable.
     class SkullHitTarget final : public juce::Button {
@@ -72,7 +67,6 @@ private:
     };
     SkullHitTarget skullHitTarget;
     skellcore::ui::SkullSkin skin = skellcore::ui::SkullSkin::Ossuary;
-    bool emeraldBlackTheme = false;
 
     SkellyMasterAudioProcessor& processor;
     static constexpr int designW = 1200, designH = 760;
