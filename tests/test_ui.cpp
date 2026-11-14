@@ -295,6 +295,8 @@ int main() {
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
               "passive output monitoring modified audio");
         check(preset->getNumItems()==4, "factory preset selector must list four working choices");
+        check(preset->getSelectedId()==0 && preset->getText().isEmpty(),
+              "initial preset UI must not display INIT / CLEAN by default");
         preset->setSelectedId(2,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-15.0f)<.12f,
               "WARM factory preset must apply its real DSP drive setting");
@@ -315,6 +317,8 @@ int main() {
               "bypass button automation attachment failed");
         check(static_cast<bool>(reset->onClick), "reset callback missing");
         reset->onClick();
+        check(preset->getSelectedId()==0,
+              "reset must clear the preset label without changing audio defaults");
         check(std::abs(processor.parameters.getRawParameterValue("input")->load())<.12f,
               "reset did not restore input default");
         check(processor.parameters.getRawParameterValue("bypass")->load()<.5f,
