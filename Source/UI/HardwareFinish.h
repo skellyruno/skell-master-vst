@@ -120,14 +120,25 @@ inline void glassWindow(juce::Graphics& g, juce::Rectangle<float> r,
 
 // Heavy aged iron surround; emerald=true replaces red enamel on reference.
 inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
-                  uint32_t seed=0x6172u, float radius=9.0f, float wear=1.0f) {
+                  uint32_t seed=0x6172u, float radius=9.0f, float wear=1.0f,
+                  bool previousIronBackground=false) {
     g.setColour(juce::Colours::black.withAlpha(0.9f));
     g.fillRoundedRectangle(r.translated(0,3.5f),radius);
-    juce::ColourGradient enamel(green?juce::Colour(0xff16432e):juce::Colour(0xff11130f),
-                r.getX(),r.getY(),green?juce::Colour(0xff030f0a):juce::Colour(0xff040604),
+    // Restore the original lighter iron paint on the three large Ossuary
+    // chassis panels ONLY. Keep enamel inserts, meter cards, trims, wear,
+    // and all other SkellCore themes exactly as they were.
+    const auto ironPaint = [&](juce::uint32 dark, juce::uint32 earlier) {
+        return juce::Colour(previousIronBackground ? earlier : dark);
+    };
+    juce::ColourGradient enamel(green?juce::Colour(0xff16432e)
+                                    :ironPaint(0xff11130f,0xff2b2a24),
+                r.getX(),r.getY(),green?juce::Colour(0xff030f0a)
+                                     :ironPaint(0xff040604,0xff0c0d0b),
                 r.getX()+r.getWidth()*0.8f,r.getBottom(),false);
-    enamel.addColour(0.27,green?juce::Colour(0xff0e3020):juce::Colour(0xff0e100c));
-    enamel.addColour(0.56,green?juce::Colour(0xff071d12):juce::Colour(0xff090b08));
+    enamel.addColour(0.27,green?juce::Colour(0xff0e3020)
+                               :ironPaint(0xff0e100c,0xff1f201a));
+    enamel.addColour(0.56,green?juce::Colour(0xff071d12)
+                               :ironPaint(0xff090b08,0xff171811));
     g.setGradientFill(enamel);
     g.fillRoundedRectangle(r,radius);
     // Authentic source-image material grain overlays only large STATIC panels.
