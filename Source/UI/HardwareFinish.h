@@ -121,24 +121,25 @@ inline void glassWindow(juce::Graphics& g, juce::Rectangle<float> r,
 // Heavy aged iron surround; emerald=true replaces red enamel on reference.
 inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
                   uint32_t seed=0x6172u, float radius=9.0f, float wear=1.0f,
-                  bool previousIronBackground=false) {
+                  bool beigeBackground=false) {
     g.setColour(juce::Colours::black.withAlpha(0.9f));
     g.fillRoundedRectangle(r.translated(0,3.5f),radius);
-    // Restore the original lighter iron paint on the three large Ossuary
-    // chassis panels ONLY. Keep enamel inserts, meter cards, trims, wear,
-    // and all other SkellCore themes exactly as they were.
-    const auto ironPaint = [&](juce::uint32 dark, juce::uint32 earlier) {
-        return juce::Colour(previousIronBackground ? earlier : dark);
+    // Only the three major chassis backgrounds use the supplied colour
+    // swatch: warm aged beige (~#CFC5AA), with its subtle vertical variance.
+    // Small metal cards, nameplate, utility enamel, screws and controls are
+    // unchanged. Other existing SkellCore themes retain their own colours.
+    const auto chassisPaint = [&](juce::uint32 original, juce::uint32 beige) {
+        return juce::Colour(beigeBackground ? beige : original);
     };
     juce::ColourGradient enamel(green?juce::Colour(0xff16432e)
-                                    :ironPaint(0xff11130f,0xff2b2a24),
+                                    :chassisPaint(0xff11130f,0xffd2c8ad),
                 r.getX(),r.getY(),green?juce::Colour(0xff030f0a)
-                                     :ironPaint(0xff040604,0xff0c0d0b),
+                                     :chassisPaint(0xff040604,0xffc9bfa4),
                 r.getX()+r.getWidth()*0.8f,r.getBottom(),false);
     enamel.addColour(0.27,green?juce::Colour(0xff0e3020)
-                               :ironPaint(0xff0e100c,0xff1f201a));
+                               :chassisPaint(0xff0e100c,0xffcfc5aa));
     enamel.addColour(0.56,green?juce::Colour(0xff071d12)
-                               :ironPaint(0xff090b08,0xff171811));
+                               :chassisPaint(0xff090b08,0xffcdc3a8));
     g.setGradientFill(enamel);
     g.fillRoundedRectangle(r,radius);
     // Authentic source-image material grain overlays only large STATIC panels.
@@ -156,7 +157,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
         if (grain.isValid()) {
             juce::Graphics::ScopedSaveState textureScope(g);
             g.setTiledImageFill(grain, static_cast<int>(r.getX()+4),
-                                static_cast<int>(r.getY()+4), green ? 0.39f : 0.36f);
+                                static_cast<int>(r.getY()+4), green ? 0.39f : (beigeBackground ? 0.035f : 0.36f));
             g.fillRoundedRectangle(r.reduced(6.0f),juce::jmax(0.0f,radius-4.0f));
         }
     }
