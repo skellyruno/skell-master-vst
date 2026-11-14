@@ -70,7 +70,12 @@ static juce::File locateVST3(const juce::String& userArg) {
 int main(int argc, char** argv) {
     try {
         juce::ScopedJuceInitialiser_GUI gui;
-        const juce::File bundle=locateVST3(argc>=2?juce::String::fromUTF8(argv[1]):juce::String());
+        // --rate N exercises the compiled VST3 at each supported host rate
+        // using deterministic generated programme. WAV input is optional and
+        // kept strictly on the local machine, never sent to CI.
+        const bool rateMode=argc>=3 && std::string(argv[1])=="--rate";
+        const juce::File bundle=locateVST3(
+            (!rateMode && argc>=2) ? juce::String::fromUTF8(argv[1]) : juce::String());
         require(bundle.exists(),"VST3 path does not exist");
         juce::AudioPluginFormatManager formats;
         formats.addDefaultFormats();
@@ -89,7 +94,7 @@ int main(int argc, char** argv) {
         juce::AudioFormatManager audioFormats;
         audioFormats.registerBasicFormats();
         std::unique_ptr<juce::AudioFormatReader> reader;
-        const bool externalWav=argc>=3;
+        const bool externalWav=!rateMode && argc>=3;
         if(externalWav) {
             const juce::File input(juce::String::fromUTF8(argv[2]));
             require(input.existsAsFile(),"User WAV input not found");
@@ -97,7 +102,10 @@ int main(int argc, char** argv) {
             require(reader!=nullptr,"Could not read WAV input");
             require(reader->numChannels==2,"Reference WAV must be stereo");
         }
-        const double sampleRate=reader ? reader->sampleRate : 44100.0;
+        const double sampleRate=reader ? reader->sampleRate
+            : rateMode ? std::stod(argv[2]) : 44100.0;
+        require(sampleRate==44100.0 || sampleRate==48000.0 || sampleRate==96000.0,
+                "Unsupported test sample rate; expected 44100, 48000 or 96000 Hz");
         const int blockSize=257;
         juce::String error;
         auto plugin=formats.createPluginInstance(*descriptions.getFirst(),sampleRate,
