@@ -3,12 +3,20 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - '.github/workflows/build.yml'
+      - 'CMakeLists.txt'
+      - 'Source/**'
+      - 'tests/**'
+      - 'tools/normalize_vst3_moduleinfo.py'
 
 # During rapid UI/DSP iterations, do not waste Windows runners compiling
 # superseded snapshots. Always compile and publish the most recent commit.
 concurrency:
   group: skell-master-${{ github.ref }}
-  cancel-in-progress: true
+  # Do not cancel main or manual builds; supersede only old PR checks.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
