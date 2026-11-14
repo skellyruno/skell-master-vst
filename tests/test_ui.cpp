@@ -294,7 +294,7 @@ int main() {
         clear->onClick();
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
               "passive output monitoring modified audio");
-        check(preset->getNumItems()==4, "factory preset selector must list four working choices");
+        check(preset->getNumItems()==5, "factory preset selector must list original four plus SKELL MASTER");
         check(preset->getSelectedId()==0 && preset->getText().isEmpty(),
               "initial preset UI must not display INIT / CLEAN by default");
         preset->setSelectedId(2,juce::sendNotificationSync);
@@ -306,6 +306,26 @@ int main() {
         preset->setSelectedId(1,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load())<.12f,
               "INIT factory preset must restore zero drive");
+        // User-reference-matched starting point: deliberately uses only the
+        // existing 11 stable APVTS parameter IDs; old presets stay unchanged.
+        preset->setSelectedId(5,juce::sendNotificationSync);
+        check(preset->getText()=="SKELL MASTER",
+              "reference preset label must be visible in the real selector");
+        const struct {const char* id; float expected;} matched[]={
+            {"input",4.0f},{"drive",8.0f},{"glue",17.0f},
+            {"dynamics",11.0f},{"lows",-1.0f},{"highs",3.0f},
+            {"sauce",20.0f},{"transients",0.0f},{"output",0.0f},
+            {"ceiling",0.0f},{"clipper",14.0f}
+        };
+        for (const auto& value : matched)
+            check(std::abs(processor.parameters.getRawParameterValue(value.id)->load()
+                           -value.expected)<.12f,
+                  "SKELL MASTER factory parameter snapshot is incorrect");
+        preset->setSelectedId(1,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("input")->load())<.12f &&
+              std::abs(processor.parameters.getRawParameterValue("highs")->load())<.12f &&
+              std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f,
+              "SKELL MASTER must not alter original INIT/CLEAN preset");
         clipper->setValue(43.0,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-43.0f)<.12f,
               "clipper knob must automate real DSP parameter");
