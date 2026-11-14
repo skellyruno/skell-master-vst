@@ -312,11 +312,12 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                   :0.5f+0.5f*juce::jlimit(0.0f,1.0f,v/12.0f);
     }
     const float angle=a0+p*(a1-a0);
-    // Solid matte-black knobs instead of shiny gunmetal. Keep dimensional
-    // grooves/shadows and the original ivory indices and gold scale ticks.
+    // Reference finish: warm near-black brushed steel, with a narrow
+    // bronze edge and a real directional satin reflection. Knob geometry,
+    // fixed tick marks and the moving ivory pointer stay unchanged.
     const auto metalAccent=juce::Colour(0xffaa946d);
-    const auto brass=juce::Colour(0xff111111); // black collar and barrel
-    const auto bright=juce::Colour(0xff555555); // restrained charcoal rim
+    const auto brass=juce::Colour(0xff1b1917); // dark warm-black sidewall
+    const auto bright=juce::Colour(0xff746852); // muted champagne rim
     const auto pointerIvory=juce::Colour(0xffe6dcc5);
     const auto shadow=juce::Colour(0xff080908);
     const float frame=r*0.90f;
@@ -410,23 +411,46 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     g.fillEllipse(cx-face-0.7f,cy-face-0.7f,
                   2*(face+0.7f),2*(face+0.7f));
 
-    // Matte anodised top, one fixed lighting direction and fine lathe cuts.
-    // No new scratches or noise: depth comes from constructed geometry.
-    juce::ColourGradient crown(juce::Colour(0xff242424),
+    // Source image has charcoal-black brushed metal, with a graphite
+    // highlight sweeping across the right side; not flat digital black or
+    // the blue-black tint of the previous knobs. Lighting is stationary.
+    juce::ColourGradient crown(juce::Colour(0xff080808),
                                 cx-face*0.91f,cy-face*0.93f,
-                                juce::Colour(0xff030303),
+                                juce::Colour(0xff141414),
                                 cx+face*0.89f,cy+face*0.94f,false);
-    crown.addColour(0.20,juce::Colour(0xff171717));
-    crown.addColour(0.63,juce::Colour(0xff090909));
+    crown.addColour(0.22,juce::Colour(0xff0f0f0f));
+    crown.addColour(0.55,juce::Colour(0xff121212));
+    crown.addColour(0.75,juce::Colour(0xff1d1c1c));
     g.setGradientFill(crown);
     g.fillEllipse(cx-face+1.0f,cy-face+1.0f,
                   2*(face-1.0f),2*(face-1.0f));
-    // A broad stationary grazing highlight gives the solid knob cap weight.
+    // Soft layered radial brushing, not a hard triangular highlight.
+    // Warm neutral steel glints are strongest near the outer edge and
+    // remain fixed in the panel's light even as the ivory pointer turns.
+    const auto satinFan=[&](float centreAngle,float opacity) {
+        for(int layer=0;layer<3;++layer) {
+            const float halfWidth=0.32f-0.085f*static_cast<float>(layer);
+            juce::Path fan;
+            fan.startNewSubPath(cx,cy);
+            fan.addCentredArc(cx,cy,face-2.0f,face-2.0f,0.0f,
+                              centreAngle-halfWidth,centreAngle+halfWidth,false);
+            fan.closeSubPath();
+            juce::ColourGradient sheen(
+                juce::Colour(0xff9b9792).withAlpha(0.0f),cx,cy,
+                juce::Colour(0xff9b9792).withAlpha(opacity),
+                cx,cy-face*0.96f,true);
+            g.setGradientFill(sheen);
+            g.fillPath(fan);
+        }
+    };
+    satinFan(0.0f,0.048f); // upper fan
+    satinFan(pi,0.037f); // lower fan
+    // Very fine radial cuts reveal machining but do not spin with the dial.
     juce::ColourGradient capLustre(
-        juce::Colours::white.withAlpha(0.035f),
-        cx-face*0.60f,cy-face*0.64f,
+        juce::Colours::white.withAlpha(0.012f),
+        cx+face*0.57f,cy-face*0.18f,
         juce::Colours::white.withAlpha(0.0f),
-        cx+face*0.48f,cy+face*0.62f,false);
+        cx-face*0.76f,cy+face*0.44f,false);
     g.setGradientFill(capLustre);
     g.fillEllipse(cx-face+2.0f,cy-face+2.0f,
                   2*(face-2.0f),2*(face-2.0f));
@@ -445,11 +469,11 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
         g.strokePath(arc,juce::PathStrokeType(lineWidth));
     };
     arcAt(face-1.55f,-1.45f,-0.22f,1.15f,
-          juce::Colour(0xff666666).withAlpha(0.19f));
+          juce::Colour(0xff867b6a).withAlpha(0.29f));
     arcAt(face-2.2f,0.67f,2.54f,1.3f,
           juce::Colours::black.withAlpha(0.43f));
     arcAt(grip-0.9f,-1.47f,-0.17f,0.70f,
-          juce::Colour(0xff666666).withAlpha(0.13f));
+          juce::Colour(0xff746b60).withAlpha(0.21f));
 
     // Only the physical ivory pointer moves. Body/knurling/shadows stay
     // centred and the pointer follows the DAW-automated parameter exactly.
