@@ -315,13 +315,13 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     // Reference: nearly black radial-brushed face, a thin warm brass rim
     // and a slim ivory marker. The static metal never rotates with automation.
     const auto metalAccent=juce::Colour(0xffaa946d);
-    const auto brass=juce::Colour(0xff1a1713);  // warm black retaining metal
-    const auto bright=juce::Colour(0xff9c8869); // restrained worn-gold rim
+    const auto brass=juce::Colour(0xff171411);  // black with bronze undertone
+    const auto bright=juce::Colour(0xffb49b72); // narrow brass-lit rim like reference
     const auto pointerIvory=juce::Colour(0xfff0e2b9);
     const auto shadow=juce::Colour(0xff080908);
     const float frame=r*0.90f;
     const float grip=r*0.835f;
-    const float face=r*0.702f;
+    const float face=r*0.755f; // larger black disc; slimmer bronze edge, as reference
 
     // Fixed engraved degree scale, with dark cut grooves and light catches.
     // Unlike a flattened photograph, neither the ring nor its lighting rotates.
@@ -401,24 +401,25 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     g.setColour(shadow.withAlpha(0.90f));
     g.fillEllipse(cx-face-2.4f,cy-face-1.8f,
                   2*(face+2.4f),2*(face+2.4f));
-    juce::ColourGradient capBezel(bright.darker(0.16f),
-                                  cx-face,cy-face,
-                                  juce::Colour(0xff090909),
-                                  cx+face,cy+face,false);
-    capBezel.addColour(0.36,brass.darker(0.40f));
+    juce::ColourGradient capBezel(juce::Colour(0xffbb9c66),
+                                  cx-face*0.95f,cy-face*0.95f,
+                                  juce::Colour(0xff211a11),
+                                  cx+face*0.82f,cy+face*0.92f,false);
+    capBezel.addColour(0.29,juce::Colour(0xff705d3e));
+    capBezel.addColour(0.72,juce::Colour(0xff342a1e));
     g.setGradientFill(capBezel);
     g.fillEllipse(cx-face-0.7f,cy-face-0.7f,
                   2*(face+0.7f),2*(face+0.7f));
 
     // The face is a stationary charcoal satin disc like the supplied
     // knob photo: a dark center, stronger graphite top/bottom radial grain.
-    juce::ColourGradient crown(juce::Colour(0xff151515),
-                                cx-face*0.65f,cy-face*0.88f,
-                                juce::Colour(0xff111111),
+    juce::ColourGradient crown(juce::Colour(0xff2c2b29),
+                                cx-face*0.67f,cy-face*0.89f,
+                                juce::Colour(0xff060606),
                                 cx+face*0.70f,cy+face*0.89f,false);
-    crown.addColour(0.27,juce::Colour(0xff212120));
-    crown.addColour(0.50,juce::Colour(0xff0b0c0c));
-    crown.addColour(0.76,juce::Colour(0xff1d1c1c));
+    crown.addColour(0.19,juce::Colour(0xff202020));
+    crown.addColour(0.48,juce::Colour(0xff0b0c0c));
+    crown.addColour(0.78,juce::Colour(0xff171717));
     g.setGradientFill(crown);
     g.fillEllipse(cx-face+1.0f,cy-face+1.0f,
                   2*(face-1.0f),2*(face-1.0f));
@@ -426,15 +427,15 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     // stays dark; thin adjacent rays build the brushed-metal reflection.
     for(int endIndex=0;endIndex<2;++endIndex) {
         const float direction=endIndex==0 ? 0.0f : pi;
-        for(int ray=-10;ray<=10;++ray) {
-            const float t=static_cast<float>(ray)/10.0f;
-            const float a=direction+t*0.51f;
-            const float alpha=(endIndex==0?0.15f:0.115f)
-                              *std::pow(1.0f-std::abs(t),1.65f);
+        for(int ray=-15;ray<=15;++ray) {
+            const float t=static_cast<float>(ray)/15.0f;
+            const float a=direction+t*0.61f;
+            const float alpha=(endIndex==0?0.19f:0.155f)
+                              *std::pow(1.0f-std::abs(t),1.90f);
             juce::Path sheen;
             sheen.startNewSubPath(cx,cy);
             sheen.addCentredArc(cx,cy,face-2.0f,face-2.0f,0.0f,
-                                a-0.025f,a+0.025f,false);
+                                a-0.021f,a+0.021f,false);
             sheen.closeSubPath();
             juce::ColourGradient radial(
                 juce::Colour(0xffa3a09a).withAlpha(0.0f),cx,cy,
@@ -486,10 +487,14 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     g.drawLine(marker,2.85f);
     g.setColour(pointerIvory);
     g.drawLine(marker,1.85f);
-    // A tiny bronze rim catch; no center screw (the source photo has none).
-    g.setColour(bright.withAlpha(0.64f));
-    g.drawEllipse(cx-face+0.05f,cy-face+0.05f,
-                  2*(face-0.05f),2*(face-0.05f),0.76f);
+    // Two thin gold concentric edge catches match the supplied hardware
+    // knob. This is the *knob only*: the graduation ticks are left intact.
+    g.setColour(juce::Colour(0xffb9a17a).withAlpha(0.86f));
+    g.drawEllipse(cx-face+0.2f,cy-face+0.2f,
+                  2*(face-0.2f),2*(face-0.2f),1.08f);
+    g.setColour(juce::Colour(0xff7d6745).withAlpha(0.78f));
+    g.drawEllipse(cx-face+2.05f,cy-face+2.05f,
+                  2*(face-2.05f),2*(face-2.05f),0.67f);
 
 }
 
