@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: skelly-master-ui-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   real-editor-screenshots:
