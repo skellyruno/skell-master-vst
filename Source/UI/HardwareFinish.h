@@ -129,22 +129,22 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
                   bool previousIronBackground=false) {
     g.setColour(juce::Colours::black.withAlpha(0.9f));
     g.fillRoundedRectangle(r.translated(0,3.5f),radius);
-    // Smoked Black Iron (base #292923): subtly mottled warm charcoal paint on
-    // the three large Ossuary chassis plates only. The previous photographic
-    // grain stays at low opacity so the black-and-gold knobs remain dominant.
-    // All control hardware, enamel inserts and other SkellCore skins are fixed.
+    // Deep rack-iron finish: dark charcoal/black painted steel with a
+    // controlled directional sheen and fine stationary machining grain.
+    // Applies ONLY to the three large Ossuary chassis plates; approved knobs,
+    // meter hardware, emerald enamel, other skins and DSP stay unchanged.
     const auto ironPaint = [&](juce::uint32 dark, juce::uint32 earlier) {
         return juce::Colour(previousIronBackground ? earlier : dark);
     };
     juce::ColourGradient enamel(green?juce::Colour(0xff16432e)
-                                    :ironPaint(0xff11130f,0xff36362f),
+                                    :ironPaint(0xff11130f,0xff292b2b),
                 r.getX(),r.getY(),green?juce::Colour(0xff030f0a)
-                                     :ironPaint(0xff040604,0xff1d1e1a),
+                                     :ironPaint(0xff040604,0xff0e1011),
                 r.getX()+r.getWidth()*0.8f,r.getBottom(),false);
     enamel.addColour(0.27,green?juce::Colour(0xff0e3020)
-                               :ironPaint(0xff0e100c,0xff292923));
+                               :ironPaint(0xff0e100c,0xff1b1e1e));
     enamel.addColour(0.56,green?juce::Colour(0xff071d12)
-                               :ironPaint(0xff090b08,0xff262720));
+                               :ironPaint(0xff090b08,0xff181b1b));
     g.setGradientFill(enamel);
     g.fillRoundedRectangle(r,radius);
     // Authentic source-image material grain overlays only large STATIC panels.
@@ -167,7 +167,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
         if (grain.isValid()) {
             juce::Graphics::ScopedSaveState textureScope(g);
             g.setTiledImageFill(grain, static_cast<int>(r.getX()+4),
-                                static_cast<int>(r.getY()+4), green ? 0.39f : (previousIronBackground ? 0.13f : 0.36f));
+                                static_cast<int>(r.getY()+4), green ? 0.39f : (previousIronBackground ? 0.18f : 0.36f));
             g.fillRoundedRectangle(r.reduced(6.0f),juce::jmax(0.0f,radius-4.0f));
         }
     }
@@ -176,7 +176,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
     // depth without introducing any more scratches or random dirt.
     // Increase the paint abrasion only on the major dark chassis plates;
     // work is deterministic and cached in the editor's static backdrop.
-    patina(g,r.reduced(2.2f),seed,wear*(previousIronBackground?0.42f:1.08f),
+    patina(g,r.reduced(2.2f),seed,wear*(previousIronBackground?0.37f:1.08f),
            previousIronBackground);
     if (previousIronBackground) {
         juce::Graphics::ScopedSaveState wearScope(g);
@@ -184,7 +184,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
         g.reduceClipRegion(well.toNearestInt());
         // Short irregular exposed-brass scuffs, concentrated along the upper
         // and lower edges instead of compromising the live control labels.
-        for (int i=0;i<44;++i) {
+        for (int i=0;i<34;++i) {
             const auto hash=noise(seed+0x23a3u+static_cast<uint32_t>(i*1151));
             const float rx=static_cast<float>(hash%10321u)/10321.0f;
             const float ry=static_cast<float>((hash>>14)%8191u)/8191.0f;
@@ -212,6 +212,17 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
             well.getY()+well.getHeight()*0.68f,false);
         g.setGradientFill(grazingLight);
         g.fillRect(well);
+        if (previousIronBackground) {
+            // Machined panel-edge lighting (no extra adornment around controls).
+            // A faint silver edge catch and a dark lower gasket give the
+            // broad panel the heft of a rack-mounted steel faceplate.
+            g.setColour(juce::Colour(0xffb2b7af).withAlpha(0.13f));
+            g.drawLine(well.getX()+5.0f,well.getY()+1.1f,
+                       well.getRight()-5.0f,well.getY()+1.1f,0.82f);
+            g.setColour(juce::Colours::black.withAlpha(0.34f));
+            g.drawLine(well.getX()+5.0f,well.getBottom()-1.0f,
+                       well.getRight()-5.0f,well.getBottom()-1.0f,1.15f);
+        }
     }
     g.setColour(juce::Colours::black.withAlpha(0.56f));
     g.drawRoundedRectangle(r.reduced(6.9f),
