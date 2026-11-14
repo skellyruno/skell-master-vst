@@ -312,13 +312,12 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                   :0.5f+0.5f*juce::jlimit(0.0f,1.0f,v/12.0f);
     }
     const float angle=a0+p*(a1-a0);
-    // Reference finish: warm near-black brushed steel, with a narrow
-    // bronze edge and a real directional satin reflection. Knob geometry,
-    // fixed tick marks and the moving ivory pointer stay unchanged.
+    // Reference: nearly black radial-brushed face, a thin warm brass rim
+    // and a slim ivory marker. The static metal never rotates with automation.
     const auto metalAccent=juce::Colour(0xffaa946d);
-    const auto brass=juce::Colour(0xff1b1917); // dark warm-black sidewall
-    const auto bright=juce::Colour(0xff746852); // muted champagne rim
-    const auto pointerIvory=juce::Colour(0xffe6dcc5);
+    const auto brass=juce::Colour(0xff1a1713);  // warm black retaining metal
+    const auto bright=juce::Colour(0xff9c8869); // restrained worn-gold rim
+    const auto pointerIvory=juce::Colour(0xfff0e2b9);
     const auto shadow=juce::Colour(0xff080908);
     const float frame=r*0.90f;
     const float grip=r*0.835f;
@@ -411,43 +410,42 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     g.fillEllipse(cx-face-0.7f,cy-face-0.7f,
                   2*(face+0.7f),2*(face+0.7f));
 
-    // Source image has charcoal-black brushed metal, with a graphite
-    // highlight sweeping across the right side; not flat digital black or
-    // the blue-black tint of the previous knobs. Lighting is stationary.
-    juce::ColourGradient crown(juce::Colour(0xff080808),
-                                cx-face*0.91f,cy-face*0.93f,
-                                juce::Colour(0xff141414),
-                                cx+face*0.89f,cy+face*0.94f,false);
-    crown.addColour(0.22,juce::Colour(0xff0f0f0f));
-    crown.addColour(0.55,juce::Colour(0xff121212));
-    crown.addColour(0.75,juce::Colour(0xff1d1c1c));
+    // The face is a stationary charcoal satin disc like the supplied
+    // knob photo: a dark center, stronger graphite top/bottom radial grain.
+    juce::ColourGradient crown(juce::Colour(0xff151515),
+                                cx-face*0.65f,cy-face*0.88f,
+                                juce::Colour(0xff111111),
+                                cx+face*0.70f,cy+face*0.89f,false);
+    crown.addColour(0.27,juce::Colour(0xff212120));
+    crown.addColour(0.50,juce::Colour(0xff0b0c0c));
+    crown.addColour(0.76,juce::Colour(0xff1d1c1c));
     g.setGradientFill(crown);
     g.fillEllipse(cx-face+1.0f,cy-face+1.0f,
                   2*(face-1.0f),2*(face-1.0f));
-    // Soft layered radial brushing, not a hard triangular highlight.
-    // Warm neutral steel glints are strongest near the outer edge and
-    // remain fixed in the panel's light even as the ivory pointer turns.
-    const auto satinFan=[&](float centreAngle,float opacity) {
-        for(int layer=0;layer<3;++layer) {
-            const float halfWidth=0.32f-0.085f*static_cast<float>(layer);
-            juce::Path fan;
-            fan.startNewSubPath(cx,cy);
-            fan.addCentredArc(cx,cy,face-2.0f,face-2.0f,0.0f,
-                              centreAngle-halfWidth,centreAngle+halfWidth,false);
-            fan.closeSubPath();
-            juce::ColourGradient sheen(
-                juce::Colour(0xff9b9792).withAlpha(0.0f),cx,cy,
-                juce::Colour(0xff9b9792).withAlpha(opacity),
-                cx,cy-face*0.96f,true);
-            g.setGradientFill(sheen);
-            g.fillPath(fan);
+    // Two feathered radial sheens based on the user's photo. The center
+    // stays dark; thin adjacent rays build the brushed-metal reflection.
+    for(int endIndex=0;endIndex<2;++endIndex) {
+        const float direction=endIndex==0 ? 0.0f : pi;
+        for(int ray=-10;ray<=10;++ray) {
+            const float t=static_cast<float>(ray)/10.0f;
+            const float a=direction+t*0.51f;
+            const float alpha=(endIndex==0?0.15f:0.115f)
+                              *std::pow(1.0f-std::abs(t),1.65f);
+            juce::Path sheen;
+            sheen.startNewSubPath(cx,cy);
+            sheen.addCentredArc(cx,cy,face-2.0f,face-2.0f,0.0f,
+                                a-0.025f,a+0.025f,false);
+            sheen.closeSubPath();
+            juce::ColourGradient radial(
+                juce::Colour(0xffa3a09a).withAlpha(0.0f),cx,cy,
+                juce::Colour(0xffa3a09a).withAlpha(alpha),
+                cx,cy-face*0.92f,true);
+            g.setGradientFill(radial);
+            g.fillPath(sheen);
         }
-    };
-    satinFan(0.0f,0.048f); // upper fan
-    satinFan(pi,0.037f); // lower fan
-    // Very fine radial cuts reveal machining but do not spin with the dial.
+    }
     juce::ColourGradient capLustre(
-        juce::Colours::white.withAlpha(0.012f),
+        juce::Colours::white.withAlpha(0.024f),
         cx+face*0.57f,cy-face*0.18f,
         juce::Colours::white.withAlpha(0.0f),
         cx-face*0.76f,cy+face*0.44f,false);
@@ -475,36 +473,24 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     arcAt(grip-0.9f,-1.47f,-0.17f,0.70f,
           juce::Colour(0xff746b60).withAlpha(0.21f));
 
-    // Only the physical ivory pointer moves. Body/knurling/shadows stay
-    // centred and the pointer follows the DAW-automated parameter exactly.
-    const float sn=std::sin(angle),cs=-std::cos(angle);
-    const float d0=face*0.25f,d1=face*0.84f;
-    const float nx=-cs,ny=sn;
-    juce::Path tip;
-    tip.startNewSubPath(cx+sn*d0+nx*4.6f,cy+cs*d0+ny*4.6f);
-    tip.lineTo(cx+sn*d1+nx*2.8f,cy+cs*d1+ny*2.8f);
-    tip.lineTo(cx+sn*(d1+2.2f),cy+cs*(d1+2.2f));
-    tip.lineTo(cx+sn*d1-nx*2.8f,cy+cs*d1-ny*2.8f);
-    tip.lineTo(cx+sn*d0-nx*4.6f,cy+cs*d0-ny*4.6f);
-    tip.closeSubPath();
-    g.setColour(shadow.withAlpha(0.82f));
-    g.fillPath(tip,juce::AffineTransform::translation(1.8f,2.1f));
-    // Pointer material rotates, but studio lighting does not.
-    juce::ColourGradient pointer(pointerIvory,
-                                 cx-face*0.46f,cy-face*0.49f,
-                                 juce::Colour(0xff817f74),
-                                 cx+face*0.63f,cy+face*0.66f,false);
-    pointer.addColour(0.48,pointerIvory.darker(0.19f));
-    g.setGradientFill(pointer);
-    g.fillPath(tip);
-    g.setColour(juce::Colours::white.withAlpha(0.47f));
-    g.drawLine(cx+sn*d0+nx*1.3f,cy+cs*d0+ny*1.3f,
-               cx+sn*d1+nx*1.3f,cy+cs*d1+ny*1.3f,0.65f);
-    // Small concentric rivet/fastening point, not a lopsided dark decal.
-    g.setColour(juce::Colour(0xff090a08));
-    g.fillEllipse(cx-2.6f,cy-2.6f,5.2f,5.2f);
-    g.setColour(brass.withAlpha(0.67f));
-    g.drawEllipse(cx-2.25f,cy-2.25f,4.5f,4.5f,0.8f);
+    // The reference uses a slender ivory *line*, not the thick arrow tip.
+    // Its angle is still exactly bound to the existing host-automated value.
+    const float sn=std::sin(angle), cs=-std::cos(angle);
+    const float d0=face*0.22f, d1=face*0.94f;
+    const auto marker=juce::Line<float>(cx+sn*d0,cy+cs*d0,
+                                       cx+sn*d1,cy+cs*d1);
+    g.setColour(shadow.withAlpha(0.74f));
+    g.drawLine(cx+sn*d0+0.7f,cy+cs*d0+1.0f,
+               cx+sn*d1+0.7f,cy+cs*d1+1.0f,3.35f);
+    g.setColour(juce::Colour(0xff9b8255));
+    g.drawLine(marker,2.85f);
+    g.setColour(pointerIvory);
+    g.drawLine(marker,1.85f);
+    // A tiny bronze rim catch; no center screw (the source photo has none).
+    g.setColour(bright.withAlpha(0.64f));
+    g.drawEllipse(cx-face+0.05f,cy-face+0.05f,
+                  2*(face-0.05f),2*(face-0.05f),0.76f);
+
 }
 
 SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterAudioProcessor& p)
@@ -948,13 +934,10 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
 }
 
 void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
-    // The supplied ~#CFC5AA swatch replaces the large chassis background
-    // only in the default Ossuary skin; no hardware or DSP changes.
-    g.setColour(skin==skellcore::ui::SkullSkin::Ossuary
-                    ? juce::Colour(0xffcfc5aa)
-                    : juce::Colour(0xff030503));
+    g.setColour(juce::Colour(0xff030503));
     g.fillRect(0,0,designW,designH);
-    // Painted chassis only; metal trim and controls are unmodified.
+    // Darker, torn iron chassis and rubbed brass edge. Only its painted
+    // background receives a theme wash; physical trim stays unchanged.
     hw::plate(g,{3,3,1194,754},false,0x310570u,14.0f,1.62f,
               skin==skellcore::ui::SkullSkin::Ossuary);
     if (skin!=skellcore::ui::SkullSkin::Ossuary)
