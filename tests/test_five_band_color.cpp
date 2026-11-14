@@ -91,6 +91,42 @@ int main() {
     std::cout << "PASS: isolated band response bass " << bassGain
               << " 7kHz " << upperGain << "\n";
 
+    // A preset/load or DAW automation step must not create a full-scale
+    // instantaneous discontinuity on an otherwise constant input.
+    // This exercises both a switch-on AND a switch-off with running states.
+    FiveBandColorPrototype smoothed;
+    smoothed.prepare(rate);
+    FiveBandColorSettings off, on=full;
+    double previous=0.27;
+    for(int i=0;i<6000;++i) {
+        double l=0.27,r=0.27;
+        smoothed.process(l,r,off);
+        require(l==0.27 && r==0.27,
+                "zero-mix filter tracking must be exactly dry");
+    }
+    double largestStep=0.0, steadyColor=0.0;
+    for(int i=0;i<static_cast<int>(rate * 0.16);++i) {
+        double l=0.27,r=0.27;
+        smoothed.process(l,r,on);
+        largestStep=std::max(largestStep,std::abs(l-previous));
+        previous=l;
+        steadyColor=std::abs(l-0.27);
+    }
+    require(steadyColor>0.005,
+            "long-enough ramp must audibly engage the coloration");
+    for(int i=0;i<static_cast<int>(rate * 0.4);++i) {
+        double l=0.27,r=0.27;
+        smoothed.process(l,r,off);
+        largestStep=std::max(largestStep,std::abs(l-previous));
+        previous=l;
+    }
+    require(largestStep<0.002,
+            "five-band parameter automation caused a discontinuity");
+    require(std::abs(previous-0.27)<1.e-8,
+            "smoothing release must recover bit-exact dry input");
+    std::cout << "PASS: smooth color engagement/release without DC clicks; largest step "
+              << largestStep << "\\n";
+
     // Hostile automation, finite extreme input and long silent tails must
     // not poison any of the eight internal crossover states.
     color.reset();
@@ -110,12 +146,25 @@ int main() {
         maxSample=std::max(maxSample,std::max(std::abs(l),std::abs(r)));
     }
     require(maxSample<4.0,"unbounded experimental five-band coloration");
+    // Invalid values are neutral *targets*, not abrupt hard bypass
+    // switches: after active coloration they must smoothly fade to dry.
     changing.wet=std::numeric_limits<double>::quiet_NaN();
     changing.intensity[0]=std::numeric_limits<double>::infinity();
     double badL=0.2,badR=-0.1;
     color.process(badL,badR,changing);
+    require(std::isfinite(badL) && std::isfinite(badR),
+            "nonfinite automation must not destabilize the fade");
+    for(int i=0;i<static_cast<int>(rate * 0.5);++i) {
+        badL=0.2; badR=-0.1;
+        color.process(badL,badR,changing);
+    }
+    require(std::abs(badL-0.2)<1.e-8 && std::abs(badR+0.1)<1.e-8,
+            "nonfinite automation must recover dry after smoothing");
+    color.reset();
+    badL=0.2;badR=-0.1;
+    color.process(badL,badR,changing);
     require(badL==0.2 && badR==-0.1,
-            "nonfinite five-band automation must return dry input");
+            "nonfinite automation must be exactly neutral from reset");
     for(int i=0;i<250000;++i) {
         double l=0.0,r=0.0;
         color.process(l,r,full);
