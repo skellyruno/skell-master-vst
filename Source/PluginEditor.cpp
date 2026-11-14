@@ -312,10 +312,12 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                   :0.5f+0.5f*juce::jlimit(0.0f,1.0f,v/12.0f);
     }
     const float angle=a0+p*(a1-a0);
-    // Fixed aged gunmetal/bronze finish. Theme cycling never tints knobs.
+    // Fixed metallic-black hardware cap. No new controls or theme modes;
+    // gold graduation marks and the original ivory rotating pointers remain.
     const auto metalAccent=juce::Colour(0xffaa946d);
-    const auto brass=juce::Colour(0xff726951); // oxidised bronze, not tan plastic
-    const auto bright=juce::Colour(0xffe6dcc5); // ivory-machined highlights
+    const auto brass=juce::Colour(0xff252728); // graphite metal collar/barrel
+    const auto bright=juce::Colour(0xffb0b4b1); // cool machined edge lighting
+    const auto pointerIvory=juce::Colour(0xffe6dcc5);
     const auto shadow=juce::Colour(0xff080908);
     const float frame=r*0.90f;
     const float grip=r*0.835f;
@@ -410,12 +412,12 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
 
     // Matte anodised top, one fixed lighting direction and fine lathe cuts.
     // No new scratches or noise: depth comes from constructed geometry.
-    juce::ColourGradient crown(juce::Colour(0xff95846a),
+    juce::ColourGradient crown(juce::Colour(0xff585c5c),
                                 cx-face*0.91f,cy-face*0.93f,
-                                juce::Colour(0xff292b25),
+                                juce::Colour(0xff090b0c),
                                 cx+face*0.89f,cy+face*0.94f,false);
-    crown.addColour(0.20,juce::Colour(0xff7d725d));
-    crown.addColour(0.63,juce::Colour(0xff494a3e));
+    crown.addColour(0.20,juce::Colour(0xff343737));
+    crown.addColour(0.63,juce::Colour(0xff171a1b));
     g.setGradientFill(crown);
     g.fillEllipse(cx-face+1.0f,cy-face+1.0f,
                   2*(face-1.0f),2*(face-1.0f));
@@ -443,11 +445,11 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
         g.strokePath(arc,juce::PathStrokeType(lineWidth));
     };
     arcAt(face-1.55f,-1.45f,-0.22f,1.15f,
-          juce::Colour(0xffd5c5a4).withAlpha(0.38f));
+          juce::Colour(0xffb4bdc3).withAlpha(0.38f));
     arcAt(face-2.2f,0.67f,2.54f,1.3f,
           juce::Colours::black.withAlpha(0.43f));
     arcAt(grip-0.9f,-1.47f,-0.17f,0.70f,
-          juce::Colour(0xffeed5aa).withAlpha(0.27f));
+          juce::Colour(0xffadb7bd).withAlpha(0.27f));
 
     // Only the physical ivory pointer moves. Body/knurling/shadows stay
     // centred and the pointer follows the DAW-automated parameter exactly.
@@ -464,11 +466,11 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     g.setColour(shadow.withAlpha(0.82f));
     g.fillPath(tip,juce::AffineTransform::translation(1.8f,2.1f));
     // Pointer material rotates, but studio lighting does not.
-    juce::ColourGradient pointer(bright,
+    juce::ColourGradient pointer(pointerIvory,
                                  cx-face*0.46f,cy-face*0.49f,
                                  juce::Colour(0xff817f74),
                                  cx+face*0.63f,cy+face*0.66f,false);
-    pointer.addColour(0.48,bright.darker(0.19f));
+    pointer.addColour(0.48,pointerIvory.darker(0.19f));
     g.setGradientFill(pointer);
     g.fillPath(tip);
     g.setColour(juce::Colours::white.withAlpha(0.47f));
@@ -926,8 +928,10 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     g.fillRect(0,0,designW,designH);
     // Darker, torn iron chassis and rubbed brass edge. Only its painted
     // background receives a theme wash; physical trim stays unchanged.
-    hw::plate(g,{3,3,1194,754},false,0x310570u,14.0f,1.62f);
-    themeInset(g,{3,3,1194,754},skin,false);
+    hw::plate(g,{3,3,1194,754},false,0x310570u,14.0f,1.62f,
+              skin==skellcore::ui::SkullSkin::Ossuary);
+    if (skin!=skellcore::ui::SkullSkin::Ossuary)
+        themeInset(g,{3,3,1194,754},skin,false);
     g.setColour(hw::brass.withAlpha(0.26f));
     g.drawRoundedRectangle(juce::Rectangle<float>(8,8,1184,744),12.0f,1.0f);
 
@@ -969,8 +973,10 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     // The skull on the right was removed; left skull alone changes skin.
 
     // Engraved meter bridge with a separate stamped status panel.
-    hw::plate(g,{37,94,1126,200},false,0x33c8a7u,12.0f,1.22f);
-    themeInset(g,{37,94,1126,200},skin,false);
+    hw::plate(g,{37,94,1126,200},false,0x33c8a7u,12.0f,1.22f,
+              skin==skellcore::ui::SkullSkin::Ossuary);
+    if (skin!=skellcore::ui::SkullSkin::Ossuary)
+        themeInset(g,{37,94,1126,200},skin,false);
     hw::plate(g,{48,109,213,176},false,0x641b4fu,9.0f,0.82f);
     for(float x : {60.0f,249.0f})
         for(float y : {121.0f,273.0f}) hw::screw(g,x,y,0.88f);
@@ -988,8 +994,10 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     hw::glassWindow(g,{70,247,169,30},5.0f);
 
     // Modular lower rack: same genuine APVTS controls as previous build.
-    hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.57f);
-    themeInset(g,{37,298,1126,356},skin,false);
+    hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.57f,
+              skin==skellcore::ui::SkullSkin::Ossuary);
+    if (skin!=skellcore::ui::SkullSkin::Ossuary)
+        themeInset(g,{37,298,1126,356},skin,false);
     for(float x : {51.0f,1149.0f})
         for(float y : {310.0f,641.0f}) hw::screw(g,x,y,0.90f);
     hw::divider(g,64,480,1138,480);
