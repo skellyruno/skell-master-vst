@@ -15,14 +15,68 @@ const juce::Colour ink = hw::black;
 const juce::Colour panel = hw::iron;
 const juce::Colour pale = hw::parchment;
 const juce::Colour muted(0xffbda776);
+// Warm near-white for all live numeric readouts; status LEDs remain green.
+const juce::Colour readoutWhite(0xfffaf9f6);
 
-constexpr const char* labels[10] = {
+// SkellCore selects skins, SKELL Master renders coherent physical materials.
+// Hardware controls and exposed metal are *fixed*. A theme never paints
+// the skull button, rotary knobs, screws, text, or glass in a different hue.
+juce::Colour hardwareAccent(skellcore::ui::SkullSkin) {
+    return juce::Colour(0xffa78a5a); // aged solid-brass engraved details
+}
+juce::Colour hardwareText(skellcore::ui::SkullSkin) {
+    return juce::Colour(0xffe8d9bd); // warm ivory lettering at every skin
+}
+// The only theme-controlled areas are the two formerly green enamel plates
+// and the dark iron chassis/panel background underneath the live hardware.
+juce::Colour themeEnamel(skellcore::ui::SkullSkin skin) {
+    using Skin=skellcore::ui::SkullSkin;
+    switch(skin) {
+        case Skin::Neon: return juce::Colour(0xff246c3b); // worn neon green
+        case Skin::Ivory: return juce::Colour(0xff736048); // aged umber
+        case Skin::Obsidian: return juce::Colour(0xff304e5d); // gunmetal blue
+        default: return juce::Colour(0xff24543b); // dark enamel green
+    }
+}
+juce::Colour themeBackground(skellcore::ui::SkullSkin skin) {
+    using Skin=skellcore::ui::SkullSkin;
+    switch(skin) {
+        case Skin::Neon: return juce::Colour(0xff08180f);
+        case Skin::Ivory: return juce::Colour(0xff1c160f);
+        case Skin::Obsidian: return juce::Colour(0xff101e26);
+        default: return juce::Colour(0xff0d110e);
+    }
+}
+// Tint only the painted inset of a plate. Leave the physically machined brass
+// trim, screws, typography, and separate interactive controls unchanged.
+void themeInset(juce::Graphics& g,juce::Rectangle<float> r,
+                skellcore::ui::SkullSkin skin,bool enamel) {
+    juce::Graphics::ScopedSaveState save(g);
+    const auto inset=r.reduced(enamel?7.4f:8.2f);
+    const auto base=enamel?themeEnamel(skin):themeBackground(skin);
+    const float strength=enamel?0.80f:0.36f;
+    juce::ColourGradient tint(base.brighter(enamel?0.24f:0.06f).withAlpha(strength),
+                              inset.getX(),inset.getY(),
+                              base.darker(enamel?0.67f:0.23f).withAlpha(
+                                  enamel?0.88f:0.43f),
+                              inset.getRight(),inset.getBottom(),false);
+    tint.addColour(0.38,base.withAlpha(strength));
+    g.setGradientFill(tint);
+    g.fillRoundedRectangle(inset,enamel?3.2f:4.5f);
+    // Paint chips and drag marks remain on top of the coloured enamel,
+    // with deterministic scratches cached once, never per audio buffer.
+    if(enamel)
+        hw::patina(g,inset.reduced(2.0f),
+                   static_cast<uint32_t>(r.getX()*67+r.getY()*31),0.38f);
+}
+
+constexpr const char* labels[11] = {
     "INPUT", "DRIVE", "GLUE", "DYNAMICS", "LOWS", "HIGHS",
-    "SAUCE", "TRANSIENTS", "OUTPUT", "CEILING"
+    "SAUCE", "TRANSIENTS", "OUTPUT", "CEILING", "CLIP"
 };
-constexpr const char* ids[10] = {
+constexpr const char* ids[11] = {
     "input", "drive", "glue", "dynamics", "lows", "highs",
-    "sauce", "transients", "output", "ceiling"
+    "sauce", "transients", "output", "ceiling", "clipper"
 };
 constexpr const char* subtitles[8] = {
     "GAIN STAGE", "HARMONIC DRIVE", "BUS COMPRESSION", "LEVEL CONTROL",
@@ -73,47 +127,132 @@ SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::SkellyLookAndFeel() {
     setColour(juce::TextButton::buttonColourId, panel);
     setColour(juce::TextButton::buttonOnColourId, hw::lacquer);
 }
+void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::setSkin(
+        skellcore::ui::SkullSkin selected) {
+    activeSkin=selected;
+    const auto accent=hardwareAccent(selected), lettering=hardwareText(selected);
+    // The skull changes the chassis and the two enamel inserts ONLY.
+    // These shared control colours are deliberately fixed for all skins.
+    setColour(juce::Slider::textBoxTextColourId,lettering);
+    setColour(juce::Slider::textBoxOutlineColourId,accent);
+    setColour(juce::Slider::textBoxBackgroundColourId,juce::Colour(0xff060806));
+    setColour(juce::Slider::textBoxHighlightColourId,accent.withAlpha(0.65f));
+    setColour(juce::Slider::thumbColourId,accent);
+    setColour(juce::Label::textColourId,lettering);
+    setColour(juce::TextButton::textColourOffId,lettering);
+    setColour(juce::TextButton::textColourOnId,lettering);
+    setColour(juce::TextButton::buttonColourId,juce::Colour(0xff1b1e19));
+    setColour(juce::TextButton::buttonOnColourId,accent.darker(0.70f));
+    setColour(juce::ComboBox::textColourId,lettering);
+    setColour(juce::ComboBox::arrowColourId,accent);
+    setColour(juce::ComboBox::backgroundColourId,juce::Colour(0xff080a08));
+    setColour(juce::PopupMenu::backgroundColourId,juce::Colour(0xff111410));
+    setColour(juce::PopupMenu::textColourId,lettering);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId,accent.darker(0.72f));
+}
+
+juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getComboBoxFont(
+    juce::ComboBox& combo) {
+   #if JUCE_LINUX
+    constexpr const char* family="DejaVu Sans";
+   #else
+    constexpr const char* family="Segoe UI";
+   #endif
+    // Small engraved hardware-window text, not a giant preset banner.
+    const float height=static_cast<float>(combo.getHeight());
+    const float size=juce::jlimit(9.0f,12.0f,height*0.49f);
+    return juce::Font(juce::FontOptions(size).withName(family).withStyle("Bold"));
+}
+
+void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawComboBox(
+    juce::Graphics& g,int width,int height,bool,int,int,int,int,juce::ComboBox&) {
+    hw::glassWindow(g,{0.0f,0.0f,static_cast<float>(width),static_cast<float>(height)},4.0f);
+    const auto accent=hardwareAccent(activeSkin);
+    g.setColour(accent.withAlpha(0.78f));
+    juce::Path arrow;
+    const float cx=static_cast<float>(width)-13.0f,cy=static_cast<float>(height)*0.5f;
+    arrow.startNewSubPath(cx-4.0f,cy-2.0f);
+    arrow.lineTo(cx,cy+2.0f);
+    arrow.lineTo(cx+4.0f,cy-2.0f);
+    g.strokePath(arrow,juce::PathStrokeType(1.6f));
+    // A restrained enamel reflection makes the recessed preset window read
+    // as physical glass. The lens lighting stays fixed as controls change.
+    if (width > 48 && height > 15) {
+        g.setColour(juce::Colours::white.withAlpha(0.14f));
+        g.drawLine(7.0f, 4.0f, static_cast<float>(width)-27.0f, 4.0f, 0.85f);
+        g.setColour(accent.withAlpha(0.42f));
+        g.drawLine(8.0f, static_cast<float>(height)-4.1f,
+                   static_cast<float>(width)-28.0f,
+                   static_cast<float>(height)-4.1f, 1.45f);
+    }
+}
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
     juce::Graphics& g, juce::Label& label) {
     const auto r=label.getLocalBounds().toFloat().reduced(0.65f);
-    g.setColour(juce::Colour(0xff030302));
-    g.fillRoundedRectangle(r.translated(0,1.4f),4.5f);
-    juce::ColourGradient metal(juce::Colour(0xff5b4328),r.getX(),r.getY(),
-                               juce::Colour(0xff1b150c),r.getX(),r.getBottom(),false);
-    metal.addColour(0.20,juce::Colour(0xff9c7641));
-    g.setGradientFill(metal);
-    g.fillRoundedRectangle(r,4.5f);
-    g.setColour(juce::Colour(0xff0d0c08));
-    g.fillRoundedRectangle(r.reduced(2.5f),3.0f);
-    g.setColour(hw::gold.withAlpha(0.48f));
-    g.drawRoundedRectangle(r.reduced(0.8f),4.0f,0.8f);
-    g.setColour(hw::brass.withAlpha(0.33f));
-    g.drawLine(r.getX()+5,r.getBottom()-3,r.getRight()-5,r.getBottom()-3,0.8f);
-    if (r.getWidth() > 75.0f) {
-        for (float cx : {r.getX()+5.5f,r.getRight()-5.5f}) {
-            g.setColour(juce::Colour(0xffa98d5e));
-            g.fillEllipse(cx-1.8f,r.getCentreY()-1.8f,3.6f,3.6f);
-            g.setColour(juce::Colour(0xff2a170c));
-            g.drawLine(cx-1.1f,r.getCentreY()+0.9f,cx+1.0f,r.getCentreY()-1.1f,0.75f);
-        }
+    // Readout is a recessed glass lens with a manufactured metal rim.
+    hw::glassWindow(g,r,4.5f);
+    g.setColour(juce::Colours::black.withAlpha(0.58f));
+    g.drawLine(r.getX()+3.1f,r.getY()+4.0f,
+               r.getX()+3.1f,r.getBottom()-4.0f,1.1f);
+    g.drawLine(r.getRight()-3.1f,r.getY()+4.0f,
+               r.getRight()-3.1f,r.getBottom()-4.0f,1.1f);
+    if(r.getWidth()>75.0f) {
+        hw::screw(g,r.getX()+8.0f,r.getCentreY(),0.59f);
+        hw::screw(g,r.getRight()-8.0f,r.getCentreY(),0.59f);
     }
     if (!label.isBeingEdited()) {
-        g.setFont(getLabelFont(label));
-        g.setColour(hw::gold);
-        const int inset=r.getWidth()>75.0f?10:4;
-        g.drawFittedText(label.getText(), label.getLocalBounds().reduced(inset,2),
-                         label.getJustificationType(), 1);
+        auto* preset=dynamic_cast<juce::ComboBox*>(label.getParentComponent());
+        const bool presetLens=preset && preset->getComponentID()=="skell-master-preset";
+        const bool unselected=presetLens && preset->getSelectedId()==0;
+        if(presetLens) {
+            // ComboBox owns this child Label; draw text here (above the
+            // backdrop), not in drawComboBox where the child obscures it.
+            g.setFont(getComboBoxFont(*preset));
+            g.setColour(unselected ? juce::Colour(0xffc8b899).withAlpha(0.83f)
+                                   : hardwareText(activeSkin));
+        } else {
+            g.setFont(getLabelFont(label));
+            g.setColour(findColour(juce::Label::textColourId));
+        }
+        const int inset=r.getWidth()>75.0f?13:4;
+        g.drawFittedText(unselected ? juce::String("SELECT") : label.getText(),
+                         label.getLocalBounds().reduced(inset,2),
+                         presetLens?juce::Justification::centred:label.getJustificationType(), 1);
     }
+    // Glass cover is physically in FRONT of the live digits. Recessed
+    // cavity/lower internal shadow keep them visibly BEHIND the lens.
+    juce::Graphics::ScopedSaveState glassClip(g);
+    g.reduceClipRegion(r.toNearestInt());
+    const auto cavity=r.reduced(2.8f);
+    juce::ColourGradient glaze(juce::Colours::white.withAlpha(0.17f),
+                               cavity.getX()+3.0f,cavity.getY()+1.0f,
+                               juce::Colours::white.withAlpha(0.0f),
+                               cavity.getX()+cavity.getWidth()*0.67f,
+                               cavity.getBottom()-1.0f,false);
+    glaze.addColour(0.30,juce::Colours::white.withAlpha(0.045f));
+    g.setGradientFill(glaze);
+    g.fillRoundedRectangle(cavity,3.1f);
+    g.setColour(juce::Colours::black.withAlpha(0.58f));
+    g.drawLine(cavity.getX()+2.0f,cavity.getBottom()-1.1f,
+               cavity.getRight()-2.0f,cavity.getBottom()-1.1f,1.2f);
+    g.setColour(juce::Colours::white.withAlpha(0.19f));
+    g.drawLine(cavity.getX()+3.0f,cavity.getY()+1.2f,
+               cavity.getRight()*0.72f,cavity.getY()+1.2f,0.7f);
+    g.setColour(juce::Colours::black.withAlpha(0.24f));
+    g.drawRoundedRectangle(cavity,3.2f,1.25f);
 }
 
 juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juce::Label& label) {
-    const auto size = juce::jlimit(10.0f, 24.0f,
-                    static_cast<float>(label.getHeight()) * 0.85f);
+    const auto size = juce::jlimit(10.0f, 22.0f,
+                    static_cast<float>(label.getHeight()) * 0.80f);
+    // Use crisp, un-slashed numerals: Consolas/DejaVu Sans Mono render
+    // their zero like an Ø, which is easy to mistake for another glyph
+    // in a compact rack display. JUCE centres values in fixed-size plates.
    #if JUCE_LINUX
-    constexpr const char* family = "DejaVu Serif";
+    constexpr const char* family = "DejaVu Sans";
    #else
-    constexpr const char* family = "Georgia";
+    constexpr const char* family = "Segoe UI";
    #endif
     return juce::Font(juce::FontOptions(size).withName(family).withStyle("Bold"));
 }
@@ -137,154 +276,255 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
     face.addColour(0.30,active?juce::Colour(0xff265637):juce::Colour(0xff28251c));
     g.setGradientFill(face);
     g.fillRoundedRectangle(inner,6.8f);
-    g.setColour(active?hw::emerald.brighter(0.3f):hw::brass.withAlpha(0.70f));
+    g.setColour(active?hardwareAccent(activeSkin):hardwareAccent(activeSkin).withAlpha(0.54f));
     g.drawRoundedRectangle(inner,6.8f,1.1f);
     g.setColour(juce::Colours::white.withAlpha(hover?0.22f:0.10f));
     g.drawLine(inner.getX()+8,inner.getY()+2,inner.getRight()-8,inner.getY()+2,0.9f);
-    if (r.getWidth()>70) {
-        hw::screw(g,r.getX()+8.0f,r.getCentreY(),0.44f);
-        hw::screw(g,r.getRight()-8.0f,r.getCentreY(),0.44f);
-    }
+    // Small pushbuttons use a clean milled bezel, not unreadable micro-rivets.
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonText(
     juce::Graphics& g, juce::TextButton& b, bool, bool) {
-    font(g,juce::jlimit(10.0f,17.0f,static_cast<float>(b.getHeight())*0.42f),true);
-    g.setColour(b.getToggleState()?hw::gold:hw::parchment);
-    g.drawFittedText(b.getButtonText(),b.getLocalBounds().reduced(12,3),
+    const float size=juce::jlimit(9.0f,17.0f,
+                                  static_cast<float>(b.getHeight())*0.43f);
+    font(g,size,true);
+    g.setColour(findColour(juce::TextButton::textColourOffId));
+    // Compact 620px editor leaves only ~30px for the left mini-buttons.
+    // A fixed 12px inset previously crushed their text into a tiny sliver.
+    const int sidePad=b.getWidth()<45?2:b.getWidth()<95?6:12;
+    g.drawFittedText(b.getButtonText(),b.getLocalBounds().reduced(sidePad,3),
                      juce::Justification::centred,1);
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
-    juce::Graphics& g, int x,int y,int width,int height,float position,
-    float start,float end,juce::Slider& slider) {
-    const float cx=static_cast<float>(x)+width*.50f;
-    const float cy=static_cast<float>(y)+height*.50f;
-    const bool utility=slider.getComponentID()=="utility";
-    const float radius=std::min(static_cast<float>(width),static_cast<float>(height))
-                       *(utility?0.455f:0.462f);
-    const float startAngle=start+0.05f,endAngle=end-0.05f;
-    const float angle=startAngle+position*(endAngle-startAngle);
-
-    // Embossed machine-engraved graduation ring; no fake raster knobs.
-    for (int i=0;i<=40;++i) {
-        const float a=startAngle+(endAngle-startAngle)*i/40.0f;
-        const float si=std::sin(a),co=-std::cos(a);
-        const bool major=(i%5==0);
-        const float inner=radius*(major?0.93f:0.985f);
-        const float outer=radius*(major?1.13f:1.09f);
-        g.setColour(hw::gold.withAlpha(major?0.91f:0.48f));
-        g.drawLine(cx+si*inner,cy+co*inner,cx+si*outer,cy+co*outer,major?1.3f:0.85f);
+    juce::Graphics& g, int x, int y, int width, int height,
+    float position, float start, float end, juce::Slider& slider) {
+    if (width < 16 || height < 16) return;
+    const float cx=x+width*0.5f, cy=y+height*0.5f;
+    const float r=std::min(static_cast<float>(width),
+                           static_cast<float>(height))*0.431f;
+    const float a0=start+0.04f, a1=end-0.04f;
+    float p=std::isfinite(position)?juce::jlimit(0.0f,1.0f,position):0.5f;
+    // The asymmetric output range has a centred physical zero.
+    if (slider.getComponentID()=="utility-output") {
+        const float v=static_cast<float>(slider.getValue());
+        p=v<=0.0f?0.5f*juce::jlimit(0.0f,1.0f,(v+18.0f)/18.0f)
+                  :0.5f+0.5f*juce::jlimit(0.0f,1.0f,v/12.0f);
     }
-    g.setColour(juce::Colour(0xff030403));
-    g.fillEllipse(cx-radius*.92f,cy-radius*.91f,radius*1.84f,radius*1.84f);
-    g.setColour(hw::brass.withAlpha(0.75f));
-    g.drawEllipse(cx-radius*.91f,cy-radius*.91f,radius*1.82f,radius*1.82f,1.6f);
+    const float angle=a0+p*(a1-a0);
+    // Reference: nearly black radial-brushed face, a thin warm brass rim
+    // and a slim ivory marker. The static metal never rotates with automation.
+    const auto metalAccent=juce::Colour(0xffaa946d);
+    const auto brass=juce::Colour(0xff171411);  // black with bronze undertone
+    const auto bright=juce::Colour(0xffb49b72); // narrow brass-lit rim like reference
+    const auto pointerIvory=juce::Colour(0xfff0e2b9);
+    const auto shadow=juce::Colour(0xff080908);
+    const float frame=r*0.90f;
+    const float grip=r*0.835f;
+    const float face=r*0.755f; // larger black disc; slimmer bronze edge, as reference
 
-    // The reference-derived photographic dial is intentionally its own
-    // compressed binary resource, not a flattened image of the entire UI.
-    // Knobs remain real JUCE sliders; the face rotates with the actual APVTS
-    // parameter value while the fixed graduation ring stays engraved.
-    static const juce::Image photographicKnob =
-        juce::ImageFileFormat::loadFrom(BinaryData::knob_photo_png,
-                                       static_cast<size_t>(BinaryData::knob_photo_pngSize));
-    if (photographicKnob.isValid()) {
-        juce::Graphics::ScopedSaveState transformSave(g);
-        // The reference face fills the mechanical brass collar; the 84 px
-        // source stays behind the fixed engraved tick ring at every UI size.
-        const float imageSize=radius*1.92f;
-        // Calibrated against the extracted ivory pointer (+0.34 rad).
-        // Keep the actual APVTS rotary angle, including host automation.
-        g.addTransform(juce::AffineTransform::rotation(angle-0.34f,cx,cy));
-        g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
-        g.drawImage(photographicKnob,
-                    cx-imageSize*.5f,cy-imageSize*.5f,imageSize,imageSize,
-                    0,0,photographicKnob.getWidth(),photographicKnob.getHeight());
-        // Real knob texture rotates; the bevel around its seat does not.
-        // A small fixed brass reflection gives the cap physical depth.
-        g.setColour(hw::gold.withAlpha(0.27f));
-        g.drawEllipse(cx-radius*.955f,cy-radius*.955f,
-                      radius*1.91f,radius*1.91f,1.3f);
-        g.setColour(juce::Colours::black.withAlpha(0.32f));
-        g.drawEllipse(cx-radius*.87f,cy-radius*.87f,
-                      radius*1.74f,radius*1.74f,0.6f);
-        return;
+    // Fixed engraved degree scale, with dark cut grooves and light catches.
+    // Unlike a flattened photograph, neither the ring nor its lighting rotates.
+    for(int tick=0;tick<=32;++tick) {
+        const float a=a0+(a1-a0)*static_cast<float>(tick)/32.0f;
+        const float sn=std::sin(a),cs=-std::cos(a);
+        const bool major=(tick%4)==0;
+        const float inner=r*(major?0.936f:0.992f);
+        const float outer=r*(major?1.15f:1.087f);
+        g.setColour(shadow.withAlpha(0.78f));
+        g.drawLine(cx+sn*inner+0.7f,cy+cs*inner+0.9f,
+                   cx+sn*outer+0.7f,cy+cs*outer+0.9f,major?2.0f:1.25f);
+        g.setColour(metalAccent.withAlpha(major?0.87f:0.46f));
+        g.drawLine(cx+sn*inner,cy+cs*inner,cx+sn*outer,cy+cs*outer,
+                   major?1.27f:0.76f);
     }
 
-    // Vector fallback remains available if a resource is damaged.
-    const float outerFace=radius*.81f;
-    juce::ColourGradient metal(juce::Colour(0xffc8a676),cx-outerFace,cy-outerFace,
-                               juce::Colour(0xff302319),cx+outerFace,cy+outerFace,false);
-    metal.addColour(0.27,juce::Colour(0xff756046));
-    metal.addColour(0.65,juce::Colour(0xff16150e));
-    g.setGradientFill(metal);
-    g.fillEllipse(cx-outerFace,cy-outerFace,2*outerFace,2*outerFace);
+    // Real stacked physical layers: recessed chassis socket, machined brass
+    // retaining collar, protruding cylindrical sidewall and a raised top.
+    // All centres and light sources are fixed; the pointer alone rotates.
+    const float lift=juce::jmax(1.3f,r*0.12f);
+    g.setColour(shadow.withAlpha(0.50f));
+    g.fillEllipse(cx-frame-4.4f,cy-frame+5.2f,2*(frame+4.4f),2*(frame+4.4f));
+    g.setColour(juce::Colour(0xff020302));
+    g.fillEllipse(cx-frame-2.3f,cy-frame-2.3f,2*(frame+2.3f),2*(frame+2.3f));
 
-    // Knurled perimeter catches specular highlights at different angles.
-    for (int i=0;i<72;++i) {
-        const float a=2*pi*i/72.0f;
-        const float cs=std::cos(a),sn=std::sin(a);
-        const float d1=outerFace*.89f,d2=outerFace*.99f;
-        g.setColour(i%3==0?hw::gold.withAlpha(0.28f):
-                      juce::Colours::black.withAlpha(0.38f));
-        g.drawLine(cx+cs*d1,cy+sn*d1,cx+cs*d2,cy+sn*d2,0.9f);
-    }
-    const float face=outerFace*.84f;
-    juce::ColourGradient blackSteel(juce::Colour(0xff5a4937),
-                                    cx-face*.7f,cy-face*.78f,
-                                    juce::Colour(0xff0c0d0b),
-                                    cx+face*.72f,cy+face*.82f,false);
-    blackSteel.addColour(.32,juce::Colour(0xff292820));
-    blackSteel.addColour(.70,juce::Colour(0xff171610));
-    g.setGradientFill(blackSteel);
-    g.fillEllipse(cx-face,cy-face,face*2,face*2);
-    g.setColour(hw::gold.withAlpha(0.35f));
-    g.drawEllipse(cx-face+.9f,cy-face+.9f,(face-.9f)*2,(face-.9f)*2,1.0f);
-    // Circular lathe markings, shaded and offset so they read as real machining.
-    for (int i=0;i<7;++i) {
-        const float rr=face*(0.35f+0.086f*i);
-        g.setColour(i%2==0?juce::Colours::white.withAlpha(0.024f):
-                            juce::Colours::black.withAlpha(0.09f));
-        g.drawEllipse(cx-rr,cy-rr,rr*2,rr*2,0.55f);
+    // Stationary concave retaining ring: lit from top left, dark underneath.
+    juce::ColourGradient machinedRim(bright.darker(0.14f),
+                                     cx-frame*0.82f,cy-frame*0.95f,
+                                     juce::Colour(0xff070707),
+                                     cx+frame*0.85f,cy+frame*0.95f,false);
+    machinedRim.addColour(0.22,brass.interpolatedWith(juce::Colour(0xff252525),0.58f));
+    machinedRim.addColour(0.57,brass.darker(0.75f));
+    g.setGradientFill(machinedRim);
+    g.fillEllipse(cx-frame,cy-frame,2*frame,2*frame);
+    g.setColour(juce::Colour(0xff0a0a08));
+    g.fillEllipse(cx-frame+2.6f,cy-frame+2.6f,
+                  2*(frame-2.6f),2*(frame-2.6f));
+    g.setColour(bright.withAlpha(0.23f));
+    g.drawEllipse(cx-frame+0.9f,cy-frame+0.9f,
+                  2*(frame-0.9f),2*(frame-0.9f),0.85f);
+
+    // Offset lower silhouette is the visible thickness of the grip barrel,
+    // not a rotating texture or an independent off-axis knob centre.
+    g.setColour(shadow.withAlpha(0.92f));
+    g.fillEllipse(cx-grip-1.8f,cy-grip+lift+1.0f,
+                  2*(grip+1.8f),2*(grip+1.8f));
+    juce::ColourGradient sidewall(bright.darker(0.20f),
+                                  cx-grip*0.85f,cy-grip*0.8f,
+                                  juce::Colour(0xff060606),
+                                  cx+grip,cy+grip,false);
+    sidewall.addColour(0.29,brass.darker(0.53f));
+    sidewall.addColour(0.70,brass.darker(0.88f));
+    g.setGradientFill(sidewall);
+    g.fillEllipse(cx-grip,cy-grip,2*grip,2*grip);
+    g.setColour(bright.withAlpha(0.17f));
+    g.drawEllipse(cx-grip+0.8f,cy-grip+0.8f,
+                  2*(grip-0.8f),2*(grip-0.8f),0.85f);
+
+    // Machining ridges have shadowed grooves and tiny illuminated flanks.
+    // Their count scales with circumference to prevent a fuzzy gear effect.
+    const int ridges=juce::jlimit(52,78,juce::roundToInt(2.0f*pi*grip/3.3f));
+    for(int tooth=0;tooth<ridges;++tooth) {
+        const float a=2.0f*pi*static_cast<float>(tooth)/static_cast<float>(ridges);
+        const float sn=std::sin(a),cs=std::cos(a);
+        const float d0=grip*0.845f,d1=grip*0.982f;
+        const float exposure=juce::jmax(0.0f,-0.64f*sn-0.77f*cs);
+        g.setColour(juce::Colour(0xff050605).withAlpha(0.73f));
+        g.drawLine(cx+sn*d0,cy+cs*d0,cx+sn*d1,cy+cs*d1,1.20f);
+        const float next=a+0.019f;
+        g.setColour(juce::Colour(0xff777777).withAlpha(0.09f+0.20f*exposure));
+        g.drawLine(cx+std::sin(next)*d0,cy+std::cos(next)*d0,
+                   cx+std::sin(next)*d1,cy+std::cos(next)*d1,0.72f);
     }
 
-    // Physical ivory/brass bar pointer: bright bevel and dark cast shadow.
-    const float sn=std::sin(angle),cs=-std::cos(angle);
-    const float startD=face*.35f,endD=face*.94f;
-    g.setColour(juce::Colours::black.withAlpha(0.65f));
-    g.drawLine(cx+sn*startD+1.7f,cy+cs*startD+1.7f,
-               cx+sn*endD+1.7f,cy+cs*endD+1.7f,8.0f);
-    g.setColour(hw::brass);
-    g.drawLine(cx+sn*startD,cy+cs*startD,
-               cx+sn*endD,cy+cs*endD,6.2f);
-    g.setColour(hw::gold);
-    g.drawLine(cx+sn*startD,cy+cs*startD,
-               cx+sn*endD,cy+cs*endD,3.2f);
-    // Warm centre inset maintains the handmade reference's proportions.
-    g.setColour(juce::Colour(0xff100e09));
-    g.fillEllipse(cx-3.0f,cy-3.0f,6.0f,6.0f);
-    g.setColour(hw::gold.withAlpha(0.45f));
-    g.drawEllipse(cx-2.3f,cy-2.3f,4.6f,4.6f,0.9f);
+    // Deep contact shadow and a stepped metal land separate cap from grip.
+    g.setColour(shadow.withAlpha(0.90f));
+    g.fillEllipse(cx-face-2.4f,cy-face-1.8f,
+                  2*(face+2.4f),2*(face+2.4f));
+    juce::ColourGradient capBezel(juce::Colour(0xffbb9c66),
+                                  cx-face*0.95f,cy-face*0.95f,
+                                  juce::Colour(0xff211a11),
+                                  cx+face*0.82f,cy+face*0.92f,false);
+    capBezel.addColour(0.29,juce::Colour(0xff705d3e));
+    capBezel.addColour(0.72,juce::Colour(0xff342a1e));
+    g.setGradientFill(capBezel);
+    g.fillEllipse(cx-face-0.7f,cy-face-0.7f,
+                  2*(face+0.7f),2*(face+0.7f));
+
+    // The face is a stationary charcoal satin disc like the supplied
+    // knob photo: a dark center, stronger graphite top/bottom radial grain.
+    juce::ColourGradient crown(juce::Colour(0xff2c2b29),
+                                cx-face*0.67f,cy-face*0.89f,
+                                juce::Colour(0xff060606),
+                                cx+face*0.70f,cy+face*0.89f,false);
+    crown.addColour(0.19,juce::Colour(0xff202020));
+    crown.addColour(0.48,juce::Colour(0xff0b0c0c));
+    crown.addColour(0.78,juce::Colour(0xff171717));
+    g.setGradientFill(crown);
+    g.fillEllipse(cx-face+1.0f,cy-face+1.0f,
+                  2*(face-1.0f),2*(face-1.0f));
+    // Two feathered radial sheens based on the user's photo. The center
+    // stays dark; thin adjacent rays build the brushed-metal reflection.
+    for(int endIndex=0;endIndex<2;++endIndex) {
+        const float direction=endIndex==0 ? 0.0f : pi;
+        for(int ray=-15;ray<=15;++ray) {
+            const float t=static_cast<float>(ray)/15.0f;
+            const float a=direction+t*0.61f;
+            const float alpha=(endIndex==0?0.19f:0.155f)
+                              *std::pow(1.0f-std::abs(t),1.90f);
+            juce::Path sheen;
+            sheen.startNewSubPath(cx,cy);
+            sheen.addCentredArc(cx,cy,face-2.0f,face-2.0f,0.0f,
+                                a-0.021f,a+0.021f,false);
+            sheen.closeSubPath();
+            juce::ColourGradient radial(
+                juce::Colour(0xffa3a09a).withAlpha(0.0f),cx,cy,
+                juce::Colour(0xffa3a09a).withAlpha(alpha),
+                cx,cy-face*0.92f,true);
+            g.setGradientFill(radial);
+            g.fillPath(sheen);
+        }
+    }
+    juce::ColourGradient capLustre(
+        juce::Colours::white.withAlpha(0.024f),
+        cx+face*0.57f,cy-face*0.18f,
+        juce::Colours::white.withAlpha(0.0f),
+        cx-face*0.76f,cy+face*0.44f,false);
+    g.setGradientFill(capLustre);
+    g.fillEllipse(cx-face+2.0f,cy-face+2.0f,
+                  2*(face-2.0f),2*(face-2.0f));
+    for(int ring=0;ring<2;++ring) {
+        const float rr=face*(0.47f+ring*0.29f);
+        g.setColour((ring%2==0?juce::Colours::black:juce::Colours::white)
+                    .withAlpha(ring%2==0?0.052f:0.010f));
+        g.drawEllipse(cx-rr,cy-rr,rr*2,rr*2,0.48f);
+    }
+    // Small continuous machined arcs read as directional light, not decals.
+    const auto arcAt=[&](float radius,float begin,float finish,
+                         float lineWidth,juce::Colour colour) {
+        juce::Path arc;
+        arc.addCentredArc(cx,cy,radius,radius,0.0f,begin,finish,true);
+        g.setColour(colour);
+        g.strokePath(arc,juce::PathStrokeType(lineWidth));
+    };
+    arcAt(face-1.55f,-1.45f,-0.22f,1.15f,
+          juce::Colour(0xff867b6a).withAlpha(0.29f));
+    arcAt(face-2.2f,0.67f,2.54f,1.3f,
+          juce::Colours::black.withAlpha(0.43f));
+    arcAt(grip-0.9f,-1.47f,-0.17f,0.70f,
+          juce::Colour(0xff746b60).withAlpha(0.21f));
+
+    // The reference uses a slender ivory *line*, not the thick arrow tip.
+    // Its angle is still exactly bound to the existing host-automated value.
+    const float sn=std::sin(angle), cs=-std::cos(angle);
+    const float d0=face*0.22f, d1=face*0.94f;
+    const auto marker=juce::Line<float>(cx+sn*d0,cy+cs*d0,
+                                       cx+sn*d1,cy+cs*d1);
+    g.setColour(shadow.withAlpha(0.74f));
+    g.drawLine(cx+sn*d0+0.7f,cy+cs*d0+1.0f,
+               cx+sn*d1+0.7f,cy+cs*d1+1.0f,3.35f);
+    g.setColour(juce::Colour(0xff9b8255));
+    g.drawLine(marker,2.85f);
+    g.setColour(pointerIvory);
+    g.drawLine(marker,1.85f);
+    // Two thin gold concentric edge catches match the supplied hardware
+    // knob. This is the *knob only*: the graduation ticks are left intact.
+    g.setColour(juce::Colour(0xffb9a17a).withAlpha(0.86f));
+    g.drawEllipse(cx-face+0.2f,cy-face+0.2f,
+                  2*(face-0.2f),2*(face-0.2f),1.08f);
+    g.setColour(juce::Colour(0xff7d6745).withAlpha(0.78f));
+    g.drawEllipse(cx-face+2.05f,cy-face+2.05f,
+                  2*(face-2.05f),2*(face-2.05f),0.67f);
+
 }
 
 SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterAudioProcessor& p)
   : AudioProcessorEditor(&p), processor(p) {
+    skin=loadSkin();
+    lookAndFeel.setSkin(skin);
     setLookAndFeel(&lookAndFeel);
+    skullHitTarget.setComponentID("skellcore-theme-skull");
+    skullHitTarget.onClick=[this] { switchSkin(); };
+    addAndMakeVisible(skullHitTarget);
 
     for (int i = 0; i < knobCount; ++i) {
         auto& s = knobs[static_cast<size_t>(i)];
-        s.setComponentID(i >= 8 ? "utility" : "primary");
+        s.setComponentID(i==8 ? "utility-output" : i==9 ? "utility-ceiling" : i==10 ? "utility-clipper" : "primary");
         s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         s.setTextBoxStyle(juce::Slider::TextBoxRight, false, i >= 8 ? 85 : 87, 27);
         s.setRotaryParameters(pi * 1.25f, pi * 2.75f, true);
         s.setMouseDragSensitivity(190);
         s.setVelocityBasedMode(false);
-        s.setDoubleClickReturnValue(true, i == 9 ? -1.0 : 0.0);
+        s.setDoubleClickReturnValue(true, 0.0);
+        s.setNumDecimalPlacesToDisplay(0);
         const bool db = i == 0 || i == 4 || i == 5 || i == 8 || i == 9;
-        s.setTextValueSuffix(db ? " dB" : " %");
-        const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : "PEAK CEILING");
-        s.setTooltip(juce::String(labels[i]) + " - " + sub +
-                     " | drag to adjust, double-click to reset, right-click for menu");
+        s.setTextValueSuffix(i==9 ? "" : db ? " dB" : " %");
+        const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "SOFT CLIP AMOUNT");
+         s.setTooltip(i==9
+            ? "CEILING ADJUST: 0 = -1 dBFS limiting; -3 = -3 dBFS, +3 = -0.1 dBFS. Drag, type, or double-click to reset."
+            : i==10 ? "CLIP: 0% = transparent lookahead limiting; higher settings blend oversampled soft clipping before the limiter."
+            : juce::String(labels[i]) + " - " + sub +
+              " | drag to adjust, double-click to reset, right-click for menu");
         addAndMakeVisible(s);
         attachments[static_cast<size_t>(i)] =
             std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -298,6 +538,37 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     reset.setTooltip("Restore the default values of all mastering controls");
     reset.onClick = [this] { resetToDefaults(); };
     addAndMakeVisible(reset);
+
+    // The small GR-module rectangle is now a working factory-preset selector.
+    // Each selection writes actual APVTS parameters through host gestures.
+    presetSelector.setComponentID("skell-master-preset");
+    presetSelector.addItem("INIT / CLEAN",1);
+    presetSelector.addItem("WARM MASTER",2);
+    presetSelector.addItem("PUNCH MASTER",3);
+    presetSelector.addItem("LOUD MASTER",4);
+    presetSelector.addItem("SKELL MASTER",5);
+    presetSelector.setSelectedId(0,juce::dontSendNotification);
+    // Empty label is intentional: a quiet SELECT hint is drawn in the glass.
+    presetSelector.setTextWhenNothingSelected({});
+    presetSelector.setJustificationType(juce::Justification::centred);
+    presetSelector.setTooltip("Choose a factory mastering starting point. All values are editable and automatable.");
+    presetSelector.onChange=[this] { applyFactoryPreset(presetSelector.getSelectedId()); };
+    addAndMakeVisible(presetSelector);
+
+    // These are genuine monitoring controls; none changes an exported mix.
+    monitorButtons[0].setTooltip("PEAK: show stereo sample-peak hold in dBFS.");
+    monitorButtons[1].setTooltip("TRUE: show 4x reconstructed output peaks in dBTP.");
+    monitorButtons[2].setTooltip("CLEAR: reset displayed sample-peak and true-peak holds; audio stays untouched.");
+    monitorButtons[0].setClickingTogglesState(true);
+    monitorButtons[1].setClickingTogglesState(true);
+    monitorButtons[0].setRadioGroupId(2301);
+    monitorButtons[1].setRadioGroupId(2301);
+    monitorButtons[1].setToggleState(true,juce::dontSendNotification);
+    monitorButtons[0].onClick=[this] { monitorTruePeak=false; repaint(); };
+    monitorButtons[1].onClick=[this] { monitorTruePeak=true; repaint(); };
+    monitorButtons[2].onClick=[this] { clearMeterHolds(); };
+    for(auto& button : monitorButtons)
+        addAndMakeVisible(button);
 
     setResizable(true, true);
     setResizeLimits(620, 393, 1800, 1140);
@@ -313,7 +584,35 @@ SkellyMasterAudioProcessorEditor::~SkellyMasterAudioProcessorEditor() {
     setLookAndFeel(nullptr);
 }
 
+skellcore::ui::SkullSkin SkellyMasterAudioProcessorEditor::loadSkin() {
+    const auto file=juce::File::getSpecialLocation(
+        juce::File::userApplicationDataDirectory)
+        .getChildFile("SkellAudio").getChildFile("skellcore-skull-skin-v1.txt");
+    return file.existsAsFile()
+        ? skellcore::ui::skinFromIndex(file.loadFileAsString().trim().getIntValue())
+        : skellcore::ui::SkullSkin::Ossuary;
+}
+
+void SkellyMasterAudioProcessorEditor::saveSkin(skellcore::ui::SkullSkin selected) {
+    const auto file=juce::File::getSpecialLocation(
+        juce::File::userApplicationDataDirectory)
+        .getChildFile("SkellAudio").getChildFile("skellcore-skull-skin-v1.txt");
+    if(file.getParentDirectory().createDirectory().wasOk())
+        file.replaceWithText(juce::String(static_cast<int>(selected))+"\n");
+}
+
+void SkellyMasterAudioProcessorEditor::switchSkin() {
+    // Purely UI/message-thread, never DSP. No new audio parameter or preset.
+    skin=skellcore::ui::nextSkin(skin);
+    lookAndFeel.setSkin(skin);
+    saveSkin(skin);
+    staticBackdrop=juce::Image(); // forces a correctly recoloured cached image
+    repaint();
+}
+
 void SkellyMasterAudioProcessorEditor::resetToDefaults() {
+    // Reset removes the selection label without activating any factory preset.
+    presetSelector.setSelectedId(0,juce::dontSendNotification);
     for (const char* id : ids)
         if (auto* param = processor.parameters.getParameter(id)) {
             param->beginChangeGesture();
@@ -325,6 +624,42 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
         param->setValueNotifyingHost(param->getDefaultValue());
         param->endChangeGesture();
     }
+}
+
+void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
+    if(presetId<1 || presetId>5) return;
+    // Ordered exactly as ids[]: Input, Drive, Glue, Dynamics, Lows, Highs,
+    // Sauce, Transients, Output, Ceiling offset, Clip. All conservative
+    // starting points; no hidden bypass, DSP mode or latency changes.
+    // SKELL MASTER is a measured *first-pass* target of the user's 2026-11-14
+    // 44.1 kHz reference audio: ~+2.43 LU louder, ~1.6 dB less crest,
+    // ~+1.5 dB relative upper treble, and subtle widening. This is a
+    // transparent APVTS snapshot, not a hidden DSP mode or an exact null match.
+    // Keep its ceiling at the default -1 dBFS sample-peak setting until
+    // independent true-peak protection and real FL Studio A/B are approved.
+    static constexpr float values[5][11]={
+        {0,0,0,0,0,0,0,0,0,0,0},
+        {0,15,18,10,0,0,12,0,0,0,0},
+        {0,8,12,7,0,0,0,22,0,0,0},
+        {0,10,24,18,0,0,8,8,0,0,12},
+        {4,8,17,11,-1,3,20,0,0,0,14}
+    };
+    for(int i=0;i<knobCount;++i) {
+        if(auto* p=processor.parameters.getParameter(ids[i])) {
+            p->beginChangeGesture();
+            p->setValueNotifyingHost(p->convertTo0to1(values[presetId-1][i]));
+            p->endChangeGesture();
+        }
+    }
+}
+
+void SkellyMasterAudioProcessorEditor::clearMeterHolds() {
+    meterValues.fill(0.0f);
+    peakHoldValues.fill(0.0f);
+    peakHoldTicks.fill(0);
+    displayedTruePeak=0.0f;
+    lastPaintedTruePeak=0.0f;
+    repaint();
 }
 
 void SkellyMasterAudioProcessorEditor::timerCallback() {
@@ -341,6 +676,7 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
         }
     }
     displayedReduction = juce::jmax(processor.consumeMaxReduction(), displayedReduction * 0.86f);
+    displayedTruePeak = juce::jmax(processor.consumeTruePeak(), displayedTruePeak * 0.90f);
     const bool bypassed = bypass.getToggleState();
 
     // Meter graphics are relatively expensive at a compact size. While the
@@ -370,9 +706,14 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
         lastPaintedReduction = displayedReduction;
         dirty(270, 105, 901, 177);
     }
+    // The live glass display changes only on meaningful metering movement.
+    if(std::abs(displayedTruePeak-lastPaintedTruePeak) >= 0.002f) {
+        lastPaintedTruePeak=displayedTruePeak;
+        dirty(64,245,185,35);
+    }
     if (bypassed != lastDisplayedBypass) {
         lastDisplayedBypass = bypassed;
-        dirty(174, 243, 85, 24);
+        dirty(173, 251, 83, 22);
     }
 }
 
@@ -384,152 +725,262 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     juce::Graphics& g, juce::Rectangle<float> r, float value,
     float heldValue, const juce::String& name) const {
     juce::Graphics::ScopedSaveState save(g);
-    g.addTransform(juce::AffineTransform::scale(r.getWidth()/310.0f,r.getHeight()/156.0f)
-                   .translated(r.getX(),r.getY()));
+    g.addTransform(juce::AffineTransform::scale(
+        r.getWidth()/310.0f,r.getHeight()/156.0f).translated(r.getX(),r.getY()));
     hw::plate(g,{0,0,310,156},false,0x52b4u,9.0f,0.24f);
-    for (float xx : {11.5f,298.5f})
-        for (float yy : {12.0f,144.0f}) hw::screw(g,xx,yy,0.72f);
+    for(float xx : {11.5f,298.5f})
+        for(float yy : {12.0f,144.0f}) hw::screw(g,xx,yy,0.89f);
     g.setColour(juce::Colour(0xff040404));
-    g.fillRoundedRectangle(16,23,278,119,30.0f);
-    font(g,14,true); g.setColour(hw::parchment);
+    g.fillRoundedRectangle(16,23,278,120,29.0f);
+    font(g,14,true);g.setColour(hw::parchment);
     text(g,name,40,5,230,18);
 
+    // Needle-free meter face: static lens, scale and skull cached at 2x.
+    // Unlike the previous JPEG, this has NO baked needle or ghost shadow.
+    // Real signal/peak-hold needles are the only moving pieces.
+    static const juce::Image cleanFace=[] {
+        juce::Image image(juce::Image::ARGB,620,312,true);
+        juce::Graphics f(image);
+        f.addTransform(juce::AffineTransform::scale(2.0f));
+        juce::ColourGradient paper(juce::Colour(0xfff9f9f4),155,27,
+                                   juce::Colour(0xffc7c5be),155,143,false);
+        paper.addColour(0.42,juce::Colour(0xfff4f3ec));
+        paper.addColour(0.81,juce::Colour(0xffe4e1d9));
+        f.setGradientFill(paper);
+        f.fillRoundedRectangle(19.0f,26.0f,272.0f,113.0f,27.0f);
+        // Subtle deterministic paper patina, independent of meter refresh.
+        for(int i=0;i<500;++i) {
+            const auto seed=hw::noise(static_cast<uint32_t>(i*2677+0x789bu));
+            const float px=24.0f+(seed%12037u)/12037.0f*261.0f;
+            const float py=29.0f+((seed>>12)%12011u)/12011.0f*105.0f;
+            if(px>21.0f && px<288.0f) {
+                f.setColour(juce::Colour(0xff6c6256).withAlpha(0.04f));
+                f.fillEllipse(px,py,0.4f,0.4f);
+            }
+        }
+        constexpr float cx=155.0f,cy=141.0f,rad=111.0f;
+        const auto angle=[](float p) { return (-157.0f+134.0f*p)*pi/180.0f; };
+        juce::Path scaleArc;
+        for(int i=0;i<=100;++i) {
+            const float a=angle(i/100.0f);
+            const float px=cx+std::cos(a)*rad, py=cy+std::sin(a)*rad;
+            if(i==0) scaleArc.startNewSubPath(px,py);
+            else scaleArc.lineTo(px,py);
+        }
+        f.setColour(juce::Colour(0xff3c362d));
+        f.strokePath(scaleArc,juce::PathStrokeType(1.45f));
+        for(int tick=0;tick<=30;++tick) {
+            const float a=angle(tick/30.0f);
+            const float ux=std::cos(a),uy=std::sin(a);
+            const float outer=rad+1.5f;
+            const float inner=rad-(tick%5==0?11.5f:5.6f);
+            f.setColour(juce::Colour(0xff41382d));
+            f.drawLine(cx+ux*inner,cy+uy*inner,
+                       cx+ux*outer,cy+uy*outer,
+                       tick%5==0?1.25f:0.65f);
+        }
+        // Fixed red OVERLOAD scale is a printed *zone*. The moving red
+        // indicator is rendered separately from live audio below.
+        juce::Path danger;
+        for(int i=0;i<=36;++i) {
+            const float a=angle(0.83f+i*(0.17f/36.0f));
+            const float px=cx+std::cos(a)*rad,py=cy+std::sin(a)*rad;
+            if(i==0)danger.startNewSubPath(px,py);
+            else danger.lineTo(px,py);
+        }
+        f.setColour(juce::Colour(0xffb1281a));
+        f.strokePath(danger,juce::PathStrokeType(3.4f,
+                                               juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
+        font(f,11,true);
+        f.setColour(juce::Colour(0xff28241f));
+        text(f,"-48",25,94,36,14);
+        text(f,"-36",45,71,41,15);
+        text(f,"-24",100,48,40,15);
+        text(f,"-12",171,48,40,15);
+        text(f,"-6",225,72,31,15);
+        text(f,"0",266,93,19,15);
+        skelly::ui::drawStarSkull(f,{142,80,26,23},0.75f,
+                                  juce::Colour(0xff392e22));
+        font(f,8,true);f.setColour(juce::Colour(0xff342b1f));
+        text(f,"SKELLY",126,105,58,11);
+        f.setColour(juce::Colour(0xff29251e).withAlpha(0.55f));
+        f.drawRoundedRectangle(juce::Rectangle<float>(19,26,272,113),27.0f,1.8f);
+        return image;
+    }();
+    g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+    g.drawImage(cleanFace,19.0f,24.0f,272.0f,119.0f,
+                38,48,544,238);
+    juce::ColourGradient reflection(juce::Colours::white.withAlpha(0.15f),
+                                     155.0f,27.0f,
+                                     juce::Colours::white.withAlpha(0.0f),
+                                     155.0f,73.0f,false);
+    g.setGradientFill(reflection);
+    g.fillRoundedRectangle(24.0f,28.0f,262.0f,42.0f,18.0f);
+
     constexpr float pivotX=155.0f,pivotY=141.0f,radius=111.0f;
-    // Reference-derived photographic dial: vintage numerals, enamel speckle,
-    // warm amber lens and authentic skull stamp are all packed as one small
-    // static resource. The needle and dBFS readout remain live JUCE graphics.
-    static const juce::Image photographedMeter =
-        juce::ImageFileFormat::loadFrom(BinaryData::meter_card_jpg,
-                                       static_cast<size_t>(BinaryData::meter_card_jpgSize));
-    if (photographedMeter.isValid()) {
-        // Keep the photographic graduation scale as-is. The readout and
-        // animated needle are always drawn later on top of the glass.
-        g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
-        g.drawImage(photographedMeter,19.0f,24.0f,272.0f,119.0f,
-                    0,0,photographedMeter.getWidth(),photographedMeter.getHeight());
-        juce::ColourGradient reflection(juce::Colours::white.withAlpha(0.10f),
-                                         155.0f,26.0f,
-                                         juce::Colours::white.withAlpha(0.0f),
-                                         155.0f,70.0f,false);
-        g.setGradientFill(reflection);
-        g.fillRoundedRectangle(24.0f,28.0f,262.0f,43.0f,19.0f);
-        g.setColour(juce::Colour(0xff19130a).withAlpha(0.67f));
-        g.drawRoundedRectangle(juce::Rectangle<float>(18.5f,23.5f,273.0f,119.0f),
-                               27.0f,2.0f);
-    } else {
-    // Vector fallback for damaged or unavailable resource.
-    juce::ColourGradient paper(juce::Colour(0xffffe6ac),155,26,
-                               juce::Colour(0xffa26b2d),155,140,false);
-    paper.addColour(0.36,juce::Colour(0xffffd381));
-    paper.addColour(0.73,juce::Colour(0xffd8a350));
-    g.setGradientFill(paper);
-    g.fillRoundedRectangle(19,27,272,108,27.0f);
-    g.setColour(juce::Colour(0xff2b210f).withAlpha(0.72f));
-    g.drawRoundedRectangle(juce::Rectangle<float>(19,27,272,108),26.0f,1.4f);
-    g.setColour(juce::Colours::black.withAlpha(0.16f));
-    g.drawLine(25,32,283,32,0.8f);
-
-    // Curved calibrated arc and engraved divisions, plus green peak zone.
-
-    for(int i=0;i<=30;++i) {
-        const float t=static_cast<float>(i)/30.0f;
-        const float a=(-157.0f+134.0f*t)*pi/180.0f;
-        const float c=std::cos(a),si=std::sin(a);
-        const float outer=radius,inner=radius-(i%5==0?13.5f:7.0f);
-        g.setColour(i>25?juce::Colour(0xff20683d):juce::Colour(0xff3b2c19));
-        g.drawLine(pivotX+c*inner,pivotY+si*inner,
-                   pivotX+c*outer,pivotY+si*outer,i%5==0?1.8f:0.85f);
-    }
-    // Tiny authentic skull-brand ink stamp on the parchment dial.
-    skelly::ui::drawStarSkull(g,{142,81,26,22},0.75f,juce::Colour(0xff392510));
-    font(g,8,true);g.setColour(juce::Colour(0xff322310));
-    text(g,"SKELLY",126,105,58,10);
-    font(g,12,true); g.setColour(juce::Colour(0xff30200e));
-    text(g,"-48",30,95,40,15);
-    text(g,"-36",48,69,38,15);
-    text(g,"-24",100,47,39,15);
-    text(g,"-12",171,47,39,15);
-    text(g,"-6",222,69,32,15);
-    text(g,"0",268,95,18,15);
-    }
-    // Needle is clipped under the readout plate and never leaves the meter.
-    const float a=(-157.0f+134.0f*normalizedPeak(value))*pi/180.0f;
-    const float tipX=pivotX+std::cos(a)*radius*.97f;
-    const float tipY=pivotY+std::sin(a)*radius*.97f;
+    const float normalized=normalizedPeak(value);
+    const float a=(-157.0f+134.0f*normalized)*pi/180.0f;
+    const float ux=std::cos(a),uy=std::sin(a),nx=-uy,ny=ux;
+    const float tipX=pivotX+ux*radius*0.965f;
+    const float tipY=pivotY+uy*radius*0.965f;
     {
-        juce::Graphics::ScopedSaveState clipped(g);
+        juce::Graphics::ScopedSaveState needleClip(g);
         g.reduceClipRegion(juce::Rectangle<int>(20,30,271,106));
-        g.setColour(juce::Colours::black.withAlpha(0.35f));
-        g.drawLine(pivotX+1.0f,pivotY+2.0f,tipX+1.0f,tipY+2.0f,4.0f);
-        g.setColour(juce::Colour(0xff251c12));
-        g.drawLine(pivotX,pivotY,tipX,tipY,2.0f);
-        g.setColour(hw::brass);
-        g.drawLine(pivotX,pivotY,tipX,tipY,1.05f);
-        // Small specular glint on the active needle, without making it
-        // look like an electronic line instead of a mechanical instrument.
-        g.setColour(hw::gold.withAlpha(0.58f));
-        g.drawLine(pivotX,pivotY,tipX,tipY,0.38f);
+    // Red arc *illumination* and peak marker follow audio as it approaches 0.
+    if(normalized>0.83f) {
+        juce::Path activeDanger;
+        const int steps=juce::jmax(2,juce::roundToInt((normalized-0.83f)*96.0f));
+        for(int i=0;i<=steps;++i) {
+            const float t=0.83f+(normalized-0.83f)*i/static_cast<float>(steps);
+            const float aa=(-157.0f+134.0f*t)*pi/180.0f;
+            const float px=pivotX+std::cos(aa)*(radius+1.5f);
+            const float py=pivotY+std::sin(aa)*(radius+1.5f);
+            if(i==0)activeDanger.startNewSubPath(px,py);
+            else activeDanger.lineTo(px,py);
+        }
+        g.setColour(juce::Colour(0xffff493a).withAlpha(0.92f));
+        g.strokePath(activeDanger,juce::PathStrokeType(3.0f));
     }
-    if (heldValue>0.0001f) {
+    // A single tapered, centered mechanical needle that reacts to the
+    // actual output channel. No photo pointer remains underneath it.
+    juce::Path needle;
+    needle.startNewSubPath(pivotX+nx*2.4f,pivotY+ny*2.4f);
+    needle.lineTo(tipX+nx*0.28f,tipY+ny*0.28f);
+    needle.lineTo(tipX-nx*0.28f,tipY-ny*0.28f);
+    needle.lineTo(pivotX-nx*2.4f,pivotY-ny*2.4f);
+    needle.closeSubPath();
+    g.setColour(juce::Colours::black.withAlpha(0.42f));
+    g.fillPath(needle,juce::AffineTransform::translation(1.2f,1.5f));
+    g.setColour(normalized>0.83f ? juce::Colour(0xff9d2218)
+                                  : juce::Colour(0xff342618));
+    g.fillPath(needle);
+    g.setColour(normalized>0.83f ? juce::Colour(0xffff5743)
+                                  : hw::brass);
+    g.drawLine(pivotX+nx*.32f,pivotY+ny*.32f,
+               tipX+nx*.18f,tipY+ny*.18f,0.65f);
+    if(heldValue>0.0001f) {
         const float ah=(-157.0f+134.0f*normalizedPeak(heldValue))*pi/180.0f;
         const float hx=pivotX+std::cos(ah)*radius;
         const float hy=pivotY+std::sin(ah)*radius;
-        g.setColour(juce::Colour(0xff164f30));
-        g.fillEllipse(hx-2.6f,hy-2.6f,5.2f,5.2f);
+        g.setColour(normalizedPeak(heldValue)>0.83f
+            ? juce::Colour(0xffff5134) : hw::gold);
+        g.fillEllipse(hx-2.3f,hy-2.3f,4.6f,4.6f);
     }
 
-    // Riveted black mechanical dBFS label masks the needle pivot.
-    g.setColour(juce::Colours::black.withAlpha(0.7f));
+    }
+    // Pivot and live INTEGER dBFS readout hide the needle origin.
+    g.setColour(juce::Colours::black.withAlpha(0.74f));
     g.fillRoundedRectangle(101,126,108,24,6.0f);
-    juce::ColourGradient bronze(hw::brass,103,126,juce::Colour(0xff42321d),207,149,false);
+    juce::ColourGradient bronze(hw::brass,103,126,
+                                juce::Colour(0xff42321d),207,149,false);
     g.setGradientFill(bronze);
     g.fillRoundedRectangle(106,127,98,22,5.0f);
     g.setColour(juce::Colour(0xff17160f));
     g.fillRoundedRectangle(109,129,92,18,4.0f);
-    font(g,12,true);g.setColour(hw::gold);
-    text(g,juce::String(peakDb(value),1)+" dBFS",108,128,94,19);
-    hw::screw(g,107,137,0.28f);
-    hw::screw(g,203,137,0.28f);
-    g.setColour(juce::Colours::white.withAlpha(0.10f));
-    g.drawLine(43,29,264,29,0.9f);
+    font(g,12,true);g.setColour(readoutWhite);
+    text(g,juce::String(juce::roundToInt(peakDb(value)))+" dBFS",
+         108,128,94,19);
+    hw::screw(g,107,137,0.53f);
+    hw::screw(g,203,137,0.53f);
+    // Glass curvature sits IN FRONT of the mechanical needle and scale.
+    // It never draws a second permanent needle or fake audio indication.
+    juce::ColourGradient lensLight(
+        juce::Colours::white.withAlpha(0.13f),34.0f,30.0f,
+        juce::Colours::white.withAlpha(0.0f),115.0f,77.0f,false);
+    g.setGradientFill(lensLight);
+    g.fillRoundedRectangle(27.0f,31.0f,246.0f,26.0f,13.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.20f));
+    g.drawLine(42.0f,29.5f,268.0f,29.5f,0.8f);
+    g.setColour(juce::Colours::black.withAlpha(0.44f));
+    g.drawRoundedRectangle(juce::Rectangle<float>(18.3f,23.2f,273.4f,119.7f),
+                           27.0f,2.3f);
 }
 
 void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
+    // Hardware GR module: the electronic display and LED ladder are
+    // physically DARK at idle. No ghost 0, dB text, or grey inactive bars.
+    // The label and recessed unlit glass stay visible as physical hardware.
     hw::plate(g,{953,108,216,170},false,0x300ad5u,9.0f,0.34f);
-    for (float xx : {965.0f,1157.0f})
-        for (float yy : {120.0f,265.0f}) hw::screw(g,xx,yy,0.63f);
+    for(float xx : {965.0f,1157.0f})
+        for(float yy : {120.0f,265.0f}) hw::screw(g,xx,yy,0.85f);
     font(g,12,true);g.setColour(hw::parchment);
     text(g,"GAIN REDUCTION",969,125,185,17);
-    g.setColour(juce::Colour(0xff030702));
-    g.fillRoundedRectangle(976,152,173,56,8.0f);
-    g.setColour(hw::brass.withAlpha(0.5f));
-    g.drawRoundedRectangle(juce::Rectangle<float>(976,152,173,56),8.0f,1.0f);
-    font(g,37,true);g.setColour(hw::phosphor);
-    text(g,juce::String(displayedReduction,1),985,158,130,47);
-    font(g,12,true);g.setColour(hw::gold);
+
+    // Deep lens with a believable glass cover; light stays off at idle.
+    hw::glassWindow(g,{975,152,175,57},9.0f);
+    // Black gasket and chrome reflection are in front of the active pixels.
+    g.setColour(juce::Colours::black.withAlpha(0.64f));
+    g.drawRoundedRectangle(juce::Rectangle<float>(978,155,169,51),6.4f,1.7f);
+    g.setColour(juce::Colours::white.withAlpha(0.085f));
+    g.drawLine(982.0f,155.5f,1142.0f,155.5f,0.8f);
+
+    const bool active=std::isfinite(displayedReduction)
+                   && displayedReduction>=0.5f;
+    // The former GR light-pipe rectangle now houses the preset dropdown.
+    // Its label is engraved above the recessed glass, never faked as LEDs.
+    font(g,11,true);g.setColour(hw::parchment);
+    text(g,"PRESET",975,209,175,17,juce::Justification::centred);
+    // Balanced centreline engraving, not a left-anchored preset title.
+    g.setColour(hardwareAccent(skin).withAlpha(0.57f));
+    g.fillRoundedRectangle(1036.0f,226.0f,53.0f,0.9f,0.45f);
+    if (!active) return;
+
+    font(g,37,true);
+    g.setColour(hw::phosphor);
+    text(g,juce::String(juce::roundToInt(displayedReduction)),985,158,130,47);
+    font(g,12,true);
+    g.setColour(hw::gold);
     text(g,"dB",1117,178,27,14);
-    const float level=juce::jlimit(0.0f,16.0f,displayedReduction*(16.0f/18.0f));
-    for(int i=0;i<16;++i) {
-        g.setColour(i<level?(i>12?hw::gold:hw::phosphor):
-                              juce::Colour(0xff766a54));
-        g.fillRoundedRectangle(976.0f+i*10.4f,229,6.9f,17,2.1f);
-    }
+    // The GR numerals sit behind the same curved front glass as the readouts.
+    juce::ColourGradient lens(juce::Colours::white.withAlpha(0.13f),
+                              983.0f,155.0f,
+                              juce::Colours::white.withAlpha(0.0f),
+                              1138.0f,202.0f,false);
+    g.setGradientFill(lens);
+    g.fillRoundedRectangle(981.0f,156.0f,163.0f,43.0f,6.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.17f));
+    g.drawLine(989.0f,156.1f,1135.0f,156.1f,0.8f);
+    g.setColour(juce::Colours::black.withAlpha(0.37f));
+    g.drawLine(985.0f,201.8f,1140.0f,201.8f,1.1f);
+    // Gain reduction is displayed only in the upper electronic lens.
 }
 
 void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
-    g.setColour(juce::Colour(0xff060705));
+    g.setColour(juce::Colour(0xff030503));
     g.fillRect(0,0,designW,designH);
-    // Iron chassis and worn brass corners. Expensive texture is cached,
-    // never recalculated during realtime DSP or normal meter refresh.
-    hw::plate(g,{3,3,1194,754},false,0x310570u,14.0f,1.15f);
+    // Darker, torn iron chassis and rubbed brass edge. Only its painted
+    // background receives a theme wash; physical trim stays unchanged.
+    hw::plate(g,{3,3,1194,754},false,0x310570u,14.0f,1.62f,
+              skin==skellcore::ui::SkullSkin::Ossuary);
+    if (skin!=skellcore::ui::SkullSkin::Ossuary)
+        themeInset(g,{3,3,1194,754},skin,false);
     g.setColour(hw::brass.withAlpha(0.26f));
     g.drawRoundedRectangle(juce::Rectangle<float>(8,8,1184,744),12.0f,1.0f);
 
-    // Top enamel branding plate (RED on reference -> emerald green here).
-    hw::plate(g,{405,7,391,73},true,0x001ab3u,10.0f,0.9f);
-    for(float x : {417.0f,784.0f})
-        for(float y : {21.0f,66.0f}) hw::screw(g,x,y,0.83f);
-    skelly::ui::drawStarSkull(g,{57,10,82,72},0.98f,hw::gold);
+    // Nameplate and skulls are separate transparent photographic resources,
+    // drawn once into the existing editor faceplate cache, never per meter tick.
+    hw::plate(g,{405,7,391,73},true,0x001ab3u,10.0f,1.19f);
+   #if SKELLY_MASTER_HEADER_ASSETS
+    static const juce::Image photoHeader = juce::ImageFileFormat::loadFrom(
+        BinaryData::header_nameplate_green_blank_png,
+        static_cast<size_t>(BinaryData::header_nameplate_green_blank_pngSize));
+    g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+    if (photoHeader.isValid())
+        g.drawImage(photoHeader,405.0f,7.0f,391.0f,73.0f,
+                    0,0,photoHeader.getWidth(),photoHeader.getHeight());
+    else
+   #endif
+    {
+        for(float x : {417.0f,784.0f})
+            for(float y : {21.0f,66.0f}) hw::screw(g,x,y,0.83f);
+    }
+    // The first of precisely two skin-coloured inserts: header nameplate.
+    // Tint after the photographic enamel but BEFORE the unchanged lettering.
+    themeInset(g,{405,7,391,73},skin,true);
+    // Mastering hardware uses the new machined medallion consistently.
+    // One selectable left logo, no old star-eyes and no right skull.
+    skelly::ui::drawMachinedSkull(g,{57,10,82,72},0.98f,hw::gold);
     font(g,31,true);g.setColour(hw::gold);
     text(g,"SKELLY",145,15,185,38,juce::Justification::centredLeft);
     font(g,16,true);g.setColour(hw::parchment);
@@ -540,35 +991,38 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     font(g,14,true);g.setColour(hw::parchment);
     text(g,"STEREO MASTERING SUITE  /  M-01",422,53,359,22);
     hw::divider(g,861,18,861,76);
-    font(g,16,true);g.setColour(hw::gold);
-    text(g,"PRECISION / POWER",885,27,191,28);
-    skelly::ui::drawStarSkull(g,{1080,12,79,69},0.96f,hw::gold);
+    // BYPASS and RESET are real interactive controls in the header.
+    // No baked labels or permanent graphics beneath their hitboxes.
+    // The skull on the right was removed; left skull alone changes skin.
 
     // Engraved meter bridge with a separate stamped status panel.
-    hw::plate(g,{37,94,1126,200},false,0x33c8a7u,12.0f,0.72f);
-    hw::plate(g,{48,109,213,176},false,0x641b4fu,9.0f,0.52f);
+    hw::plate(g,{37,94,1126,200},false,0x33c8a7u,12.0f,1.22f,
+              skin==skellcore::ui::SkullSkin::Ossuary);
+    if (skin!=skellcore::ui::SkullSkin::Ossuary)
+        themeInset(g,{37,94,1126,200},skin,false);
+    hw::plate(g,{48,109,213,176},false,0x641b4fu,9.0f,0.82f);
     for(float x : {60.0f,249.0f})
-        for(float y : {121.0f,273.0f}) hw::screw(g,x,y,0.67f);
+        for(float y : {121.0f,273.0f}) hw::screw(g,x,y,0.88f);
     font(g,18,true);g.setColour(hw::gold);
     text(g,"SKELLY MASTER",65,125,182,26);
     font(g,12,true);g.setColour(hw::parchment);
     text(g,"PRECISION MASTER BUS / M-01",61,154,189,20);
-    hw::divider(g,83,182,225,182);
-    font(g,15,true);g.setColour(hw::parchment);
-    text(g,"4X OVERSAMPLING",65,191,188,19);
-    text(g,"STEREO-LINKED DSP",65,213,188,19);
-    text(g,"LOOKAHEAD LIMITING",65,235,188,19);
-    g.setColour(juce::Colour(0xff123b1d));
-    g.fillEllipse(82,259,13,13);
-    g.setColour(hw::phosphor);
-    g.fillEllipse(85.4f,262.4f,6.2f,6.2f);
-    font(g,11,true);g.setColour(hw::phosphor);
-    text(g,"ENGINE STATUS",98,253,104,20,juce::Justification::centredLeft);
+    font(g,11,true);g.setColour(hw::parchment);
+    text(g,"4x OS  /  STEREO LINK  /  LIMIT",60,175,190,15);
+    hw::divider(g,63,191,247,191);
+    font(g,13,true);g.setColour(hw::gold);
+    text(g,"OUTPUT MONITOR",65,193,178,18);
+    // The dedicated monitor is passive: no audio processing changes.
+    // Leave a visible clearance around the lower panel mounting screws.
+    hw::glassWindow(g,{70,247,169,30},5.0f);
 
     // Modular lower rack: same genuine APVTS controls as previous build.
-    hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.0f);
+    hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.57f,
+              skin==skellcore::ui::SkullSkin::Ossuary);
+    if (skin!=skellcore::ui::SkullSkin::Ossuary)
+        themeInset(g,{37,298,1126,356},skin,false);
     for(float x : {51.0f,1149.0f})
-        for(float y : {310.0f,641.0f}) hw::screw(g,x,y,0.75f);
+        for(float y : {310.0f,641.0f}) hw::screw(g,x,y,0.90f);
     hw::divider(g,64,480,1138,480);
     for(int col=1;col<4;++col) {
         const float x=34.0f+col*283.0f;
@@ -586,9 +1040,11 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     }
 
     // Emerald (not red) heavy lacquer utility deck.
-    hw::plate(g,{13,673,1174,80},true,0x731ac4u,9.0f,0.99f);
+    hw::plate(g,{13,673,1174,80},true,0x731ac4u,9.0f,1.34f);
+    // Second and final skin-coloured enamel insert: lower utility panel.
+    themeInset(g,{13,673,1174,80},skin,true);
     for(float x : {29.0f,1172.0f})
-        for(float y : {685.0f,741.0f}) hw::screw(g,x,y,0.78f);
+        for(float y : {685.0f,741.0f}) hw::screw(g,x,y,0.90f);
     hw::divider(g,267,685,267,744);
     hw::divider(g,553,685,553,744);
     hw::divider(g,850,685,850,744);
@@ -597,15 +1053,16 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     text(g,"// MASTER BUS",48,696,205,25,juce::Justification::centredLeft);
     font(g,14,true);g.setColour(hw::parchment);
     text(g,"TONE IS EVERYTHING",66,724,184,18,juce::Justification::centredLeft);
+    font(g,14,true);g.setColour(hw::gold);
+    text(g,"CLIP",294,710,85,21,juce::Justification::centredLeft);
     font(g,15,true);g.setColour(hw::gold);
     text(g,"OUTPUT",566,710,84,21,juce::Justification::centredLeft);
     text(g,"CEILING",852,710,88,21,juce::Justification::centredLeft);
     font(g,16,true);g.setColour(hw::gold);
     text(g,"M-01",1125,705,41,24);
 
-    // Twin heavy industrial rack handles, specular aged metal, permanent.
-    hw::handle(g,15.0f,173.0f,537.0f);
-    hw::handle(g,1185.0f,173.0f,537.0f);
+    // Clean uninterrupted rack edges: removable side handles intentionally
+    // omitted at the user's request. Keep the two corner mounting screws.
     for(float x : {25.0f,1176.0f})
        hw::screw(g,x,24.0f,0.75f);
 }
@@ -642,12 +1099,16 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
     drawMeter(g,{612,112,325,159},meterValues[1],peakHoldValues[1],"OUTPUT  /  R");
     drawReduction(g);
 
-    // Read the actual attached state, so DAW automation updates the status.
-    const bool bypassed = bypass.getToggleState();
-    font(g,12,true);
-    g.setColour(bypassed ? hw::gold : neon);
-    text(g,bypassed ? "BYPASSED" : "ACTIVE",
-         202,246,49,19,juce::Justification::centredLeft);
+    // Readout is separate from artwork and continuously uses actual DSP data.
+    // -80 dB is a visual noise-floor marker rather than fabricated activity.
+    const float observed=monitorTruePeak ? displayedTruePeak
+        : juce::jmax(peakHoldValues[0],peakHoldValues[1]);
+    const float db=juce::Decibels::gainToDecibels(
+        juce::jmax(observed,0.0001f),-80.0f);
+    font(g,13,true);g.setColour(readoutWhite);
+    text(g,juce::String(monitorTruePeak ? "TP " : "SP ")
+            + juce::String(db,1) + (monitorTruePeak ? " dBTP" : " dBFS"),
+         73,252,163,20,juce::Justification::centred);
 }
 
 void SkellyMasterAudioProcessorEditor::resized() {
@@ -673,8 +1134,13 @@ void SkellyMasterAudioProcessorEditor::resized() {
         const int rowY=row==0?315:485;
         place(knobs[static_cast<size_t>(i)],cellX+15,rowY+5,247,118);
     }
-    place(bypass,289,701,115,37);
-    place(reset,418,701,115,37);
+    place(bypass,887,29,125,38);
+    place(reset,1024,29,126,38);
+    place(presetSelector,976,228,170,26);
+    place(knobs[10],371,685,178,68);
+    for(int i=0;i<3;++i)
+        place(monitorButtons[static_cast<size_t>(i)],64+i*61,216,57,29);
     place(knobs[8],647,685,199,68);
     place(knobs[9],929,685,181,68);
+    place(skullHitTarget,57,10,82,72);
 }

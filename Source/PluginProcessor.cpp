@@ -18,16 +18,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout SkellyMasterAudioProcessor::
             juce::AudioParameterFloatAttributes().withLabel(units));
         layout.add(std::move(param));
     };
-    add("input",      "Input",       -18.0f, 18.0f, 0.1f,   0.0f, "dB");
-    add("drive",      "Drive",         0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("glue",       "Glue",          0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("dynamics",   "Dynamics",      0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("lows",       "Lows",         -6.0f,   6.0f, 0.1f,  0.0f, "dB");
-    add("highs",      "Highs",        -6.0f,   6.0f, 0.1f,  0.0f, "dB");
-    add("sauce",      "Sauce",         0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("transients", "Transients",    0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("output",     "Output Trim", -18.0f, 12.0f, 0.1f,  0.0f, "dB");
-    add("ceiling",    "Peak Ceiling", -3.0f, -0.1f, 0.1f, -1.0f, "dBFS");
+    add("input",      "Input",       -18.0f, 18.0f, 1.0f,   0.0f, "dB");
+    add("drive",      "Drive",         0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("glue",       "Glue",          0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("dynamics",   "Dynamics",      0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("lows",       "Lows",         -6.0f,   6.0f, 1.0f,  0.0f, "dB");
+    add("highs",      "Highs",        -6.0f,   6.0f, 1.0f,  0.0f, "dB");
+    add("sauce",      "Sauce",         0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("transients", "Transients",    0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("output",     "Output Trim", -18.0f, 12.0f, 1.0f,  0.0f, "dB");
+    add("ceiling",    "Ceiling Adjust", -3.0f, 3.0f, 1.0f, 0.0f, "step");
+    add("clipper",    "Clip", 0.0f, 100.0f, 1.0f, 0.0f, "%");
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"bypass", 1}, "Bypass", false));
     return layout;
@@ -55,11 +56,16 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
                       + lookaheadSamples / oversamplingFactor);
     safetyGuard.prepare(sampleRate);
-    peakLeft.store(0); peakRight.store(0); reduction.store(0);
+    truePeakMonitor.reset();
+    loudnessMonitor.prepare(sampleRate,activeChannels);
+    peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
+    momentaryLufs.store(-100.0f); shortTermLufs.store(-100.0f);
 }
 
 void SkellyMasterAudioProcessor::releaseResources() {
     safetyGuard.reset();
+    truePeakMonitor.reset();
+    loudnessMonitor.reset();
     oversampler.reset();
     setLatencySamples(0);
 }
@@ -68,7 +74,10 @@ void SkellyMasterAudioProcessor::reset() {
     if (oversampler) oversampler->reset();
     engine.reset();
     safetyGuard.reset();
-    peakLeft.store(0); peakRight.store(0); reduction.store(0);
+    truePeakMonitor.reset();
+    loudnessMonitor.reset();
+    peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
+    momentaryLufs.store(-100.0f); shortTermLufs.store(-100.0f);
 }
 
 void SkellyMasterAudioProcessor::atomicMax(std::atomic<float>& dest, float next) noexcept {
@@ -95,7 +104,9 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.sauce = parameters.getRawParameterValue("sauce")->load(std::memory_order_relaxed) * 0.01;
     p.transients = parameters.getRawParameterValue("transients")->load(std::memory_order_relaxed) * 0.01;
     p.outputDb = parameters.getRawParameterValue("output")->load(std::memory_order_relaxed);
-    p.ceilingDb = parameters.getRawParameterValue("ceiling")->load(std::memory_order_relaxed);
+    p.clipper = parameters.getRawParameterValue("clipper")->load(std::memory_order_relaxed)*0.01;
+    p.ceilingDb = skelly::detail::ceilingOffsetToDb(
+        parameters.getRawParameterValue("ceiling")->load(std::memory_order_relaxed));
     p.bypass = parameters.getRawParameterValue("bypass")->load(std::memory_order_relaxed) >= 0.5f;
     engine.setParameters(p);
     engine.beginBlock();
@@ -145,15 +156,24 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         // Bypass must be unmodified, apart from the existing aligned delay.
         safetyGuard.reset();
     }
-    float maximumL = 0.0f, maximumR = 0.0f;
+    float maximumL = 0.0f, maximumR = 0.0f, maximumTP = 0.0f;
     const auto* readL = buffer.getReadPointer(0);
     const auto* readR = channels == 2 ? buffer.getReadPointer(1) : readL;
     for (int i = 0; i < samples; ++i) {
         maximumL = juce::jmax(maximumL, std::abs(readL[i]));
         maximumR = juce::jmax(maximumR, std::abs(readR[i]));
+        // On true mono buses, avoid reconstructing an identical second
+        // channel. Stereo keeps the original sample-for-sample FIR path.
+        maximumTP = juce::jmax(maximumTP, channels == 1
+            ? truePeakMonitor.processMono(readL[i])
+            : truePeakMonitor.process(readL[i], readR[i]));
+        loudnessMonitor.process(readL[i], readR[i]);
     }
     atomicMax(peakLeft, maximumL);
     atomicMax(peakRight, maximumR);
+    atomicMax(truePeak, maximumTP);
+    momentaryLufs.store(static_cast<float>(loudnessMonitor.momentaryLufs()),std::memory_order_relaxed);
+    shortTermLufs.store(static_cast<float>(loudnessMonitor.shortTermLufs()),std::memory_order_relaxed);
     // Report the strongest gain reduction actually applied, including the
     // final safety stage after the JUCE downsampler.
     const float postReductionDb = static_cast<float>(
@@ -167,13 +187,48 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 }
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
-    if (auto xml = parameters.copyState().createXml()) copyXmlToBinary(*xml, dest);
+    auto snapshot=parameters.copyState();
+    snapshot.setProperty("skellMasterStateVersion",3,nullptr);
+    if (auto xml=snapshot.createXml()) copyXmlToBinary(*xml,dest);
 }
 
 void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size) {
-    if (auto xml = getXmlFromBinary(data, size)) {
-        if (xml->hasTagName(parameters.state.getType()))
-            parameters.replaceState(juce::ValueTree::fromXml(*xml));
+    if (auto xml=getXmlFromBinary(data,size)) {
+        if (!xml->hasTagName(parameters.state.getType())) return;
+        auto snapshot=juce::ValueTree::fromXml(*xml);
+        if (!snapshot.isValid()) return;
+        // Version-one presets contain the actual -3..-0.1 dBFS ceiling.
+        // Migrate just that value to the new centred adjustment, retaining
+        // the exact effective threshold without changing any other setting.
+        if (static_cast<int>(snapshot.getProperty("skellMasterStateVersion",1))<2) {
+            for (int index=0;index<snapshot.getNumChildren();++index) {
+                auto child=snapshot.getChild(index);
+                if (child.getProperty("id").toString()=="ceiling") {
+                    const double previous=static_cast<double>(
+                        child.getProperty("value",-1.0));
+                    child.setProperty("value",
+                        skelly::detail::ceilingDbToOffset(previous),nullptr);
+                    break;
+                }
+            }
+        }
+        // V1/V2 projects predate the CLIP control. Insert its neutral
+        // state explicitly, even if a previous preset left the knob nonzero.
+        bool hasClipper=false;
+        for(int index=0;index<snapshot.getNumChildren();++index) {
+            if(snapshot.getChild(index).getProperty("id").toString()=="clipper") {
+                hasClipper=true;
+                break;
+            }
+        }
+        if(!hasClipper && snapshot.getNumChildren()>0) {
+            juce::ValueTree clipperState(snapshot.getChild(0).getType());
+            clipperState.setProperty("id","clipper",nullptr);
+            clipperState.setProperty("value",0.0f,nullptr);
+            snapshot.appendChild(clipperState,nullptr);
+        }
+        snapshot.setProperty("skellMasterStateVersion",3,nullptr);
+        parameters.replaceState(snapshot);
     }
 }
 

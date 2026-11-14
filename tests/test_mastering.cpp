@@ -1,4 +1,5 @@
 #include "../Source/DSP/MasteringEngine.h"
+#include "../Source/DSP/LoudnessMeter.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -11,10 +12,98 @@ static void require(bool ok, const char* message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
 
+// Locked scalar reference from the original 4x/12-tap-per-phase BS.1770 FIR.
+// Keep this deliberately independent of the optimized live monitor: an
+// incorrect coefficient order or channel/ring index must fail bitwise-level
+// streaming comparisons, including non-finite inputs and circular wrap.
+class ScalarTruePeakReference {
+public:
+    float process(float left, float right) noexcept {
+        state[0][index] = skelly::detail::finiteSample(left);
+        state[1][index] = skelly::detail::finiteSample(right);
+        double maximum = std::max(std::abs(state[0][index]),
+                                  std::abs(state[1][index]));
+        for (int channel=0;channel<2;++channel)
+            for (int phase=0;phase<4;++phase) {
+                double sum=0.0;
+                int position=index;
+                for(int tap=0;tap<12;++tap) {
+                    sum += state[channel][position]*coefficients[tap][phase];
+                    if (--position < 0) position=11;
+                }
+                maximum=std::max(maximum,std::abs(sum));
+            }
+        if (++index == 12) index=0;
+        return static_cast<float>(maximum);
+    }
+    void reset() noexcept {
+        for(auto& c:state)c.fill(0.0);
+        index=0;
+    }
+private:
+    inline static constexpr double coefficients[12][4] = {
+        { 0.001708984375, -0.0291748046875,-0.0189208984375,-0.00830078125},
+        { 0.010986328125,  0.029296875,     0.0330810546875, 0.014892578125},
+        {-0.0196533203125,-0.0517578125,   -0.0582275390625,-0.026611328125},
+        { 0.033203125,     0.089111328125,  0.1015625,       0.047607421875},
+        {-0.0594482421875,-0.16650390625,  -0.2003173828125,-0.102294921875},
+        { 0.1373291015625, 0.465087890625,  0.77978515625,   0.97216796875},
+        { 0.97216796875,   0.77978515625,   0.465087890625,  0.1373291015625},
+        {-0.102294921875, -0.2003173828125,-0.16650390625, -0.0594482421875},
+        { 0.047607421875,  0.1015625,      0.089111328125,  0.033203125},
+        {-0.026611328125, -0.0582275390625,-0.0517578125,  -0.0196533203125},
+        { 0.014892578125,  0.0330810546875,0.029296875,     0.010986328125},
+        {-0.00830078125,  -0.0189208984375,-0.0291748046875,0.001708984375}
+    };
+    std::array<std::array<double,12>,2> state{};
+    int index=0;
+};
+
 int main() {
     using namespace skelly;
     constexpr double rate = 192000;
     const int lookahead = static_cast<int>(rate * 0.0015);
+    // K-weighting output metering: 400 ms and 3 s rectangular windows.
+    // 997 Hz at -20 dBFS peak stereo should read close to -20 LUFS.
+    // Mono is 3.01 LU lower and MUST NOT be counted twice.
+    for (const int sr : {44100, 48000, 96000}) {
+        StereoLoudnessMonitor stereo;
+        StereoLoudnessMonitor mono;
+        stereo.prepare(sr, 2);
+        mono.prepare(sr, 1);
+        require(stereo.momentaryLufs() <= -99.0 && stereo.shortTermLufs() <= -99.0,
+                "LUFS meter must be silent before audio");
+        constexpr double amplitude = 0.1;
+        for (int i=0; i<sr*4; ++i) {
+            const float x=static_cast<float>(
+                amplitude*std::sin(2.0*detail::pi*997.0*i/sr));
+            stereo.process(x,x);
+            mono.process(x,x);
+        }
+        const double m=stereo.momentaryLufs();
+        const double st=stereo.shortTermLufs();
+        const double mMono=mono.momentaryLufs();
+        require(std::abs(m+20.0)<0.32, "K-weighted momentary stereo tone calibration");
+        require(std::abs(st+20.0)<0.32, "K-weighted 3s stereo tone calibration");
+        require(std::abs((m-mMono)-3.01029995664)<0.03,
+                "mono output must not be treated as phantom dual mono");
+        for(int i=0;i<sr*4;++i) stereo.process(0.0f,0.0f);
+        require(stereo.momentaryLufs()<=-99.0 && stereo.shortTermLufs()<=-99.0,
+                "meter must decay to silence without stale LUFS values");
+        stereo.reset();
+        require(stereo.momentaryLufs()<=-99.0, "meter reset clears history");
+    }
+    StereoLoudnessMonitor malformedLoudness;
+    malformedLoudness.prepare(48000,2);
+    for (int i=0;i<1000;++i)
+        malformedLoudness.process(i%2
+            ? std::numeric_limits<float>::quiet_NaN()
+            : std::numeric_limits<float>::infinity(), 0.0f);
+    require(std::isfinite(malformedLoudness.momentaryLufs())
+            && std::isfinite(malformedLoudness.shortTermLufs()),
+            "malformed audio must not poison loudness monitor");
+    std::cout << "PASS: 400ms/3s LUFS-M/S, 44.1/48/96k, stereo/mono, silence\n";
+
     // Drive normalization must track the original transfer within audible
     // precision without repeating tanh(drive) per oversampled stereo frame.
     detail::DriveShaper shaper;
@@ -28,6 +117,176 @@ int main() {
                     "drive lookup retains the reference saturation shape");
         }
     }
+
+    // DRIVE must retain the previously approved mono transfer while applying
+    // the SAME instantaneous nonlinear gain to both stereo channels.
+    // This guards against pan/phase shifts when one channel has stronger peaks.
+    double worstMonoNull=0.0, worstStereoError=0.0;
+    for (double amount : {0.0, 0.12, 0.45, 0.83, 1.0}) {
+        for (double x : {-1.7, -0.8, -0.13, 0.0, 0.0001, 0.18, 0.77, 2.0}) {
+            double monoL=x, monoR=x;
+            shaper.processStereo(monoL,monoR,amount);
+            worstMonoNull=std::max(worstMonoNull,std::abs(monoL-shaper.process(x,amount)));
+            require(std::abs(monoL-monoR)<1.e-12,"linked DRIVE preserves mono");
+            for (double ratio : {-1.0, -0.72, 0.0, 0.17, 0.35, 0.95}) {
+                double l=x, r=x*ratio;
+                shaper.processStereo(l,r,amount);
+                require(std::isfinite(l) && std::isfinite(r),"linked DRIVE is finite");
+                worstStereoError=std::max(worstStereoError,std::abs(r-ratio*l));
+                if(amount==0.0)
+                    require(l==x && r==x*ratio,"zero DRIVE is exactly neutral");
+            }
+        }
+    }
+    require(worstMonoNull<1.e-12,"DRIVE changes original mono sound");
+    require(worstStereoError<1.e-12,"DRIVE changes stereo magnitude ratio");
+    std::cout << "PASS: DRIVE mono null and stereo-linked saturation, max error "
+              << worstStereoError << "\n";
+
+    // 4x ITU-reference intersample monitor detects a reconstructed peak
+    // higher than every actual host-rate sample. This is a monitor, not a
+    // proof that the independent limiter enforces a true-peak ceiling.
+    StereoTruePeakMonitor truePeak;
+    truePeak.reset();
+    double sampleMaximum=0.0, reconstructedMaximum=0.0;
+    for(int i=0;i<2500;++i) {
+        const float sample=static_cast<float>(
+            0.95*std::sin(2.0*detail::pi*0.25*i+detail::pi/4.0));
+        sampleMaximum=std::max(sampleMaximum,static_cast<double>(std::abs(sample)));
+        const double tp=truePeak.process(sample, sample*0.7f);
+        if(i>128) reconstructedMaximum=std::max(reconstructedMaximum,tp);
+    }
+    require(reconstructedMaximum>0.88 && reconstructedMaximum>sampleMaximum*1.25,
+            "4x true-peak monitor must detect intersample peaks");
+    truePeak.reset();
+    require(truePeak.process(0.0f,0.0f)==0.0f,
+            "true-peak history must reset to true silence");
+    require(std::isfinite(truePeak.process(
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::infinity())),
+            "true-peak monitor must reject invalid input");
+    std::cout << "PASS: streaming intersample peak reconstruction and reset\n";
+    // A/B the optimized production implementation against the independent
+    // original scalar FIR, frame by frame. These inputs cover startup,
+    // steady signals, isolated impulses, stereo polarity, ring wrapping,
+    // reset and malformed audio. The output audio path is unchanged.
+    StereoTruePeakMonitor optimizedMonitor;
+    ScalarTruePeakReference scalarMonitor;
+    optimizedMonitor.reset();
+    scalarMonitor.reset();
+    unsigned int randomState=0x91a7f31bu;
+    float worstPeakError=0.0f;
+    for(int i=0;i<32000;++i) {
+        randomState ^= randomState << 13;
+        randomState ^= randomState >> 17;
+        randomState ^= randomState << 5;
+        const float noise=(static_cast<float>(randomState & 65535u)/65535.0f-0.5f);
+        float left=0.75f*static_cast<float>(std::sin(0.31*i))+0.38f*noise;
+        float right=(i/137)%2 ? -0.69f*left : 0.41f*left;
+        if (i%1093 == 1) {left=2.3f;right=-0.62f;}
+        if (i%1307 == 0) {left=0.0f;right=0.0f;}
+        if (i==1010) left=std::numeric_limits<float>::quiet_NaN();
+        if (i==1011) right=std::numeric_limits<float>::infinity();
+        if (i==16000) {optimizedMonitor.reset();scalarMonitor.reset();}
+        const float observed=optimizedMonitor.process(left,right);
+        const float expected=scalarMonitor.process(left,right);
+        require(std::isfinite(observed),"optimized true-peak monitor must remain finite");
+        worstPeakError=std::max(worstPeakError,std::abs(observed-expected));
+        require(std::abs(observed-expected)<1.0e-6f,
+                "optimized true-peak phase/channel interpolation differs from reference");
+    }
+    std::cout << "PASS: 32k-frame true-peak scalar equivalence (max error "
+              << worstPeakError << "), reset and hostile stereo input\n";
+
+    require(std::abs(detail::ceilingOffsetToDb(0.0)+1.0)<1.e-12,
+            "zero ceiling adjustment preserves -1 dBFS factory limiter");
+    require(std::abs(detail::ceilingOffsetToDb(-3.0)+3.0)<1.e-12,
+            "negative ceiling extreme maps to -3 dBFS");
+    require(std::abs(detail::ceilingOffsetToDb(3.0)+0.1)<1.e-12,
+            "positive ceiling extreme maps to -0.1 dBFS");
+    for (double oldDb : {-3.0,-2.4,-1.0,-0.6,-0.1})
+        require(std::abs(detail::ceilingOffsetToDb(
+            detail::ceilingDbToOffset(oldDb))-oldDb)<1.e-11,
+            "previous saved limiter threshold is preserved");
+    std::cout << "PASS: centred ceiling map and preset migration\n";
+
+    // The new clip amount is a genuine 4x audio process; zero retains
+    // all earlier sessions' transparent limiting behavior by default.
+    require(MasterParameters{}.clipper == 0.0, "legacy clipper default must be zero");
+    MasteringEngine referenceEngine, clipperEngine;
+    referenceEngine.prepare(rate, 2, lookahead);
+    clipperEngine.prepare(rate, 2, lookahead);
+    MasterParameters neutral, clipped;
+    clipped.clipper = 1.0;
+    referenceEngine.setParameters(neutral);
+    clipperEngine.setParameters(clipped);
+    double changed = 0.0;
+    for(int i=0;i<16000;++i) {
+        const float signal=static_cast<float>(1.45*std::sin(2.0*detail::pi*820.0*i/rate));
+        const auto a=referenceEngine.processFrame(signal,signal*.81f);
+        const auto b=clipperEngine.processFrame(signal,signal*.81f);
+        require(std::isfinite(b.left) && std::isfinite(b.right), "clipper output non-finite");
+        require(std::abs(b.left)<1.0f && std::abs(b.right)<1.0f,
+                "clipper must preserve output sample peak ceiling");
+        if(i>8000) changed+=std::abs(a.left-b.left);
+    }
+    require(changed>2.0, "clipper must measurably change driven audio");
+    std::cout << "PASS: 4x soft clipping, neutral default, ceiling safety\n";
+    // CLIP must be stereo-linked, not two unrelated nonlinear curves.
+    // Check a sustained asymmetric waveform after smoothing and lookahead.
+    MasteringEngine stereoClip;
+    stereoClip.prepare(rate,2,lookahead);
+    MasterParameters stereoClipParams;
+    stereoClipParams.clipper=1.0;
+    stereoClip.setParameters(stereoClipParams);
+    double clipStereoError=0.0;
+    int comparedFrames=0;
+    for(int i=0;i<16000;++i) {
+        const float x=(i%3072<900) ? 1.9f : 0.35f;
+        const auto out=stereoClip.processFrame(x,x*0.31f);
+        if(i>lookahead+3000 && std::abs(out.left)>0.05f) {
+            clipStereoError=std::max(clipStereoError,
+                std::abs(static_cast<double>(out.right)/out.left-0.31));
+            ++comparedFrames;
+        }
+    }
+    require(comparedFrames>500 && clipStereoError<0.001,
+            "oversampled CLIP must preserve asymmetric stereo ratio");
+    std::cout << "PASS: linked soft-clip imaging under asymmetric transients\\n";
+    // Combined DRIVE + CLIP + compressors through repeated hard hits and
+    // sustained bass. Verify safe sample ceiling, finite recovery and the
+    // same L/R ratio even when dynamics engage aggressively.
+    MasteringEngine masteringStress;
+    masteringStress.prepare(rate, 2, lookahead);
+    MasterParameters masteringP;
+    masteringP.drive=.83; masteringP.clipper=.64;
+    masteringP.glue=.16; masteringP.dynamics=.12;
+    masteringStress.setParameters(masteringP);
+    double stressPeak=0.0, stressError=0.0, stressEnergy=0.0;
+    int stressCompared=0;
+    for(int i=0;i<static_cast<int>(rate*2.0);++i) {
+        const double time=i/rate;
+        const bool attack=(i%24000)<18;
+        const double bass=0.16*std::sin(2*detail::pi*67.0*time);
+        const float x=static_cast<float>(bass+(attack?2.1*std::exp(-(i%24000)/11.0):0.0));
+        const auto out=masteringStress.processFrame(x,-x*0.36f);
+        require(std::isfinite(out.left) && std::isfinite(out.right),
+                "hard limiting or saturation produced invalid audio");
+        stressPeak=std::max(stressPeak,static_cast<double>(std::max(std::abs(out.left),std::abs(out.right))));
+        stressEnergy+=static_cast<double>(out.left)*out.left;
+        if(i>lookahead+15000 && std::abs(out.left)>0.004f) {
+            stressError=std::max(stressError,std::abs(out.right/out.left+0.36));
+            ++stressCompared;
+        }
+    }
+    require(stressPeak<=detail::dbToLinear(-1.0)+5.e-6,
+            "hard transient train exceeded the sample ceiling");
+    require(stressPeak>0.6 && stressEnergy>50.0,"transient train is muted");
+    require(stressCompared>100000 && stressError<.001,
+            "linked mastering chain modified stereo ratio under heavy limiting");
+    std::cout << "PASS: severe DRIVE+CLIP+limiter stereo transient stress, peak "
+              << stressPeak << " ratio error " << stressError << "\n";
+
 
     // Invalid input must be isolated at the boundary; no persistent poisoning.
     const auto NaN = std::numeric_limits<float>::quiet_NaN();
@@ -149,6 +408,24 @@ int main() {
     require(maxObserved <= std::pow(10.0,-1.0/20.0)+1.e-6, "oversampled processing ceiling is respected");
     require(maxObserved > .6, "limiter does not mute the transient");
     std::cout << "Limiting max: " << maxObserved << " at -1 dBFS ceiling\n";
+    
+    // A heavily limited asymmetric stereo signal must retain its L/R ratio
+    // without independent hard-clipping at the final oversampled ceiling.
+    dsp.prepare(rate,2,lookahead);
+    p={}; p.ceilingDb=-1.0;
+    dsp.setParameters(p);
+    for (int i=0;i<6000;++i) dsp.processFrame(0,0);
+    double maxStereoError=0.0;
+    for (int i=0;i<15000;++i) {
+        const float x=(i%4096<380) ? 2.2f : 0.4f;
+        const auto result=dsp.processFrame(x, x*0.27f);
+        if (std::abs(result.left)>0.1f) {
+            maxStereoError=std::max(maxStereoError,
+                std::abs(static_cast<double>(result.right)
+                            / static_cast<double>(result.left)-0.27));
+        }
+    }
+    require(maxStereoError<0.001,"limiter preserves asymmetric stereo ratios");
 
     // Feed an isolated transient into a settled neutral limiter. With 1.5ms
     // lookahead, release must not begin before its delayed output arrives.
@@ -234,6 +511,124 @@ int main() {
         require(std::isfinite(v.left), "mono finite");
     }
     std::cout << "PASS: impulse, limiter, automation, stereo, mono tests\n";
+
+    // The user-reference SKELL MASTER factory values must be safe under a
+    // dense stereo bass/transient train. This portable engine test does NOT
+    // claim a perceptual match to the user's FL Studio render.
+    MasteringEngine skellMasterReference;
+    skellMasterReference.prepare(rate, 2, lookahead);
+    MasterParameters skellPreset;
+    skellPreset.inputDb=4.0; skellPreset.drive=.08;
+    skellPreset.glue=.17; skellPreset.dynamics=.11;
+    skellPreset.lowsDb=-1.0; skellPreset.highsDb=3.0;
+    skellPreset.sauce=.20; skellPreset.transients=0.0;
+    skellPreset.outputDb=0.0; skellPreset.clipper=.14;
+    skellPreset.ceilingDb=-1.0;
+    skellMasterReference.setParameters(skellPreset);
+    double referencePeak=0.0, referenceEnergy=0.0;
+    for(int i=0;i<static_cast<int>(rate);++i) {
+        const double time=static_cast<double>(i)/rate;
+        const double kick=(i%23000)<90
+            ? 1.3*std::exp(-static_cast<double>(i%23000)/29.0):0.0;
+        const double bass=.36*std::sin(2*detail::pi*58.0*time);
+        const double vocal=.12*std::sin(2*detail::pi*910.0*time);
+        const float l=static_cast<float>(kick+bass+vocal);
+        const float r=static_cast<float>(kick*.92+bass*.89+vocal*.58);
+        const auto outputFrame=skellMasterReference.processFrame(l,r);
+        require(std::isfinite(outputFrame.left) && std::isfinite(outputFrame.right),
+                "SKELL MASTER reference preset generated nonfinite audio");
+        referencePeak=std::max(referencePeak,
+            static_cast<double>(std::max(std::abs(outputFrame.left),
+                                         std::abs(outputFrame.right))));
+        referenceEnergy+=static_cast<double>(outputFrame.left)*outputFrame.left;
+    }
+    require(referencePeak<=detail::dbToLinear(-1.0)+1.e-5,
+            "SKELL MASTER reference preset exceeded its sample ceiling");
+    require(referenceEnergy>10.0,"SKELL MASTER reference preset muted program");
+    std::cout << "PASS: SKELL MASTER first-pass portable DSP stress and sample ceiling "
+              << referencePeak << "\\n";
+
+    // Across the *entire* mastering chain, hostile NaN/Inf automation
+    // should fall back to the old neutral settings, never unexpectedly
+    // switch on maximum drive/compression/treble or an unsafe ceiling.
+    MasteringEngine safeHost, neutralHost;
+    safeHost.prepare(rate, 2, lookahead);
+    neutralHost.prepare(rate, 2, lookahead);
+    MasterParameters malformedParams;
+    const double invalidNumber = std::numeric_limits<double>::quiet_NaN();
+    malformedParams.inputDb = invalidNumber;
+    malformedParams.drive = invalidNumber;
+    malformedParams.glue = invalidNumber;
+    malformedParams.dynamics = invalidNumber;
+    malformedParams.lowsDb = invalidNumber;
+    malformedParams.highsDb = invalidNumber;
+    malformedParams.sauce = invalidNumber;
+    malformedParams.transients = invalidNumber;
+    malformedParams.outputDb = invalidNumber;
+    malformedParams.clipper = invalidNumber;
+    malformedParams.ceilingDb = invalidNumber;
+    safeHost.setParameters(malformedParams);
+    neutralHost.setParameters(MasterParameters{});
+    double invalidParameterNull = 0.0;
+    for (int i = 0; i < 36000; ++i) {
+        const double x = 0.23 * std::sin(2.0 * detail::pi * 330.0 * i / rate)
+                       + 0.07 * std::sin(2.0 * detail::pi * 4720.0 * i / rate);
+        const float l = static_cast<float>(x);
+        const float r = static_cast<float>(x * 0.61);
+        const auto a = safeHost.processFrame(l, r);
+        const auto b = neutralHost.processFrame(l, r);
+        require(std::isfinite(a.left) && std::isfinite(a.right),
+                "nonfinite automation poisoned full DSP");
+        invalidParameterNull = std::max(invalidParameterNull,
+            std::max(std::abs(static_cast<double>(a.left - b.left)),
+                     std::abs(static_cast<double>(a.right - b.right))));
+    }
+    require(invalidParameterNull < 1.0e-7,
+            "invalid mastering parameters must all fall back to neutral sound");
+    // Large but finite samples are supported by the portable processing
+    // boundary as well as the production JUCE host wrapper. Test both wet
+    // and the latency-aligned dry/bypass route.
+    safeHost.reset();
+    MasterParameters dryAttack;
+    dryAttack.bypass = true;
+    safeHost.setParameters(dryAttack);
+    for (int i = 0; i < 10000; ++i) {
+        const float huge = (i % 47 == 0)
+            ? std::numeric_limits<float>::max() : 0.0f;
+        const auto v = safeHost.processFrame(huge, -huge);
+        require(std::isfinite(v.left) && std::isfinite(v.right),
+                "very large finite audio overflowed wet or bypass route");
+        require(std::abs(v.left) <= 256.001f && std::abs(v.right) <= 256.001f,
+                "portable input boundary disagrees with JUCE +48dBFS guard");
+    }
+    // During aggressive LOWS and HIGHS automation, independent shelf
+    // recalculation must preserve finite stereo audio and pre-existing
+    // host-rate sample peaks.
+    MasteringEngine modulatedEq;
+    modulatedEq.prepare(rate, 2, lookahead);
+    MasterParameters modulated;
+    double modulatedPeak = 0.0;
+    for (int i = 0; i < 70000; ++i) {
+        if ((i % 800) == 0) {
+            modulated.lowsDb = (i / 800) % 2 ? -6.0 : 6.0;
+            modulated.highsDb = (i / 800) % 3 ? 0.0 : 6.0;
+            modulatedEq.setParameters(modulated);
+        }
+        const float x = static_cast<float>(
+            0.28 * std::sin(2.0 * detail::pi * 88.0 * i / rate)
+          + 0.22 * std::sin(2.0 * detail::pi * 11000.0 * i / rate));
+        const auto v = modulatedEq.processFrame(x, -0.6f * x);
+        require(std::isfinite(v.left) && std::isfinite(v.right),
+                "fast multiband EQ automation poisoned audio");
+        modulatedPeak = std::max(modulatedPeak,
+            static_cast<double>(std::max(std::abs(v.left), std::abs(v.right))));
+    }
+    require(modulatedPeak <= detail::dbToLinear(-1.0) + 2.0e-5,
+            "automated EQ escaped the mastering sample ceiling");
+    std::cout << "PASS: full-chain invalid automation neutral null "
+              << invalidParameterNull
+              << "; huge input/bypass, independent EQ coefficient automation "
+              << modulatedPeak << "\\n";
 
     // Offline CPU sanity probe (time is recorded, not treated as a universal
     // benchmark across shared CI runners). Real-time ratio uses 4x oversampling:
