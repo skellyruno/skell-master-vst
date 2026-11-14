@@ -124,21 +124,21 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
                   bool previousIronBackground=false) {
     g.setColour(juce::Colours::black.withAlpha(0.9f));
     g.fillRoundedRectangle(r.translated(0,3.5f),radius);
-    // The worn-iron finish belongs exclusively to the three large Ossuary
-    // chassis panels. Keep other themes, inset cards, enamel plates, knobs,
-    // labels and machined hardware unchanged.
+    // User-selected aged bronze charcoal: the three large Ossuary chassis
+    // panels use warm grey-brown paint, with retained scuffed exposed metal.
+    // Other themes, enamel plates, controls, knobs and text stay unchanged.
     const auto ironPaint = [&](juce::uint32 dark, juce::uint32 earlier) {
         return juce::Colour(previousIronBackground ? earlier : dark);
     };
     juce::ColourGradient enamel(green?juce::Colour(0xff16432e)
-                                    :ironPaint(0xff11130f,0xff48453d),
+                                    :ironPaint(0xff11130f,0xff887968),
                 r.getX(),r.getY(),green?juce::Colour(0xff030f0a)
-                                     :ironPaint(0xff040604,0xff25241f),
+                                     :ironPaint(0xff040604,0xff5c5146),
                 r.getX()+r.getWidth()*0.8f,r.getBottom(),false);
     enamel.addColour(0.27,green?juce::Colour(0xff0e3020)
-                               :ironPaint(0xff0e100c,0xff413e35));
+                               :ironPaint(0xff0e100c,0xff796b5e));
     enamel.addColour(0.56,green?juce::Colour(0xff071d12)
-                               :ironPaint(0xff090b08,0xff37352e));
+                               :ironPaint(0xff090b08,0xff6d5f52));
     g.setGradientFill(enamel);
     g.fillRoundedRectangle(r,radius);
     // Authentic source-image material grain overlays only large STATIC panels.
