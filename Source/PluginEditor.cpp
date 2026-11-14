@@ -546,6 +546,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     presetSelector.addItem("WARM MASTER",2);
     presetSelector.addItem("PUNCH MASTER",3);
     presetSelector.addItem("LOUD MASTER",4);
+    presetSelector.addItem("SKELL MASTER",5);
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     // Empty label is intentional: a quiet SELECT hint is drawn in the glass.
     presetSelector.setTextWhenNothingSelected({});
@@ -626,15 +627,22 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
 }
 
 void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
-    if(presetId<1 || presetId>4) return;
+    if(presetId<1 || presetId>5) return;
     // Ordered exactly as ids[]: Input, Drive, Glue, Dynamics, Lows, Highs,
     // Sauce, Transients, Output, Ceiling offset, Clip. All conservative
     // starting points; no hidden bypass, DSP mode or latency changes.
-    static constexpr float values[4][11]={
+    // SKELL MASTER is a measured *first-pass* target of the user's 2026-11-14
+    // 44.1 kHz reference audio: ~+2.43 LU louder, ~1.6 dB less crest,
+    // ~+1.5 dB relative upper treble, and subtle widening. This is a
+    // transparent APVTS snapshot, not a hidden DSP mode or an exact null match.
+    // Keep its ceiling at the default -1 dBFS sample-peak setting until
+    // independent true-peak protection and real FL Studio A/B are approved.
+    static constexpr float values[5][11]={
         {0,0,0,0,0,0,0,0,0,0,0},
         {0,15,18,10,0,0,12,0,0,0,0},
         {0,8,12,7,0,0,0,22,0,0,0},
-        {0,10,24,18,0,0,8,8,0,0,12}
+        {0,10,24,18,0,0,8,8,0,0,12},
+        {4,8,17,11,-1,3,20,0,0,0,14}
     };
     for(int i=0;i<knobCount;++i) {
         if(auto* p=processor.parameters.getParameter(ids[i])) {
