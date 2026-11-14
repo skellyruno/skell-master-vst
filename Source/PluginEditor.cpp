@@ -19,32 +19,55 @@ const juce::Colour muted(0xffbda776);
 const juce::Colour readoutWhite(0xfffaf9f6);
 
 // SkellCore selects skins, SKELL Master renders coherent physical materials.
-juce::Colour hardwareAccent(skellcore::ui::SkullSkin skin) {
+// Hardware controls and exposed metal are *fixed*. A theme never paints
+// the skull button, rotary knobs, screws, text, or glass in a different hue.
+juce::Colour hardwareAccent(skellcore::ui::SkullSkin) {
+    return juce::Colour(0xffa78a5a); // aged solid-brass engraved details
+}
+juce::Colour hardwareText(skellcore::ui::SkullSkin) {
+    return juce::Colour(0xffe8d9bd); // warm ivory lettering at every skin
+}
+// The only theme-controlled areas are the two formerly green enamel plates
+// and the dark iron chassis/panel background underneath the live hardware.
+juce::Colour themeEnamel(skellcore::ui::SkullSkin skin) {
     using Skin=skellcore::ui::SkullSkin;
     switch(skin) {
-        case Skin::Neon: return juce::Colour(0xff9aff5c);
-        case Skin::Ivory: return juce::Colour(0xffe6ce9e);
-        case Skin::Obsidian: return juce::Colour(0xffb1c7d0);
-        default: return juce::Colour(0xffe1bd7c);
+        case Skin::Neon: return juce::Colour(0xff246c3b); // worn neon green
+        case Skin::Ivory: return juce::Colour(0xff736048); // aged umber
+        case Skin::Obsidian: return juce::Colour(0xff304e5d); // gunmetal blue
+        default: return juce::Colour(0xff24543b); // dark enamel green
     }
 }
-juce::Colour hardwareText(skellcore::ui::SkullSkin skin) {
+juce::Colour themeBackground(skellcore::ui::SkullSkin skin) {
     using Skin=skellcore::ui::SkullSkin;
     switch(skin) {
-        case Skin::Neon: return juce::Colour(0xfff0fff0);
-        case Skin::Ivory: return juce::Colour(0xfffcf3df);
-        case Skin::Obsidian: return juce::Colour(0xffe9f2f4);
-        default: return juce::Colour(0xfff6ebd6);
+        case Skin::Neon: return juce::Colour(0xff08180f);
+        case Skin::Ivory: return juce::Colour(0xff1c160f);
+        case Skin::Obsidian: return juce::Colour(0xff101e26);
+        default: return juce::Colour(0xff0d110e);
     }
 }
-juce::Colour hardwareEnamel(skellcore::ui::SkullSkin skin) {
-    using Skin=skellcore::ui::SkullSkin;
-    switch(skin) {
-        case Skin::Neon: return juce::Colour(0xff4baf50);
-        case Skin::Ivory: return juce::Colour(0xff977950);
-        case Skin::Obsidian: return juce::Colour(0xff46616a);
-        default: return juce::Colour(0xff31744b);
-    }
+// Tint only the painted inset of a plate. Leave the physically machined brass
+// trim, screws, typography, and separate interactive controls unchanged.
+void themeInset(juce::Graphics& g,juce::Rectangle<float> r,
+                skellcore::ui::SkullSkin skin,bool enamel) {
+    juce::Graphics::ScopedSaveState save(g);
+    const auto inset=r.reduced(enamel?7.4f:8.2f);
+    const auto base=enamel?themeEnamel(skin):themeBackground(skin);
+    const float strength=enamel?0.80f:0.36f;
+    juce::ColourGradient tint(base.brighter(enamel?0.24f:0.06f).withAlpha(strength),
+                              inset.getX(),inset.getY(),
+                              base.darker(enamel?0.67f:0.23f).withAlpha(
+                                  enamel?0.88f:0.43f),
+                              inset.getRight(),inset.getBottom(),false);
+    tint.addColour(0.38,base.withAlpha(strength));
+    g.setGradientFill(tint);
+    g.fillRoundedRectangle(inset,enamel?3.2f:4.5f);
+    // Paint chips and drag marks remain on top of the coloured enamel,
+    // with deterministic scratches cached once, never per audio buffer.
+    if(enamel)
+        hw::patina(g,inset.reduced(2.0f),
+                   static_cast<uint32_t>(r.getX()*67+r.getY()*31),0.38f);
 }
 
 constexpr const char* labels[11] = {
@@ -108,6 +131,8 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::setSkin(
         skellcore::ui::SkullSkin selected) {
     activeSkin=selected;
     const auto accent=hardwareAccent(selected), lettering=hardwareText(selected);
+    // The skull changes the chassis and the two enamel inserts ONLY.
+    // These shared control colours are deliberately fixed for all skins.
     setColour(juce::Slider::textBoxTextColourId,lettering);
     setColour(juce::Slider::textBoxOutlineColourId,accent);
     setColour(juce::Slider::textBoxBackgroundColourId,juce::Colour(0xff060806));
@@ -124,6 +149,19 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::setSkin(
     setColour(juce::PopupMenu::backgroundColourId,juce::Colour(0xff111410));
     setColour(juce::PopupMenu::textColourId,lettering);
     setColour(juce::PopupMenu::highlightedBackgroundColourId,accent.darker(0.72f));
+}
+
+juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getComboBoxFont(
+    juce::ComboBox& combo) {
+   #if JUCE_LINUX
+    constexpr const char* family="DejaVu Sans";
+   #else
+    constexpr const char* family="Segoe UI";
+   #endif
+    // Small engraved hardware-window text, not a giant preset banner.
+    const float height=static_cast<float>(combo.getHeight());
+    const float size=juce::jlimit(9.0f,12.0f,height*0.49f);
+    return juce::Font(juce::FontOptions(size).withName(family).withStyle("Bold"));
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawComboBox(
@@ -154,30 +192,55 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
     const auto r=label.getLocalBounds().toFloat().reduced(0.65f);
     // Readout is a recessed glass lens with a manufactured metal rim.
     hw::glassWindow(g,r,4.5f);
+    g.setColour(juce::Colours::black.withAlpha(0.58f));
+    g.drawLine(r.getX()+3.1f,r.getY()+4.0f,
+               r.getX()+3.1f,r.getBottom()-4.0f,1.1f);
+    g.drawLine(r.getRight()-3.1f,r.getY()+4.0f,
+               r.getRight()-3.1f,r.getBottom()-4.0f,1.1f);
     if(r.getWidth()>75.0f) {
         hw::screw(g,r.getX()+8.0f,r.getCentreY(),0.59f);
         hw::screw(g,r.getRight()-8.0f,r.getCentreY(),0.59f);
     }
     if (!label.isBeingEdited()) {
-        g.setFont(getLabelFont(label));
-        g.setColour(findColour(juce::Label::textColourId));
+        auto* preset=dynamic_cast<juce::ComboBox*>(label.getParentComponent());
+        const bool presetLens=preset && preset->getComponentID()=="skell-master-preset";
+        const bool unselected=presetLens && preset->getSelectedId()==0;
+        if(presetLens) {
+            // ComboBox owns this child Label; draw text here (above the
+            // backdrop), not in drawComboBox where the child obscures it.
+            g.setFont(getComboBoxFont(*preset));
+            g.setColour(unselected ? juce::Colour(0xffc8b899).withAlpha(0.83f)
+                                   : hardwareText(activeSkin));
+        } else {
+            g.setFont(getLabelFont(label));
+            g.setColour(findColour(juce::Label::textColourId));
+        }
         const int inset=r.getWidth()>75.0f?13:4;
-        g.drawFittedText(label.getText(), label.getLocalBounds().reduced(inset,2),
-                         label.getJustificationType(), 1);
+        g.drawFittedText(unselected ? juce::String("SELECT") : label.getText(),
+                         label.getLocalBounds().reduced(inset,2),
+                         presetLens?juce::Justification::centred:label.getJustificationType(), 1);
     }
-    // Curved transparent cover lies IN FRONT of the numerals, with a
-    // narrow diagonal reflected light and a deep lower edge.
+    // Glass cover is physically in FRONT of the live digits. Recessed
+    // cavity/lower internal shadow keep them visibly BEHIND the lens.
     juce::Graphics::ScopedSaveState glassClip(g);
     g.reduceClipRegion(r.toNearestInt());
-    juce::ColourGradient glare(juce::Colours::white.withAlpha(0.13f),
-                               r.getX()+3.0f,r.getY()+1.0f,
+    const auto cavity=r.reduced(2.8f);
+    juce::ColourGradient glaze(juce::Colours::white.withAlpha(0.17f),
+                               cavity.getX()+3.0f,cavity.getY()+1.0f,
                                juce::Colours::white.withAlpha(0.0f),
-                               r.getX()+r.getWidth()*0.65f,r.getBottom(),false);
-    g.setGradientFill(glare);
-    g.fillRoundedRectangle(r.reduced(3.0f),3.0f);
-    g.setColour(juce::Colours::black.withAlpha(0.44f));
-    g.drawLine(r.getX()+4.0f,r.getBottom()-3.0f,
-               r.getRight()-4.0f,r.getBottom()-3.0f,1.0f);
+                               cavity.getX()+cavity.getWidth()*0.67f,
+                               cavity.getBottom()-1.0f,false);
+    glaze.addColour(0.30,juce::Colours::white.withAlpha(0.045f));
+    g.setGradientFill(glaze);
+    g.fillRoundedRectangle(cavity,3.1f);
+    g.setColour(juce::Colours::black.withAlpha(0.58f));
+    g.drawLine(cavity.getX()+2.0f,cavity.getBottom()-1.1f,
+               cavity.getRight()-2.0f,cavity.getBottom()-1.1f,1.2f);
+    g.setColour(juce::Colours::white.withAlpha(0.19f));
+    g.drawLine(cavity.getX()+3.0f,cavity.getY()+1.2f,
+               cavity.getRight()*0.72f,cavity.getY()+1.2f,0.7f);
+    g.setColour(juce::Colours::black.withAlpha(0.24f));
+    g.drawRoundedRectangle(cavity,3.2f,1.25f);
 }
 
 juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getLabelFont(juce::Label& label) {
@@ -249,10 +312,10 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                   :0.5f+0.5f*juce::jlimit(0.0f,1.0f,v/12.0f);
     }
     const float angle=a0+p*(a1-a0);
-    const auto metalAccent=findColour(juce::Slider::thumbColourId);
-    // Knobs inherit their enamel and rim tint from the active chassis skin.
-    const auto brass=hardwareAccent(activeSkin).darker(0.26f);
-    const auto bright=hardwareText(activeSkin);
+    // Fixed aged gunmetal/bronze finish. Theme cycling never tints knobs.
+    const auto metalAccent=juce::Colour(0xffaa946d);
+    const auto brass=juce::Colour(0xff726951); // oxidised bronze, not tan plastic
+    const auto bright=juce::Colour(0xffe6dcc5); // ivory-machined highlights
     const auto shadow=juce::Colour(0xff080908);
     const float frame=r*0.90f;
     const float grip=r*0.835f;
@@ -347,12 +410,12 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
 
     // Matte anodised top, one fixed lighting direction and fine lathe cuts.
     // No new scratches or noise: depth comes from constructed geometry.
-    juce::ColourGradient crown(brass.interpolatedWith(juce::Colour(0xff626961),0.48f),
+    juce::ColourGradient crown(juce::Colour(0xff95846a),
                                 cx-face*0.91f,cy-face*0.93f,
-                                juce::Colour(0xff171d1a),
+                                juce::Colour(0xff292b25),
                                 cx+face*0.89f,cy+face*0.94f,false);
-    crown.addColour(0.22,brass.darker(0.52f));
-    crown.addColour(0.60,brass.darker(0.84f));
+    crown.addColour(0.20,juce::Colour(0xff7d725d));
+    crown.addColour(0.63,juce::Colour(0xff494a3e));
     g.setGradientFill(crown);
     g.fillEllipse(cx-face+1.0f,cy-face+1.0f,
                   2*(face-1.0f),2*(face-1.0f));
@@ -380,7 +443,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
         g.strokePath(arc,juce::PathStrokeType(lineWidth));
     };
     arcAt(face-1.55f,-1.45f,-0.22f,1.15f,
-          juce::Colour(0xffe4d6b8).withAlpha(0.34f));
+          juce::Colour(0xffd5c5a4).withAlpha(0.38f));
     arcAt(face-2.2f,0.67f,2.54f,1.3f,
           juce::Colours::black.withAlpha(0.43f));
     arcAt(grip-0.9f,-1.47f,-0.17f,0.70f,
@@ -466,7 +529,10 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     presetSelector.addItem("WARM MASTER",2);
     presetSelector.addItem("PUNCH MASTER",3);
     presetSelector.addItem("LOUD MASTER",4);
-    presetSelector.setSelectedId(1,juce::dontSendNotification);
+    presetSelector.setSelectedId(0,juce::dontSendNotification);
+    // Empty label is intentional: a quiet SELECT hint is drawn in the glass.
+    presetSelector.setTextWhenNothingSelected({});
+    presetSelector.setJustificationType(juce::Justification::centred);
     presetSelector.setTooltip("Choose a factory mastering starting point. All values are editable and automatable.");
     presetSelector.onChange=[this] { applyFactoryPreset(presetSelector.getSelectedId()); };
     addAndMakeVisible(presetSelector);
@@ -526,33 +592,9 @@ void SkellyMasterAudioProcessorEditor::switchSkin() {
     repaint();
 }
 
-void SkellyMasterAudioProcessorEditor::recolourStaticBackdrop(
-        juce::Image& result) const {
-    if(skin==skellcore::ui::SkullSkin::Ossuary || !result.isValid()) return;
-    // Only brass and enamel are tinted. Dark iron, texture highlights and
-    // glass remain physical, instead of flattening into a solid skin color.
-    const auto metal=hardwareAccent(skin), enamel=hardwareEnamel(skin);
-    juce::Image::BitmapData pixels(result,juce::Image::BitmapData::readWrite);
-    for(int y=0;y<pixels.height;++y)
-        for(int x=0;x<pixels.width;++x) {
-            const auto c=pixels.getPixelColour(x,y);
-            if(c.getAlpha()==0) continue;
-            const float red=c.getFloatRed(),green=c.getFloatGreen(),
-                        blue=c.getFloatBlue();
-            const bool brass=red>green*1.055f && green>blue*1.08f
-                             && red>0.18f;
-            const bool greenEnamel=green>red*1.17f && green>blue*1.10f
-                                   && green>0.095f;
-            if(!brass && !greenEnamel) continue;
-            const float sourceLuma=0.24f*red+0.66f*green+0.10f*blue;
-            const float shading=juce::jlimit(0.20f,1.0f,sourceLuma*1.58f);
-            const auto target=(brass?metal:enamel)
-                                 .withMultipliedBrightness(shading);
-            pixels.setPixelColour(x,y,c.interpolatedWith(target,0.68f));
-        }
-}
-
 void SkellyMasterAudioProcessorEditor::resetToDefaults() {
+    // Reset removes the selection label without activating any factory preset.
+    presetSelector.setSelectedId(0,juce::dontSendNotification);
     for (const char* id : ids)
         if (auto* param = processor.parameters.getParameter(id)) {
             param->beginChangeGesture();
@@ -842,17 +884,21 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
 
     // Deep lens with a believable glass cover; light stays off at idle.
     hw::glassWindow(g,{975,152,175,57},9.0f);
+    // Black gasket and chrome reflection are in front of the active pixels.
+    g.setColour(juce::Colours::black.withAlpha(0.64f));
+    g.drawRoundedRectangle(juce::Rectangle<float>(978,155,169,51),6.4f,1.7f);
+    g.setColour(juce::Colours::white.withAlpha(0.085f));
+    g.drawLine(982.0f,155.5f,1142.0f,155.5f,0.8f);
 
     const bool active=std::isfinite(displayedReduction)
                    && displayedReduction>=0.5f;
     // The former GR light-pipe rectangle now houses the preset dropdown.
     // Its label is engraved above the recessed glass, never faked as LEDs.
     font(g,11,true);g.setColour(hw::parchment);
-    text(g,"PRESET",983,210,157,15,juce::Justification::centredLeft);
-    // Tiny engraved accent under the legend: a physical status detail that
-    // stays outside the actual clickable glass-backed preset selector.
-    g.setColour(hardwareAccent(skin).withAlpha(0.75f));
-    g.fillRoundedRectangle(985.0f,224.0f,56.0f,1.8f,0.9f);
+    text(g,"PRESET",975,209,175,17,juce::Justification::centred);
+    // Balanced centreline engraving, not a left-anchored preset title.
+    g.setColour(hardwareAccent(skin).withAlpha(0.57f));
+    g.fillRoundedRectangle(1036.0f,226.0f,53.0f,0.9f,0.45f);
     if (!active) return;
 
     font(g,37,true);
@@ -868,23 +914,26 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
                               1138.0f,202.0f,false);
     g.setGradientFill(lens);
     g.fillRoundedRectangle(981.0f,156.0f,163.0f,43.0f,6.0f);
-    g.setColour(juce::Colours::white.withAlpha(0.16f));
-    g.drawLine(989.0f,155.0f,1135.0f,155.0f,0.75f);
+    g.setColour(juce::Colours::white.withAlpha(0.17f));
+    g.drawLine(989.0f,156.1f,1135.0f,156.1f,0.8f);
+    g.setColour(juce::Colours::black.withAlpha(0.37f));
+    g.drawLine(985.0f,201.8f,1140.0f,201.8f,1.1f);
     // Gain reduction is displayed only in the upper electronic lens.
 }
 
 void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
-    g.setColour(juce::Colour(0xff060705));
+    g.setColour(juce::Colour(0xff030503));
     g.fillRect(0,0,designW,designH);
-    // Iron chassis and worn brass corners. Expensive texture is cached,
-    // never recalculated during realtime DSP or normal meter refresh.
-    hw::plate(g,{3,3,1194,754},false,0x310570u,14.0f,1.15f);
+    // Darker, torn iron chassis and rubbed brass edge. Only its painted
+    // background receives a theme wash; physical trim stays unchanged.
+    hw::plate(g,{3,3,1194,754},false,0x310570u,14.0f,1.62f);
+    themeInset(g,{3,3,1194,754},skin,false);
     g.setColour(hw::brass.withAlpha(0.26f));
     g.drawRoundedRectangle(juce::Rectangle<float>(8,8,1184,744),12.0f,1.0f);
 
     // Nameplate and skulls are separate transparent photographic resources,
     // drawn once into the existing editor faceplate cache, never per meter tick.
-    hw::plate(g,{405,7,391,73},true,0x001ab3u,10.0f,0.9f);
+    hw::plate(g,{405,7,391,73},true,0x001ab3u,10.0f,1.19f);
    #if SKELLY_MASTER_HEADER_ASSETS
     static const juce::Image photoHeader = juce::ImageFileFormat::loadFrom(
         BinaryData::header_nameplate_green_blank_png,
@@ -899,6 +948,9 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
         for(float x : {417.0f,784.0f})
             for(float y : {21.0f,66.0f}) hw::screw(g,x,y,0.83f);
     }
+    // The first of precisely two skin-coloured inserts: header nameplate.
+    // Tint after the photographic enamel but BEFORE the unchanged lettering.
+    themeInset(g,{405,7,391,73},skin,true);
     // Mastering hardware uses the new machined medallion consistently.
     // One selectable left logo, no old star-eyes and no right skull.
     skelly::ui::drawMachinedSkull(g,{57,10,82,72},0.98f,hw::gold);
@@ -917,8 +969,9 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     // The skull on the right was removed; left skull alone changes skin.
 
     // Engraved meter bridge with a separate stamped status panel.
-    hw::plate(g,{37,94,1126,200},false,0x33c8a7u,12.0f,0.72f);
-    hw::plate(g,{48,109,213,176},false,0x641b4fu,9.0f,0.52f);
+    hw::plate(g,{37,94,1126,200},false,0x33c8a7u,12.0f,1.22f);
+    themeInset(g,{37,94,1126,200},skin,false);
+    hw::plate(g,{48,109,213,176},false,0x641b4fu,9.0f,0.82f);
     for(float x : {60.0f,249.0f})
         for(float y : {121.0f,273.0f}) hw::screw(g,x,y,0.88f);
     font(g,18,true);g.setColour(hw::gold);
@@ -935,7 +988,8 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     hw::glassWindow(g,{70,247,169,30},5.0f);
 
     // Modular lower rack: same genuine APVTS controls as previous build.
-    hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.0f);
+    hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.57f);
+    themeInset(g,{37,298,1126,356},skin,false);
     for(float x : {51.0f,1149.0f})
         for(float y : {310.0f,641.0f}) hw::screw(g,x,y,0.90f);
     hw::divider(g,64,480,1138,480);
@@ -955,7 +1009,9 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     }
 
     // Emerald (not red) heavy lacquer utility deck.
-    hw::plate(g,{13,673,1174,80},true,0x731ac4u,9.0f,0.99f);
+    hw::plate(g,{13,673,1174,80},true,0x731ac4u,9.0f,1.34f);
+    // Second and final skin-coloured enamel insert: lower utility panel.
+    themeInset(g,{13,673,1174,80},skin,true);
     for(float x : {29.0f,1172.0f})
         for(float y : {685.0f,741.0f}) hw::screw(g,x,y,0.90f);
     hw::divider(g,267,685,267,744);
@@ -1003,7 +1059,6 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
                 static_cast<float>(rasterH) / designH));
             paintStatic(cached);
         }
-        recolourStaticBackdrop(updated); // one-time UI-thread remap per skin/size
         staticBackdrop = std::move(updated);
     }
     g.drawImage(staticBackdrop, 0, 0, designW, designH,
