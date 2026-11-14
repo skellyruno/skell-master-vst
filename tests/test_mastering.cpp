@@ -512,6 +512,42 @@ int main() {
     }
     std::cout << "PASS: impulse, limiter, automation, stereo, mono tests\n";
 
+    // The user-reference SKELL MASTER factory values must be safe under a
+    // dense stereo bass/transient train. This portable engine test does NOT
+    // claim a perceptual match to the user's FL Studio render.
+    MasteringEngine skellMasterReference;
+    skellMasterReference.prepare(rate, 2, lookahead);
+    MasterParameters skellPreset;
+    skellPreset.inputDb=4.0; skellPreset.drive=.08;
+    skellPreset.glue=.17; skellPreset.dynamics=.11;
+    skellPreset.lowsDb=-1.0; skellPreset.highsDb=3.0;
+    skellPreset.sauce=.20; skellPreset.transients=0.0;
+    skellPreset.outputDb=0.0; skellPreset.clipper=.14;
+    skellPreset.ceilingDb=-1.0;
+    skellMasterReference.setParameters(skellPreset);
+    double referencePeak=0.0, referenceEnergy=0.0;
+    for(int i=0;i<static_cast<int>(rate);++i) {
+        const double time=static_cast<double>(i)/rate;
+        const double kick=(i%23000)<90
+            ? 1.3*std::exp(-static_cast<double>(i%23000)/29.0):0.0;
+        const double bass=.36*std::sin(2*detail::pi*58.0*time);
+        const double vocal=.12*std::sin(2*detail::pi*910.0*time);
+        const float l=static_cast<float>(kick+bass+vocal);
+        const float r=static_cast<float>(kick*.92+bass*.89+vocal*.58);
+        const auto outputFrame=skellMasterReference.processFrame(l,r);
+        require(std::isfinite(outputFrame.left) && std::isfinite(outputFrame.right),
+                "SKELL MASTER reference preset generated nonfinite audio");
+        referencePeak=std::max(referencePeak,
+            static_cast<double>(std::max(std::abs(outputFrame.left),
+                                         std::abs(outputFrame.right))));
+        referenceEnergy+=static_cast<double>(outputFrame.left)*outputFrame.left;
+    }
+    require(referencePeak<=detail::dbToLinear(-1.0)+1.e-5,
+            "SKELL MASTER reference preset exceeded its sample ceiling");
+    require(referenceEnergy>10.0,"SKELL MASTER reference preset muted program");
+    std::cout << "PASS: SKELL MASTER first-pass portable DSP stress and sample ceiling "
+              << referencePeak << "\\n";
+
     // Offline CPU sanity probe (time is recorded, not treated as a universal
     // benchmark across shared CI runners). Real-time ratio uses 4x oversampling:
     // rate is the actual processing rate of processFrame(), not the host rate.
