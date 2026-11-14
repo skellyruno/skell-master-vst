@@ -31,6 +31,7 @@ private:
         void drawButtonText(juce::Graphics&, juce::TextButton&, bool, bool) override;
         void drawLabel(juce::Graphics&, juce::Label&) override;
         void drawComboBox(juce::Graphics&, int, int, bool, int, int, int, int, juce::ComboBox&) override;
+        juce::Font getComboBoxFont(juce::ComboBox&) override;
         juce::Font getLabelFont(juce::Label&) override;
     } lookAndFeel;
 
@@ -44,7 +45,6 @@ private:
     void applyFactoryPreset(int presetId);
     void clearMeterHolds();
     void switchSkin();
-    void recolourStaticBackdrop(juce::Image&) const;
     static skellcore::ui::SkullSkin loadSkin();
     static void saveSkin(skellcore::ui::SkullSkin selected);
 
