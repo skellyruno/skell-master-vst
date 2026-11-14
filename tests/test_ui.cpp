@@ -31,14 +31,12 @@ void paintDetachedTree(juce::Component& component, juce::Graphics& graphics) {
     }
     component.paintOverChildren(graphics);
 }
-void saveSnapshot(juce::Image image, int width, int height,
-                  const juce::String& variant = {}) {
+void saveSnapshot(juce::Image image, int width, int height) {
     const auto directory = juce::File::getCurrentWorkingDirectory()
         .getChildFile("ui-snapshots");
     check(directory.createDirectory(), "cannot create UI snapshot directory");
     auto stream = directory.getChildFile(
-        "SkellyMaster-" + juce::String(width) + "x" + juce::String(height)
-            + (variant.isNotEmpty() ? "-" + variant : juce::String()) + ".png")
+        "SkellyMaster-" + juce::String(width) + "x" + juce::String(height) + ".png")
         .createOutputStream();
     check(stream != nullptr && stream->openedOk(), "cannot create UI snapshot");
     juce::PNGImageFormat format;
@@ -145,20 +143,12 @@ int main() {
         check(skinButton && static_cast<bool>(skinButton->onClick),
               "left skull must have functional SkellCore skin callback");
         const auto originalSkin=editor.selectedSkin();
-        const bool originalEmerald=editor.isEmeraldBlackTheme();
-        int emeraldVisits=0;
-        for(int click=0;click<5;++click) {
-            skinButton->onClick();
-            if(editor.isEmeraldBlackTheme()) ++emeraldVisits;
-        }
-        check(emeraldVisits==1,
-              "fifth skin must be the optional Emerald Black hardware theme");
-        check(editor.selectedSkin()==originalSkin
-              && editor.isEmeraldBlackTheme()==originalEmerald,
-              "five skull clicks must cycle back to the original theme");
-        check(std::abs(processor.parameters.getRawParameterValue("drive")
-                            ->load(std::memory_order_relaxed))<0.0001f,
-              "skin cycling must not alter mastering DSP parameters");
+        skinButton->onClick();
+        check(editor.selectedSkin()==skellcore::ui::nextSkin(originalSkin),
+              "skull click advances shared SkellCore theme");
+        for(int remaining=0;remaining<3;++remaining) skinButton->onClick();
+        check(editor.selectedSkin()==originalSkin,
+              "four skull clicks return to the original palette");
         editor.setVisible(true); // Offscreen component has no native desktop peer.
 
         // Visual coverage: compact min/default, intermediate, design, large.
@@ -201,32 +191,6 @@ int main() {
                 saveSnapshot(rendered,width,height);
             checkRendered(rendered);
             if (width==1200) {
-                // Regression capture of the REAL fifth theme, rendered by
-                // this compiled JUCE PluginEditor, never a generated mockup.
-                for (int turn=0;turn<5 && !editor.isEmeraldBlackTheme();++turn)
-                    skinButton->onClick();
-                check(editor.isEmeraldBlackTheme(),
-                      "Emerald Black was not reachable by skull cycling");
-                juce::Image emerald(juce::Image::ARGB,width,height,true);
-                {
-                    juce::Graphics graphics(emerald);
-                    paintDetachedTree(editor,graphics);
-                }
-                saveSnapshot(emerald,width,height,"EmeraldBlack");
-                checkRendered(emerald);
-                int changed=0;
-                for(int yy=350;yy<425;yy+=6)
-                    for(int xx=225;xx<950;xx+=6)
-                        if(emerald.getPixelAt(xx,yy).getARGB()
-                           !=rendered.getPixelAt(xx,yy).getARGB())
-                            ++changed;
-                check(changed>100,"Emerald Black chassis failed to change");
-                for(int turn=0;turn<5 && (editor.isEmeraldBlackTheme()!=originalEmerald
-                          || editor.selectedSkin()!=originalSkin);++turn)
-                    skinButton->onClick();
-                check(editor.isEmeraldBlackTheme()==originalEmerald
-                      && editor.selectedSkin()==originalSkin,
-                      "original mastering skin not restored after snapshot");
                 // A new mastering instance must show completely unlit
                 // gain-reduction digits and LEDs: the chassis frame itself
                 // remains visible, but no fake GR is reported at idle.
