@@ -129,9 +129,10 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
                   bool previousIronBackground=false) {
     g.setColour(juce::Colours::black.withAlpha(0.9f));
     g.fillRoundedRectangle(r.translated(0,3.5f),radius);
-    // Final restrained black-iron pass: slightly deeper neutral/warm charcoal,
-    // with more rubbed-through paint near the three Ossuary chassis edges.
-    // Existing knob, glass, emerald, hardware and DSP rendering stays fixed.
+    // Restored dark iron chassis: deterministic, localised wear at mounting
+    // hardware and seams, mixed with calmer surviving paint. Only the three
+    // large Ossuary backplates use this finish; knobs, inserts, meter glass,
+    // other SkellCore skins and DSP remain entirely unchanged.
     const auto ironPaint = [&](juce::uint32 dark, juce::uint32 earlier) {
         return juce::Colour(previousIronBackground ? earlier : dark);
     };
@@ -175,57 +176,100 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
     // depth without introducing any more scratches or random dirt.
     // Increase the paint abrasion only on the major dark chassis plates;
     // work is deterministic and cached in the editor's static backdrop.
-    patina(g,r.reduced(2.2f),seed,wear*(previousIronBackground?1.18f:1.08f),
+    patina(g,r.reduced(2.2f),seed,wear*(previousIronBackground?0.64f:1.08f),
            previousIronBackground);
     if (previousIronBackground) {
         juce::Graphics::ScopedSaveState wearScope(g);
         const auto well=r.reduced(8.0f);
         g.reduceClipRegion(well.toNearestInt());
-        // Scratches and worn through paint concentrate along the original
-        // steel edges. Broad background regions remain readable around knobs.
-        for (int i=0;i<176;++i) {
-            const auto hash=noise(seed+0x23a3u+static_cast<uint32_t>(i*1151));
-            const float rx=static_cast<float>(hash%10321u)/10321.0f;
-            const float ry=static_cast<float>((hash>>14)%8191u)/8191.0f;
-            const float xx=well.getX()+rx*well.getWidth();
-            const bool top=(i%3)!=0;
-            const float yy=top?well.getY()+ry*18.0f
-                              :well.getBottom()-ry*19.0f;
-            const float span=2.8f+static_cast<float>((hash>>23)&15u)*1.15f;
-            g.setColour((i%4==0?juce::Colour(0xffafa494)
-                                :juce::Colour(0xff6e645a))
-                            .withAlpha(i%7==0?0.29f:0.15f));
-            g.drawLine(xx,yy,xx+span,yy-0.45f,(i%6==0)?1.40f:0.78f);
+        // Different stages of real hardware wear: clustered flaking near
+        // corner screws and joints, scratches at the perimeter, and larger
+        // expanses of untouched paint. No uniformly tiled distress pattern.
+        // Plate-specific offsets align the clusters with existing fasteners.
+        const float screwX = seed==0x310570u ? 22.0f
+                           : seed==0x33c8a7u ? 23.0f : 14.0f;
+        const float screwY = seed==0x310570u ? 21.0f
+                           : seed==0x33c8a7u ? 27.0f : 12.0f;
+        const juce::Point<float> anchors[] = {
+            {r.getX()+screwX,        r.getY()+screwY},
+            {r.getRight()-screwX,    r.getY()+screwY},
+            {r.getX()+screwX,        r.getBottom()-screwY},
+            {r.getRight()-screwX,    r.getBottom()-screwY},
+            {r.getX()+r.getWidth()*0.31f, r.getY()+13.0f},
+            {r.getX()+r.getWidth()*0.79f, r.getBottom()-12.0f},
+            {r.getX()+r.getWidth()*0.68f, r.getY()+11.0f},
+            {r.getX()+r.getWidth()*0.23f, r.getBottom()-13.0f}
+        };
+        for (int cluster=0;cluster<8;++cluster) {
+            // Some corners are battered, others scarcely marked. The choice
+            // is stable per panel, so preset recall and UI resize do not
+            // change the distribution or trigger fresh random allocations.
+            const int density=cluster==0 || cluster==3 ? 37
+                             : cluster==1 || cluster==6 ? 12 : 22;
+            const float spreadX=cluster<4 ? 29.0f : 52.0f;
+            const float spreadY=cluster<4 ? 17.0f : 12.0f;
+            for(int i=0;i<density;++i) {
+                const uint32_t hash=noise(seed+0x54c3u
+                    +static_cast<uint32_t>(cluster*1741+i*137));
+                const float dx=(static_cast<float>(hash%16381u)/16381.0f-0.5f)
+                              *spreadX*2.0f;
+                const float dy=(static_cast<float>((hash>>12)%12289u)/12289.0f-0.5f)
+                              *spreadY*2.0f;
+                const float x=juce::jlimit(well.getX()+1.0f,
+                    well.getRight()-2.0f,anchors[cluster].x+dx);
+                const float y=juce::jlimit(well.getY()+1.0f,
+                    well.getBottom()-2.0f,anchors[cluster].y+dy);
+                const float w=2.1f+static_cast<float>((hash>>24)&15u)*0.71f;
+                const float h=0.8f+static_cast<float>((hash>>20)&7u)*0.37f;
+                const float jog=0.24f+static_cast<float>((hash>>28)&3u)*0.25f;
+                juce::Path flake;
+                flake.startNewSubPath(x,y);
+                flake.lineTo(x+w*0.22f,y-h*0.48f);
+                flake.lineTo(x+w*0.52f,y+jog);
+                flake.lineTo(x+w,y-h*0.27f);
+                flake.lineTo(x+w*0.82f,y+h);
+                flake.lineTo(x+w*0.34f,y+h*0.67f);
+                flake.closeSubPath();
+                // Primer and steel below scraped black paint. Small pale
+                // glints are stronger in a few heavily handled locations.
+                g.setColour(juce::Colour(0xff050403)
+                    .withAlpha(cluster==0 || cluster==3 ? 0.66f : 0.44f));
+                g.fillPath(flake);
+                g.setColour(juce::Colour(0xffa69680)
+                    .withAlpha(i%6==0?0.39f:0.19f));
+                g.drawLine(x+w*0.09f,y-h*0.03f,
+                           x+w*0.72f,y-h*0.19f,
+                           i%7==0?0.94f:0.55f);
+            }
         }
-        // Ragged flaked chips show the nearly black primer underneath, with
-        // thin pale worn-steel catches. Their sizes and ragged silhouettes
-        // vary by static hash and stay near edges and corners, not on controls.
-        // These shapes are part of the editor's cached backdrop, never DSP.
-        for (int i=0;i<135;++i) {
-            const auto h=noise(seed+0x4a72u+static_cast<uint32_t>(i*1399u));
-            const float u=static_cast<float>(h%16381u)/16381.0f;
-            const float v=static_cast<float>((h>>14)%12289u)/12289.0f;
-            const bool top=(i%2)==0;
-            const float x=well.getX()+4.0f+u*(well.getWidth()-8.0f);
-            const float y=top?well.getY()+3.0f+v*24.0f
-                             :well.getBottom()-3.0f-v*24.0f;
-            const float chipWidth=3.5f+static_cast<float>((h>>24)&15u)*0.97f;
-            const float chipHeight=1.15f+static_cast<float>((h>>21)&7u)*0.36f;
-            const float jag=0.25f+static_cast<float>((h>>27)&3u)*0.50f;
-            juce::Path chip;
-            chip.startNewSubPath(x,y);
-            chip.lineTo(x+chipWidth*0.26f,y-chipHeight*0.44f);
-            chip.lineTo(x+chipWidth*0.58f,y+jag);
-            chip.lineTo(x+chipWidth,y-chipHeight*0.28f);
-            chip.lineTo(x+chipWidth*0.79f,y+chipHeight);
-            chip.lineTo(x+chipWidth*0.38f,y+chipHeight*0.62f);
-            chip.closeSubPath();
-            g.setColour(juce::Colour(0xff050403).withAlpha(0.57f));
-            g.fillPath(chip);
-            g.setColour(juce::Colour(0xff9d8975).withAlpha(i%5==0?0.41f:0.22f));
-            g.drawLine(x+chipWidth*0.12f,y-chipHeight*0.05f,
-                       x+chipWidth*0.72f,y-chipHeight*0.12f,
-                       (i%7==0)?1.10f:0.58f);
+        // Longer rubs follow adjoining seams, never the live controls.
+        // Their spacing varies rather than repeating an even scratch grid.
+        for (int i=0;i<53;++i) {
+            const auto hash=noise(seed+0x9a71u+static_cast<uint32_t>(i*1801u));
+            const int group=i%4;
+            const float zone=group<2 ? 0.18f : 0.77f;
+            const float px=r.getX()+r.getWidth()*(zone+
+                (static_cast<float>((hash>>7)%10007u)/10007.0f-0.5f)*0.18f);
+            const bool upper=(i%3)==0;
+            const float py=upper?well.getY()+2.0f+static_cast<float>(hash%11u)
+                                 :well.getBottom()-2.0f-static_cast<float>(hash%13u);
+            const float length=3.0f+static_cast<float>((hash>>22)&15u)*1.05f;
+            g.setColour((i%7==0?juce::Colour(0xffb5a691)
+                                :juce::Colour(0xff7a6e61))
+                        .withAlpha(i%5==0?0.32f:0.14f));
+            g.drawLine(px,py,px+length,py-0.52f,i%6==0?0.98f:0.62f);
+        }
+        // A few broad oxidised patches give uneven age without making the
+        // whole faceplate look like a uniformly scratched noise texture.
+        for(int i=0;i<9;++i) {
+            const auto hash=noise(seed+0xbe83u+static_cast<uint32_t>(i*2903u));
+            const float x=well.getX()+13.0f+
+                static_cast<float>(hash%8179u)/8179.0f*(well.getWidth()-48.0f);
+            const bool upper=(i%2)==0;
+            const float y=upper?well.getY()+8.0f:well.getBottom()-19.0f;
+            const float w=14.0f+static_cast<float>((hash>>20)&31u)*0.84f;
+            g.setColour(juce::Colour(0xff080706).withAlpha(0.08f));
+            g.fillEllipse(x,y,w,6.0f+static_cast<float>(hash%7u));
         }
     }
     {
@@ -251,6 +295,19 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
             g.setColour(juce::Colours::black.withAlpha(0.34f));
             g.drawLine(well.getX()+5.0f,well.getBottom()-1.0f,
                        well.getRight()-5.0f,well.getBottom()-1.0f,1.15f);
+            // A recessed joint is darker just inside the mounting lip,
+            // catching warm iron light on the opposing edge. Drawn into the
+            // static chassis cache before knobs/meters/labels are composited.
+            const auto joint=r.reduced(9.2f);
+            g.setColour(juce::Colours::black.withAlpha(0.56f));
+            g.drawRoundedRectangle(joint,
+                juce::jmax(0.0f,radius-6.5f),2.25f);
+            g.setColour(juce::Colour(0xff867866).withAlpha(0.16f));
+            g.drawLine(joint.getX()+9.0f,joint.getBottom()-1.7f,
+                       joint.getRight()-9.0f,joint.getBottom()-1.7f,0.82f);
+            g.setColour(juce::Colours::black.withAlpha(0.26f));
+            g.drawLine(joint.getRight()-1.5f,joint.getY()+9.0f,
+                       joint.getRight()-1.5f,joint.getBottom()-9.0f,1.35f);
         }
     }
     g.setColour(juce::Colours::black.withAlpha(0.56f));
