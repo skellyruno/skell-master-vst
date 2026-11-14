@@ -141,7 +141,10 @@ if(WIN32)
         juce::juce_audio_formats juce::juce_dsp)
     juce_generate_juce_header(SkellyVST3HostAudioTests)
     add_test(NAME SkellyVST3HostAudioTests COMMAND SkellyVST3HostAudioTests)
-    set_tests_properties(SkellyVST3HostAudioTests PROPERTIES TIMEOUT 180)
+    add_test(NAME SkellyVST3HostAudio48k COMMAND SkellyVST3HostAudioTests --rate 48000)
+    add_test(NAME SkellyVST3HostAudio96k COMMAND SkellyVST3HostAudioTests --rate 96000)
+    set_tests_properties(SkellyVST3HostAudioTests
+        SkellyVST3HostAudio48k SkellyVST3HostAudio96k PROPERTIES TIMEOUT 180)
 endif()
 
 
