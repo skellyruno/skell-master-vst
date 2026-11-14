@@ -1,19 +1,14 @@
 name: Skelly Master / SkellCore Headless UI
 
+# Screenshot CI is deliberately opt-in. Routine UI inspection uses the
+# locally compiled JUCE Quick4 renderer, not GitHub Actions on every PR/push.
+# This separate workflow must never auto-run or cancel a manual run.
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/ui-screenshots.yml'
-      - 'CMakeLists.txt'
-      - 'Source/**'
-      - 'tests/ui_renderer.cpp'
-  pull_request:
   workflow_dispatch:
 
 concurrency:
   group: skelly-master-ui-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   real-editor-screenshots:
