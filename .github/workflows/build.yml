@@ -14,7 +14,9 @@ on:
 # superseded snapshots. Always compile and publish the most recent commit.
 concurrency:
   group: skell-master-${{ github.ref }}
-  cancel-in-progress: true
+  # Only supersede outdated PR checks. Preserve main, manually dispatched,
+  # release and production builds even when new commits arrive.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
