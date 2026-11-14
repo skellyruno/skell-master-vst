@@ -124,21 +124,21 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
                   bool previousIronBackground=false) {
     g.setColour(juce::Colours::black.withAlpha(0.9f));
     g.fillRoundedRectangle(r.translated(0,3.5f),radius);
-    // User-selected aged bronze charcoal: the three large Ossuary chassis
-    // panels use warm grey-brown paint, with retained scuffed exposed metal.
+    // Aged bronze chassis: the three large Ossuary panels have a brushed
+    // antique-bronze gradient with oxidised edges and exposed-metal wear.
     // Other themes, enamel plates, controls, knobs and text stay unchanged.
     const auto ironPaint = [&](juce::uint32 dark, juce::uint32 earlier) {
         return juce::Colour(previousIronBackground ? earlier : dark);
     };
     juce::ColourGradient enamel(green?juce::Colour(0xff16432e)
-                                    :ironPaint(0xff11130f,0xff887968),
+                                    :ironPaint(0xff11130f,0xff926B46),
                 r.getX(),r.getY(),green?juce::Colour(0xff030f0a)
-                                     :ironPaint(0xff040604,0xff5c5146),
+                                     :ironPaint(0xff040604,0xff3d2c21),
                 r.getX()+r.getWidth()*0.8f,r.getBottom(),false);
     enamel.addColour(0.27,green?juce::Colour(0xff0e3020)
-                               :ironPaint(0xff0e100c,0xff796b5e));
+                               :ironPaint(0xff0e100c,0xff765236));
     enamel.addColour(0.56,green?juce::Colour(0xff071d12)
-                               :ironPaint(0xff090b08,0xff6d5f52));
+                               :ironPaint(0xff090b08,0xff60432e));
     g.setGradientFill(enamel);
     g.fillRoundedRectangle(r,radius);
     // Authentic source-image material grain overlays only large STATIC panels.
@@ -156,7 +156,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
         if (grain.isValid()) {
             juce::Graphics::ScopedSaveState textureScope(g);
             g.setTiledImageFill(grain, static_cast<int>(r.getX()+4),
-                                static_cast<int>(r.getY()+4), green ? 0.39f : 0.36f);
+                                static_cast<int>(r.getY()+4), green ? 0.39f : (previousIronBackground ? 0.22f : 0.36f));
             g.fillRoundedRectangle(r.reduced(6.0f),juce::jmax(0.0f,radius-4.0f));
         }
     }
@@ -192,7 +192,8 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
         const auto well=r.reduced(7.4f);
         g.reduceClipRegion(well.toNearestInt());
         juce::ColourGradient grazingLight(
-            juce::Colours::white.withAlpha(green?0.085f:0.055f),
+            (previousIronBackground ? juce::Colour(0xffd7af78).withAlpha(0.105f)
+                                    : juce::Colours::white.withAlpha(green?0.085f:0.055f)),
             well.getX(),well.getY(),
             juce::Colours::white.withAlpha(0.0f),
             well.getX()+well.getWidth()*0.55f,
