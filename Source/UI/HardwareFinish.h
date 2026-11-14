@@ -129,21 +129,22 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
                   bool previousIronBackground=false) {
     g.setColour(juce::Colours::black.withAlpha(0.9f));
     g.fillRoundedRectangle(r.translated(0,3.5f),radius);
-    // Actual user-supplied worn charcoal-steel reference, embedded as a
-    // static, cached texture on only the three large Ossuary chassis plates.
-    // All metal trim, controls, knobs, enamel panels and other skins are fixed.
+    // Smoked Black Iron (base #292923): subtly mottled warm charcoal paint on
+    // the three large Ossuary chassis plates only. The previous photographic
+    // grain stays at low opacity so the black-and-gold knobs remain dominant.
+    // All control hardware, enamel inserts and other SkellCore skins are fixed.
     const auto ironPaint = [&](juce::uint32 dark, juce::uint32 earlier) {
         return juce::Colour(previousIronBackground ? earlier : dark);
     };
     juce::ColourGradient enamel(green?juce::Colour(0xff16432e)
-                                    :ironPaint(0xff11130f,0xff5b5d56),
+                                    :ironPaint(0xff11130f,0xff36362f),
                 r.getX(),r.getY(),green?juce::Colour(0xff030f0a)
-                                     :ironPaint(0xff040604,0xff3c3e39),
+                                     :ironPaint(0xff040604,0xff1d1e1a),
                 r.getX()+r.getWidth()*0.8f,r.getBottom(),false);
     enamel.addColour(0.27,green?juce::Colour(0xff0e3020)
-                               :ironPaint(0xff0e100c,0xff50514b));
+                               :ironPaint(0xff0e100c,0xff292923));
     enamel.addColour(0.56,green?juce::Colour(0xff071d12)
-                               :ironPaint(0xff090b08,0xff464842));
+                               :ironPaint(0xff090b08,0xff262720));
     g.setGradientFill(enamel);
     g.fillRoundedRectangle(r,radius);
     // Authentic source-image material grain overlays only large STATIC panels.
@@ -166,7 +167,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
         if (grain.isValid()) {
             juce::Graphics::ScopedSaveState textureScope(g);
             g.setTiledImageFill(grain, static_cast<int>(r.getX()+4),
-                                static_cast<int>(r.getY()+4), green ? 0.39f : (previousIronBackground ? 0.86f : 0.36f));
+                                static_cast<int>(r.getY()+4), green ? 0.39f : (previousIronBackground ? 0.13f : 0.36f));
             g.fillRoundedRectangle(r.reduced(6.0f),juce::jmax(0.0f,radius-4.0f));
         }
     }
@@ -175,7 +176,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
     // depth without introducing any more scratches or random dirt.
     // Increase the paint abrasion only on the major dark chassis plates;
     // work is deterministic and cached in the editor's static backdrop.
-    patina(g,r.reduced(2.2f),seed,wear*(previousIronBackground?0.95f:1.08f),
+    patina(g,r.reduced(2.2f),seed,wear*(previousIronBackground?0.42f:1.08f),
            previousIronBackground);
     if (previousIronBackground) {
         juce::Graphics::ScopedSaveState wearScope(g);
@@ -183,7 +184,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
         g.reduceClipRegion(well.toNearestInt());
         // Short irregular exposed-brass scuffs, concentrated along the upper
         // and lower edges instead of compromising the live control labels.
-        for (int i=0;i<160;++i) {
+        for (int i=0;i<44;++i) {
             const auto hash=noise(seed+0x23a3u+static_cast<uint32_t>(i*1151));
             const float rx=static_cast<float>(hash%10321u)/10321.0f;
             const float ry=static_cast<float>((hash>>14)%8191u)/8191.0f;
@@ -194,7 +195,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
             const float span=2.8f+static_cast<float>((hash>>23)&15u)*1.0f;
                 g.setColour((i%4==0?juce::Colour(0xffa9aba3)
                                 :juce::Colour(0xff535750))
-                            .withAlpha(i%7==0?0.20f:0.11f));
+                            .withAlpha(i%7==0?0.095f:0.045f));
             g.drawLine(xx,yy,xx+span,yy-0.45f,(i%6==0)?1.25f:0.7f);
         }
     }
@@ -203,7 +204,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
         const auto well=r.reduced(7.4f);
         g.reduceClipRegion(well.toNearestInt());
         juce::ColourGradient grazingLight(
-            (previousIronBackground ? juce::Colour(0xffd5d8cf).withAlpha(0.055f)
+            (previousIronBackground ? juce::Colour(0xffb0aea0).withAlpha(0.035f)
                                     : juce::Colours::white.withAlpha(green?0.085f:0.055f)),
             well.getX(),well.getY(),
             juce::Colours::white.withAlpha(0.0f),
