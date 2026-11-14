@@ -58,7 +58,10 @@ static void setParameterByName(juce::AudioPluginInstance& instance,
 static juce::File locateVST3(const juce::String& userArg) {
     if (userArg.isNotEmpty()) return juce::File(userArg);
     const auto root=juce::File::getCurrentWorkingDirectory();
-    const auto build=root.getChildFile("build");
+    // CTest executes with cwd = build/, while developers often launch the
+    // executable from the repository root. Support both cases reliably.
+    const auto nested=root.getChildFile("build");
+    const auto build=nested.isDirectory() ? nested : root;
     require(build.isDirectory(),"Cannot discover Windows build directory");
     // Filesystem path uses UTF-16 on Windows. Traverse bundles via JUCE.
     juce::Array<juce::File> found;
