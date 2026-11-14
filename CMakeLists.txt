@@ -59,7 +59,8 @@ set(SKELLY_MASTER_BINARY_ASSETS
     Source/UI/Assets/knob_photo.png
     Source/UI/Assets/meter_card.jpg
     Source/UI/Assets/irongrain.jpg
-    Source/UI/Assets/greenpatina.jpg)
+    Source/UI/Assets/greenpatina.jpg
+    Source/UI/Assets/worn_graphite_chassis.jpg)
 if(SKELLY_MASTER_HEADER_READY)
     list(APPEND SKELLY_MASTER_BINARY_ASSETS ${SKELLY_MASTER_HEADER_FILES})
 endif()
