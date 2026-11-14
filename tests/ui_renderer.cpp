@@ -137,7 +137,7 @@ int main(int argc, char** argv) {
             for(int child=0;child<editor.getNumChildComponents();++child)
                 if(auto* combo=dynamic_cast<juce::ComboBox*>(editor.getChildComponent(child)))
                     if(combo->getComponentID()=="skell-master-preset")
-                        combo->setSelectedId(1,juce::dontSendNotification);
+                        combo->setSelectedId(0,juce::dontSendNotification);
             switch (scene.mode) {
                 case 1:
                     setValue(processor, "bypass", 1.0f);
