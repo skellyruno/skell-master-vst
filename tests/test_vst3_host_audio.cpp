@@ -172,14 +172,17 @@ int main(int argc, char** argv) {
 
         if(argc>=4) {
             const juce::File outputPath(juce::String::fromUTF8(argv[3]));
-            auto stream=outputPath.createOutputStream();
+            std::unique_ptr<juce::OutputStream> stream=outputPath.createOutputStream();
             require(stream!=nullptr,"Could not create WAV output");
             auto* wav=audioFormats.findFormatForFileExtension("wav");
             require(wav!=nullptr,"JUCE WAV writer unavailable");
-            auto writer=std::unique_ptr<juce::AudioFormatWriter>(
-                wav->createWriterFor(stream.get(),sampleRate,2,24,{},0));
+            auto writer=wav->createWriterFor(stream,
+                juce::AudioFormatWriterOptions{}
+                    .withSampleRate(sampleRate)
+                    .withNumChannels(2)
+                    .withBitsPerSample(24));
             require(writer!=nullptr,"Could not create output WAV encoder");
-            stream.release(); // Writer owns stream
+            // JUCE 8 writer now owns the stream on success.
             juce::AudioBuffer<float> audio(2,static_cast<int>(totalFrames));
             for(int i=0;i<audio.getNumSamples();++i) {
                 audio.setSample(0,i,output[static_cast<size_t>(2*i)]);
