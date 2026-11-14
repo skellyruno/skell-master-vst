@@ -1,0 +1,55 @@
+name: One-time local Linux JUCE SDK bootstrap
+# Developer SDK transfer only. This workflow never captures UI screenshots.
+# Routine screenshots, C++ editing and recompilation are local, and Windows
+# release validation remains in the independent build.yml workflow.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/bootstrap-local-linux.yml'
+  workflow_dispatch:
+jobs:
+  export-linux-development-headers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install required JUCE development dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfreetype-dev libfontconfig1-dev libasound2-dev \
+            libjack-jackd2-dev libx11-dev libxext-dev libxinerama-dev \
+            libxcursor-dev libxrandr-dev libxcomposite-dev libxrender-dev \
+            libgl-dev libglu1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libgtk-3-dev libpng-dev zlib1g-dev libharfbuzz-dev
+      - name: Export targeted headers, pkg-config metadata and linker symlinks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          packages='libfreetype-dev libfontconfig1-dev libasound2-dev libjack-jackd2-dev libx11-dev libxext-dev libxinerama-dev libxcursor-dev libxrandr-dev libxcomposite-dev libxrender-dev libgl-dev libglu1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev libgtk-3-dev libpng-dev zlib1g-dev libharfbuzz-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libatk1.0-dev libcairo2-dev libjpeg-dev libxi-dev libxfixes-dev libxdamage-dev libxshmfence-dev libxau-dev libxdmcp-dev libwayland-dev'
+          : > export/filelist.txt
+          for package in $packages; do
+            if dpkg-query -W "$package" >/dev/null 2>&1; then
+              dpkg -L "$package" | grep -E '^/usr/(include/|lib/x86_64-linux-gnu/(pkgconfig/|glib-2.0/include/|[^/]*\\.so$)|share/pkgconfig/)' | sed 's#^/##' >> export/filelist.txt || true
+            fi
+          done
+          # Ensure CMake FindFreetype and pkg-config see the complete metadata set.
+          find /usr/lib/x86_64-linux-gnu/pkgconfig /usr/share/pkgconfig -name '*.pc' -type f 2>/dev/null | sed 's#^/##' >> export/filelist.txt
+          sort -u export/filelist.txt -o export/filelist.txt
+          mkdir -p export/overlay
+          tar -czf export/overlay/dev-headers-and-pc.tar.gz -C / -T export/filelist.txt
+          printf '%s\n' 'Targeted source-only Linux JUCE development overlay, Ubuntu 24.04.' \
+            'Includes headers, .pc metadata, linker .so symlinks; system runtime libraries are NOT included.' \
+            'Apply to a scratch sysroot, never blindly overwrite Debian /usr.' \
+            'Do not ship these files with a VST3 or a customer installer.' > export/README.txt
+          wc -l export/filelist.txt
+          ls -lh export/overlay/dev-headers-and-pc.tar.gz
+      - name: Publish one-time development SDK
+        uses: actions/upload-artifact@v6
+        with:
+          name: SkellyMaster-Targeted-Linux-JUCE-DevSDK
+          path: export/*
+          retention-days: 14
+          if-no-files-found: error
