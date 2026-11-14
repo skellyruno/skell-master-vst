@@ -548,6 +548,88 @@ int main() {
     std::cout << "PASS: SKELL MASTER first-pass portable DSP stress and sample ceiling "
               << referencePeak << "\\n";
 
+    // Across the *entire* mastering chain, hostile NaN/Inf automation
+    // should fall back to the old neutral settings, never unexpectedly
+    // switch on maximum drive/compression/treble or an unsafe ceiling.
+    MasteringEngine safeHost, neutralHost;
+    safeHost.prepare(rate, 2, lookahead);
+    neutralHost.prepare(rate, 2, lookahead);
+    MasterParameters malformedParams;
+    const double invalidNumber = std::numeric_limits<double>::quiet_NaN();
+    malformedParams.inputDb = invalidNumber;
+    malformedParams.drive = invalidNumber;
+    malformedParams.glue = invalidNumber;
+    malformedParams.dynamics = invalidNumber;
+    malformedParams.lowsDb = invalidNumber;
+    malformedParams.highsDb = invalidNumber;
+    malformedParams.sauce = invalidNumber;
+    malformedParams.transients = invalidNumber;
+    malformedParams.outputDb = invalidNumber;
+    malformedParams.clipper = invalidNumber;
+    malformedParams.ceilingDb = invalidNumber;
+    safeHost.setParameters(malformedParams);
+    neutralHost.setParameters(MasterParameters{});
+    double invalidParameterNull = 0.0;
+    for (int i = 0; i < 36000; ++i) {
+        const double x = 0.23 * std::sin(2.0 * detail::pi * 330.0 * i / rate)
+                       + 0.07 * std::sin(2.0 * detail::pi * 4720.0 * i / rate);
+        const float l = static_cast<float>(x);
+        const float r = static_cast<float>(x * 0.61);
+        const auto a = safeHost.processFrame(l, r);
+        const auto b = neutralHost.processFrame(l, r);
+        require(std::isfinite(a.left) && std::isfinite(a.right),
+                "nonfinite automation poisoned full DSP");
+        invalidParameterNull = std::max(invalidParameterNull,
+            std::max(std::abs(static_cast<double>(a.left - b.left)),
+                     std::abs(static_cast<double>(a.right - b.right))));
+    }
+    require(invalidParameterNull < 1.0e-7,
+            "invalid mastering parameters must all fall back to neutral sound");
+    // Large but finite samples are supported by the portable processing
+    // boundary as well as the production JUCE host wrapper. Test both wet
+    // and the latency-aligned dry/bypass route.
+    safeHost.reset();
+    MasterParameters dryAttack;
+    dryAttack.bypass = true;
+    safeHost.setParameters(dryAttack);
+    for (int i = 0; i < 10000; ++i) {
+        const float huge = (i % 47 == 0)
+            ? std::numeric_limits<float>::max() : 0.0f;
+        const auto v = safeHost.processFrame(huge, -huge);
+        require(std::isfinite(v.left) && std::isfinite(v.right),
+                "very large finite audio overflowed wet or bypass route");
+        require(std::abs(v.left) <= 256.001f && std::abs(v.right) <= 256.001f,
+                "portable input boundary disagrees with JUCE +48dBFS guard");
+    }
+    // During aggressive LOWS and HIGHS automation, independent shelf
+    // recalculation must preserve finite stereo audio and pre-existing
+    // host-rate sample peaks.
+    MasteringEngine modulatedEq;
+    modulatedEq.prepare(rate, 2, lookahead);
+    MasterParameters modulated;
+    double modulatedPeak = 0.0;
+    for (int i = 0; i < 70000; ++i) {
+        if ((i % 800) == 0) {
+            modulated.lowsDb = (i / 800) % 2 ? -6.0 : 6.0;
+            modulated.highsDb = (i / 800) % 3 ? 0.0 : 6.0;
+            modulatedEq.setParameters(modulated);
+        }
+        const float x = static_cast<float>(
+            0.28 * std::sin(2.0 * detail::pi * 88.0 * i / rate)
+          + 0.22 * std::sin(2.0 * detail::pi * 11000.0 * i / rate));
+        const auto v = modulatedEq.processFrame(x, -0.6f * x);
+        require(std::isfinite(v.left) && std::isfinite(v.right),
+                "fast multiband EQ automation poisoned audio");
+        modulatedPeak = std::max(modulatedPeak,
+            static_cast<double>(std::max(std::abs(v.left), std::abs(v.right))));
+    }
+    require(modulatedPeak <= detail::dbToLinear(-1.0) + 2.0e-5,
+            "automated EQ escaped the mastering sample ceiling");
+    std::cout << "PASS: full-chain invalid automation neutral null "
+              << invalidParameterNull
+              << "; huge input/bypass, independent EQ coefficient automation "
+              << modulatedPeak << "\\n";
+
     // Offline CPU sanity probe (time is recorded, not treated as a universal
     // benchmark across shared CI runners). Real-time ratio uses 4x oversampling:
     // rate is the actual processing rate of processFrame(), not the host rate.
