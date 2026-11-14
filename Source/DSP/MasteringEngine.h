@@ -240,20 +240,24 @@ public:
             detail::finiteSample(static_cast<double>(right));
         double maximum = std::max(std::abs(history[0][static_cast<std::size_t>(newest)]),
                                   std::abs(history[1][static_cast<std::size_t>(newest)]));
-        for (int channel = 0; channel < 2; ++channel) {
+        // One traversal of the 12-frame ring reconstructs all four phases
+        // for both channels. This preserves the reference FIR sum order for
+        // every phase, while avoiding 8 redundant ring walks per sample.
+        double reconstructed[2][4] {};
+        int idx = newest;
+        for (int k = 0; k < 12; ++k) {
+            const auto& taps = fir[static_cast<std::size_t>(k)];
+            const double l = history[0][static_cast<std::size_t>(idx)];
+            const double r = history[1][static_cast<std::size_t>(idx)];
             for (int phase = 0; phase < 4; ++phase) {
-                double reconstructed = 0.0;
-                int idx = newest;
-                for (int k = 0; k < 12; ++k) {
-                    reconstructed += history[static_cast<std::size_t>(channel)]
-                                             [static_cast<std::size_t>(idx)]
-                                     * fir[static_cast<std::size_t>(k)]
-                                          [static_cast<std::size_t>(phase)];
-                    if (--idx < 0) idx = 11;
-                }
-                maximum = std::max(maximum, std::abs(reconstructed));
+                reconstructed[0][phase] += l * taps[static_cast<std::size_t>(phase)];
+                reconstructed[1][phase] += r * taps[static_cast<std::size_t>(phase)];
             }
+            if (--idx < 0) idx = 11;
         }
+        for (const auto& channel : reconstructed)
+            for (const auto phase : channel)
+                maximum = std::max(maximum, std::abs(phase));
         if (++newest == 12) newest = 0;
         return static_cast<float>(maximum);
     }

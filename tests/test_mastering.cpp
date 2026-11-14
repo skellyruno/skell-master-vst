@@ -12,6 +12,53 @@ static void require(bool ok, const char* message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
 
+// Locked scalar reference from the original 4x/12-tap-per-phase BS.1770 FIR.
+// Keep this deliberately independent of the optimized live monitor: an
+// incorrect coefficient order or channel/ring index must fail bitwise-level
+// streaming comparisons, including non-finite inputs and circular wrap.
+class ScalarTruePeakReference {
+public:
+    float process(float left, float right) noexcept {
+        state[0][index] = skelly::detail::finiteSample(left);
+        state[1][index] = skelly::detail::finiteSample(right);
+        double maximum = std::max(std::abs(state[0][index]),
+                                  std::abs(state[1][index]));
+        for (int channel=0;channel<2;++channel)
+            for (int phase=0;phase<4;++phase) {
+                double sum=0.0;
+                int position=index;
+                for(int tap=0;tap<12;++tap) {
+                    sum += state[channel][position]*coefficients[tap][phase];
+                    if (--position < 0) position=11;
+                }
+                maximum=std::max(maximum,std::abs(sum));
+            }
+        if (++index == 12) index=0;
+        return static_cast<float>(maximum);
+    }
+    void reset() noexcept {
+        for(auto& c:state)c.fill(0.0);
+        index=0;
+    }
+private:
+    inline static constexpr double coefficients[12][4] = {
+        { 0.001708984375, -0.0291748046875,-0.0189208984375,-0.00830078125},
+        { 0.010986328125,  0.029296875,     0.0330810546875, 0.014892578125},
+        {-0.0196533203125,-0.0517578125,   -0.0582275390625,-0.026611328125},
+        { 0.033203125,     0.089111328125,  0.1015625,       0.047607421875},
+        {-0.0594482421875,-0.16650390625,  -0.2003173828125,-0.102294921875},
+        { 0.1373291015625, 0.465087890625,  0.77978515625,   0.97216796875},
+        { 0.97216796875,   0.77978515625,   0.465087890625,  0.1373291015625},
+        {-0.102294921875, -0.2003173828125,-0.16650390625, -0.0594482421875},
+        { 0.047607421875,  0.1015625,      0.089111328125,  0.033203125},
+        {-0.026611328125, -0.0582275390625,-0.0517578125,  -0.0196533203125},
+        { 0.014892578125,  0.0330810546875,0.029296875,     0.010986328125},
+        {-0.00830078125,  -0.0189208984375,-0.0291748046875,0.001708984375}
+    };
+    std::array<std::array<double,12>,2> state{};
+    int index=0;
+};
+
 int main() {
     using namespace skelly;
     constexpr double rate = 192000;
@@ -94,6 +141,37 @@ int main() {
             std::numeric_limits<float>::infinity())),
             "true-peak monitor must reject invalid input");
     std::cout << "PASS: streaming intersample peak reconstruction and reset\n";
+    // A/B the optimized production implementation against the independent
+    // original scalar FIR, frame by frame. These inputs cover startup,
+    // steady signals, isolated impulses, stereo polarity, ring wrapping,
+    // reset and malformed audio. The output audio path is unchanged.
+    StereoTruePeakMonitor optimizedMonitor;
+    ScalarTruePeakReference scalarMonitor;
+    optimizedMonitor.reset();
+    scalarMonitor.reset();
+    unsigned int randomState=0x91a7f31bu;
+    float worstPeakError=0.0f;
+    for(int i=0;i<32000;++i) {
+        randomState ^= randomState << 13;
+        randomState ^= randomState >> 17;
+        randomState ^= randomState << 5;
+        const float noise=(static_cast<float>(randomState & 65535u)/65535.0f-0.5f);
+        float left=0.75f*static_cast<float>(std::sin(0.31*i))+0.38f*noise;
+        float right=(i/137)%2 ? -0.69f*left : 0.41f*left;
+        if (i%1093 == 1) {left=2.3f;right=-0.62f;}
+        if (i%1307 == 0) {left=0.0f;right=0.0f;}
+        if (i==1010) left=std::numeric_limits<float>::quiet_NaN();
+        if (i==1011) right=std::numeric_limits<float>::infinity();
+        if (i==16000) {optimizedMonitor.reset();scalarMonitor.reset();}
+        const float observed=optimizedMonitor.process(left,right);
+        const float expected=scalarMonitor.process(left,right);
+        require(std::isfinite(observed),"optimized true-peak monitor must remain finite");
+        worstPeakError=std::max(worstPeakError,std::abs(observed-expected));
+        require(std::abs(observed-expected)<1.0e-6f,
+                "optimized true-peak phase/channel interpolation differs from reference");
+    }
+    std::cout << "PASS: 32k-frame true-peak scalar equivalence (max error "
+              << worstPeakError << "), reset and hostile stereo input\n";
 
     require(std::abs(detail::ceilingOffsetToDb(0.0)+1.0)<1.e-12,
             "zero ceiling adjustment preserves -1 dBFS factory limiter");
