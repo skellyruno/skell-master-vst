@@ -50,11 +50,17 @@ juce::Colour themeBackground(skellcore::ui::SkullSkin skin) {
 // Tint only the painted inset of a plate. Leave the physically machined brass
 // trim, screws, typography, and separate interactive controls unchanged.
 void themeInset(juce::Graphics& g,juce::Rectangle<float> r,
-                skellcore::ui::SkullSkin skin,bool enamel) {
+                skellcore::ui::SkullSkin skin,bool enamel,
+                bool emeraldBlackTheme=false) {
     juce::Graphics::ScopedSaveState save(g);
     const auto inset=r.reduced(enamel?7.4f:8.2f);
-    const auto base=enamel?themeEnamel(skin):themeBackground(skin);
-    const float strength=enamel?0.80f:0.36f;
+    // Optional SKELL Master-only theme: restore rich emerald on every
+    // chassis background, retain warm brass framing and ivory lettering.
+    const auto base=emeraldBlackTheme
+        ? juce::Colour(enamel?0xff246d47:0xff185d40)
+        : (enamel?themeEnamel(skin):themeBackground(skin));
+    const float strength=emeraldBlackTheme ? (enamel?0.89f:0.83f)
+                                          : (enamel?0.80f:0.36f);
     juce::ColourGradient tint(base.brighter(enamel?0.24f:0.06f).withAlpha(strength),
                               inset.getX(),inset.getY(),
                               base.darker(enamel?0.67f:0.23f).withAlpha(
@@ -312,10 +318,14 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                   :0.5f+0.5f*juce::jlimit(0.0f,1.0f,v/12.0f);
     }
     const float angle=a0+p*(a1-a0);
-    // Fixed aged gunmetal/bronze finish. Theme cycling never tints knobs.
-    const auto metalAccent=juce::Colour(0xffaa946d);
-    const auto brass=juce::Colour(0xff726951); // oxidised bronze, not tan plastic
-    const auto bright=juce::Colour(0xffe6dcc5); // ivory-machined highlights
+    // The optional Emerald Black finish is the only theme with different
+    // knob metal; existing four SkellCore skins retain their original caps.
+    const bool blackMetal=metallicBlackKnobs;
+    const auto metalAccent=juce::Colour(0xffaa946d); // gold graduation ticks
+    const auto brass=blackMetal?juce::Colour(0xff343d40)
+                               :juce::Colour(0xff726951);
+    const auto bright=blackMetal?juce::Colour(0xffaab2b1)
+                                :juce::Colour(0xffe6dcc5);
     const auto shadow=juce::Colour(0xff080908);
     const float frame=r*0.90f;
     const float grip=r*0.835f;
@@ -410,12 +420,16 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
 
     // Matte anodised top, one fixed lighting direction and fine lathe cuts.
     // No new scratches or noise: depth comes from constructed geometry.
-    juce::ColourGradient crown(juce::Colour(0xff95846a),
+    juce::ColourGradient crown(blackMetal?juce::Colour(0xff505c60)
+                                        :juce::Colour(0xff95846a),
                                 cx-face*0.91f,cy-face*0.93f,
-                                juce::Colour(0xff292b25),
+                                blackMetal?juce::Colour(0xff101619)
+                                          :juce::Colour(0xff292b25),
                                 cx+face*0.89f,cy+face*0.94f,false);
-    crown.addColour(0.20,juce::Colour(0xff7d725d));
-    crown.addColour(0.63,juce::Colour(0xff494a3e));
+    crown.addColour(0.20,blackMetal?juce::Colour(0xff30393e)
+                                   :juce::Colour(0xff7d725d));
+    crown.addColour(0.63,blackMetal?juce::Colour(0xff171d21)
+                                   :juce::Colour(0xff494a3e));
     g.setGradientFill(crown);
     g.fillEllipse(cx-face+1.0f,cy-face+1.0f,
                   2*(face-1.0f),2*(face-1.0f));
@@ -464,7 +478,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     g.setColour(shadow.withAlpha(0.82f));
     g.fillPath(tip,juce::AffineTransform::translation(1.8f,2.1f));
     // Pointer material rotates, but studio lighting does not.
-    juce::ColourGradient pointer(bright,
+    juce::ColourGradient pointer(blackMetal?juce::Colour(0xfff2e5c8):bright,
                                  cx-face*0.46f,cy-face*0.49f,
                                  juce::Colour(0xff817f74),
                                  cx+face*0.63f,cy+face*0.66f,false);
@@ -484,7 +498,10 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
 SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterAudioProcessor& p)
   : AudioProcessorEditor(&p), processor(p) {
     skin=loadSkin();
+    emeraldBlackTheme=loadEmeraldBlackTheme();
+    if(emeraldBlackTheme) skin=skellcore::ui::SkullSkin::Ossuary;
     lookAndFeel.setSkin(skin);
+    lookAndFeel.setEmeraldBlackTheme(emeraldBlackTheme);
     setLookAndFeel(&lookAndFeel);
     skullHitTarget.setComponentID("skellcore-theme-skull");
     skullHitTarget.onClick=[this] { switchSkin(); };
@@ -583,12 +600,40 @@ void SkellyMasterAudioProcessorEditor::saveSkin(skellcore::ui::SkullSkin selecte
         file.replaceWithText(juce::String(static_cast<int>(selected))+"\n");
 }
 
+bool SkellyMasterAudioProcessorEditor::loadEmeraldBlackTheme() {
+    const auto file=juce::File::getSpecialLocation(
+        juce::File::userApplicationDataDirectory)
+        .getChildFile("SkellAudio")
+        .getChildFile("skell-master-emerald-black-theme-v1.txt");
+    return file.existsAsFile() && file.loadFileAsString().trim()=="1";
+}
+
+void SkellyMasterAudioProcessorEditor::saveEmeraldBlackTheme(bool enabled) {
+    const auto file=juce::File::getSpecialLocation(
+        juce::File::userApplicationDataDirectory)
+        .getChildFile("SkellAudio")
+        .getChildFile("skell-master-emerald-black-theme-v1.txt");
+    if(file.getParentDirectory().createDirectory().wasOk())
+        file.replaceWithText(enabled?"1\n":"0\n");
+}
+
 void SkellyMasterAudioProcessorEditor::switchSkin() {
-    // Purely UI/message-thread, never DSP. No new audio parameter or preset.
-    skin=skellcore::ui::nextSkin(skin);
+    // Master-only fifth theme after Obsidian. SkellCore's four shared skins
+    // and all mastering APVTS audio parameters remain untouched.
+    if(emeraldBlackTheme) {
+        emeraldBlackTheme=false;
+        skin=skellcore::ui::SkullSkin::Ossuary;
+    } else if(skin==skellcore::ui::SkullSkin::Obsidian) {
+        skin=skellcore::ui::SkullSkin::Ossuary;
+        emeraldBlackTheme=true;
+    } else {
+        skin=skellcore::ui::nextSkin(skin);
+    }
     lookAndFeel.setSkin(skin);
+    lookAndFeel.setEmeraldBlackTheme(emeraldBlackTheme);
     saveSkin(skin);
-    staticBackdrop=juce::Image(); // forces a correctly recoloured cached image
+    saveEmeraldBlackTheme(emeraldBlackTheme);
+    staticBackdrop=juce::Image();
     repaint();
 }
 
@@ -927,7 +972,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     // Darker, torn iron chassis and rubbed brass edge. Only its painted
     // background receives a theme wash; physical trim stays unchanged.
     hw::plate(g,{3,3,1194,754},false,0x310570u,14.0f,1.62f);
-    themeInset(g,{3,3,1194,754},skin,false);
+    themeInset(g,{3,3,1194,754},skin,false,emeraldBlackTheme);
     g.setColour(hw::brass.withAlpha(0.26f));
     g.drawRoundedRectangle(juce::Rectangle<float>(8,8,1184,744),12.0f,1.0f);
 
@@ -950,7 +995,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     }
     // The first of precisely two skin-coloured inserts: header nameplate.
     // Tint after the photographic enamel but BEFORE the unchanged lettering.
-    themeInset(g,{405,7,391,73},skin,true);
+    themeInset(g,{405,7,391,73},skin,true,emeraldBlackTheme);
     // Mastering hardware uses the new machined medallion consistently.
     // One selectable left logo, no old star-eyes and no right skull.
     skelly::ui::drawMachinedSkull(g,{57,10,82,72},0.98f,hw::gold);
@@ -970,7 +1015,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
 
     // Engraved meter bridge with a separate stamped status panel.
     hw::plate(g,{37,94,1126,200},false,0x33c8a7u,12.0f,1.22f);
-    themeInset(g,{37,94,1126,200},skin,false);
+    themeInset(g,{37,94,1126,200},skin,false,emeraldBlackTheme);
     hw::plate(g,{48,109,213,176},false,0x641b4fu,9.0f,0.82f);
     for(float x : {60.0f,249.0f})
         for(float y : {121.0f,273.0f}) hw::screw(g,x,y,0.88f);
@@ -989,7 +1034,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
 
     // Modular lower rack: same genuine APVTS controls as previous build.
     hw::plate(g,{37,298,1126,356},false,0x8b113au,12.0f,1.57f);
-    themeInset(g,{37,298,1126,356},skin,false);
+    themeInset(g,{37,298,1126,356},skin,false,emeraldBlackTheme);
     for(float x : {51.0f,1149.0f})
         for(float y : {310.0f,641.0f}) hw::screw(g,x,y,0.90f);
     hw::divider(g,64,480,1138,480);
@@ -1011,7 +1056,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     // Emerald (not red) heavy lacquer utility deck.
     hw::plate(g,{13,673,1174,80},true,0x731ac4u,9.0f,1.34f);
     // Second and final skin-coloured enamel insert: lower utility panel.
-    themeInset(g,{13,673,1174,80},skin,true);
+    themeInset(g,{13,673,1174,80},skin,true,emeraldBlackTheme);
     for(float x : {29.0f,1172.0f})
         for(float y : {685.0f,741.0f}) hw::screw(g,x,y,0.90f);
     hw::divider(g,267,685,267,744);
