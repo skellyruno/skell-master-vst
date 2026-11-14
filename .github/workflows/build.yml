@@ -2,7 +2,8 @@ name: Build Windows VST3
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    # Validate this active DSP development branch without screenshot workflows.
+    branches: [main, 'dsp/true-peak-ceiling-diagnostics-20261114']
   pull_request:
     paths:
       - '.github/workflows/build.yml'
@@ -17,7 +18,7 @@ concurrency:
   group: skell-master-${{ github.ref }}
   # Only supersede outdated PR checks. Preserve main, manually dispatched,
   # release and production builds even when new commits arrive.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main') }}
 
 jobs:
   build:
