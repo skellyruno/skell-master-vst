@@ -124,21 +124,21 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
                   bool previousIronBackground=false) {
     g.setColour(juce::Colours::black.withAlpha(0.9f));
     g.fillRoundedRectangle(r.translated(0,3.5f),radius);
-    // Restore the original lighter iron paint on the three large Ossuary
-    // chassis panels ONLY. Keep enamel inserts, meter cards, trims, wear,
-    // and all other SkellCore themes exactly as they were.
+    // The worn-iron finish belongs exclusively to the three large Ossuary
+    // chassis panels. Keep other themes, inset cards, enamel plates, knobs,
+    // labels and machined hardware unchanged.
     const auto ironPaint = [&](juce::uint32 dark, juce::uint32 earlier) {
         return juce::Colour(previousIronBackground ? earlier : dark);
     };
     juce::ColourGradient enamel(green?juce::Colour(0xff16432e)
-                                    :ironPaint(0xff11130f,0xff2b2a24),
+                                    :ironPaint(0xff11130f,0xff48453d),
                 r.getX(),r.getY(),green?juce::Colour(0xff030f0a)
-                                     :ironPaint(0xff040604,0xff0c0d0b),
+                                     :ironPaint(0xff040604,0xff25241f),
                 r.getX()+r.getWidth()*0.8f,r.getBottom(),false);
     enamel.addColour(0.27,green?juce::Colour(0xff0e3020)
-                               :ironPaint(0xff0e100c,0xff1f201a));
+                               :ironPaint(0xff0e100c,0xff413e35));
     enamel.addColour(0.56,green?juce::Colour(0xff071d12)
-                               :ironPaint(0xff090b08,0xff171811));
+                               :ironPaint(0xff090b08,0xff37352e));
     g.setGradientFill(enamel);
     g.fillRoundedRectangle(r,radius);
     // Authentic source-image material grain overlays only large STATIC panels.
@@ -163,7 +163,30 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
     // The raised frame sits above a recessed enamel well. Broad, fixed
     // directional light and a tight bottom-right contact shadow create metal
     // depth without introducing any more scratches or random dirt.
-    patina(g,r.reduced(2.2f),seed,wear*1.08f);
+    // Increase the paint abrasion only on the major dark chassis plates;
+    // work is deterministic and cached in the editor's static backdrop.
+    patina(g,r.reduced(2.2f),seed,wear*(previousIronBackground?1.55f:1.08f));
+    if (previousIronBackground) {
+        juce::Graphics::ScopedSaveState wearScope(g);
+        const auto well=r.reduced(8.0f);
+        g.reduceClipRegion(well.toNearestInt());
+        // Short irregular exposed-brass scuffs, concentrated along the upper
+        // and lower edges instead of compromising the live control labels.
+        for (int i=0;i<160;++i) {
+            const auto hash=noise(seed+0x23a3u+static_cast<uint32_t>(i*1151));
+            const float rx=static_cast<float>(hash%10321u)/10321.0f;
+            const float ry=static_cast<float>((hash>>14)%8191u)/8191.0f;
+            const float xx=well.getX()+rx*well.getWidth();
+            const bool top=(i%3)!=0;
+            const float yy=top?well.getY()+ry*18.0f
+                              :well.getBottom()-ry*19.0f;
+            const float span=2.8f+static_cast<float>((hash>>23)&15u)*1.0f;
+            g.setColour((i%4==0?juce::Colour(0xffdec79c)
+                                :juce::Colour(0xffa98c64))
+                            .withAlpha(i%7==0?0.33f:0.17f));
+            g.drawLine(xx,yy,xx+span,yy-0.45f,(i%6==0)?1.25f:0.7f);
+        }
+    }
     {
         juce::Graphics::ScopedSaveState lightScope(g);
         const auto well=r.reduced(7.4f);
