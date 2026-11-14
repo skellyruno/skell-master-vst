@@ -948,10 +948,13 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
 }
 
 void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
-    g.setColour(juce::Colour(0xff030503));
+    // The supplied ~#CFC5AA swatch replaces the large chassis background
+    // only in the default Ossuary skin; no hardware or DSP changes.
+    g.setColour(skin==skellcore::ui::SkullSkin::Ossuary
+                    ? juce::Colour(0xffcfc5aa)
+                    : juce::Colour(0xff030503));
     g.fillRect(0,0,designW,designH);
-    // Darker, torn iron chassis and rubbed brass edge. Only its painted
-    // background receives a theme wash; physical trim stays unchanged.
+    // Painted chassis only; metal trim and controls are unmodified.
     hw::plate(g,{3,3,1194,754},false,0x310570u,14.0f,1.62f,
               skin==skellcore::ui::SkullSkin::Ossuary);
     if (skin!=skellcore::ui::SkullSkin::Ossuary)
