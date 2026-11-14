@@ -242,8 +242,11 @@ int main() {
               "cannot locate actual hardware monitor controls");
 
         // A true hardware rotary has a motionless bezel, barrel, lighting
-        // and machined scale. Render the REAL editor at three knob positions
-        // and require all pixels outside the moving pointer area to match.
+        // and machined scale. The ivory pointer extends to 0.94 * face radius
+        // (face = 0.755 * outer radius), and its antialias/shadow can reach
+        // beyond 0.72 * outer radius. Test the fixed barrel/knurl annulus
+        // safely outside that moving geometry, then separately verify that
+        // the pointer itself changes. Never suppress actual hardware motion.
         editor.setSize(1200,760);
         const int rotaryWidth=input->getWidth()-95; // 1200-design textbox
         const float knobCx=static_cast<float>(input->getX())+rotaryWidth*0.5f;
@@ -272,7 +275,7 @@ int main() {
                 const auto a=lowKnob.getPixelAt(x,y).getARGB();
                 const auto b=zeroKnob.getPixelAt(x,y).getARGB();
                 const auto c=highKnob.getPixelAt(x,y).getARGB();
-                if(radial>=0.72f && radial<=0.88f) {
+                if(radial>=0.80f && radial<=0.88f) {
                     ++fixedRingPixels;
                     check(a==b && b==c,
                           "machined knob bezel/knurl/lighting moved during rotation");
