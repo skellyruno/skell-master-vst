@@ -312,11 +312,11 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                   :0.5f+0.5f*juce::jlimit(0.0f,1.0f,v/12.0f);
     }
     const float angle=a0+p*(a1-a0);
-    // Fixed metallic-black hardware cap. No new controls or theme modes;
-    // gold graduation marks and the original ivory rotating pointers remain.
+    // Solid matte-black knobs instead of shiny gunmetal. Keep dimensional
+    // grooves/shadows and the original ivory indices and gold scale ticks.
     const auto metalAccent=juce::Colour(0xffaa946d);
-    const auto brass=juce::Colour(0xff252728); // graphite metal collar/barrel
-    const auto bright=juce::Colour(0xffb0b4b1); // cool machined edge lighting
+    const auto brass=juce::Colour(0xff111111); // black collar and barrel
+    const auto bright=juce::Colour(0xff555555); // restrained charcoal rim
     const auto pointerIvory=juce::Colour(0xffe6dcc5);
     const auto shadow=juce::Colour(0xff080908);
     const float frame=r*0.90f;
@@ -351,16 +351,16 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     // Stationary concave retaining ring: lit from top left, dark underneath.
     juce::ColourGradient machinedRim(bright.darker(0.14f),
                                      cx-frame*0.82f,cy-frame*0.95f,
-                                     juce::Colour(0xff242725),
+                                     juce::Colour(0xff070707),
                                      cx+frame*0.85f,cy+frame*0.95f,false);
-    machinedRim.addColour(0.22,brass.interpolatedWith(juce::Colour(0xff4b5049),0.58f));
+    machinedRim.addColour(0.22,brass.interpolatedWith(juce::Colour(0xff252525),0.58f));
     machinedRim.addColour(0.57,brass.darker(0.75f));
     g.setGradientFill(machinedRim);
     g.fillEllipse(cx-frame,cy-frame,2*frame,2*frame);
     g.setColour(juce::Colour(0xff0a0a08));
     g.fillEllipse(cx-frame+2.6f,cy-frame+2.6f,
                   2*(frame-2.6f),2*(frame-2.6f));
-    g.setColour(bright.withAlpha(0.40f));
+    g.setColour(bright.withAlpha(0.23f));
     g.drawEllipse(cx-frame+0.9f,cy-frame+0.9f,
                   2*(frame-0.9f),2*(frame-0.9f),0.85f);
 
@@ -371,13 +371,13 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                   2*(grip+1.8f),2*(grip+1.8f));
     juce::ColourGradient sidewall(bright.darker(0.20f),
                                   cx-grip*0.85f,cy-grip*0.8f,
-                                  juce::Colour(0xff111513),
+                                  juce::Colour(0xff060606),
                                   cx+grip,cy+grip,false);
     sidewall.addColour(0.29,brass.darker(0.53f));
     sidewall.addColour(0.70,brass.darker(0.88f));
     g.setGradientFill(sidewall);
     g.fillEllipse(cx-grip,cy-grip,2*grip,2*grip);
-    g.setColour(bright.withAlpha(0.29f));
+    g.setColour(bright.withAlpha(0.17f));
     g.drawEllipse(cx-grip+0.8f,cy-grip+0.8f,
                   2*(grip-0.8f),2*(grip-0.8f),0.85f);
 
@@ -392,7 +392,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
         g.setColour(juce::Colour(0xff050605).withAlpha(0.73f));
         g.drawLine(cx+sn*d0,cy+cs*d0,cx+sn*d1,cy+cs*d1,1.20f);
         const float next=a+0.019f;
-        g.setColour(juce::Colour(0xffd6ddd4).withAlpha(0.12f+0.51f*exposure));
+        g.setColour(juce::Colour(0xff777777).withAlpha(0.09f+0.20f*exposure));
         g.drawLine(cx+std::sin(next)*d0,cy+std::cos(next)*d0,
                    cx+std::sin(next)*d1,cy+std::cos(next)*d1,0.72f);
     }
@@ -403,7 +403,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
                   2*(face+2.4f),2*(face+2.4f));
     juce::ColourGradient capBezel(bright.darker(0.16f),
                                   cx-face,cy-face,
-                                  juce::Colour(0xff191e1c),
+                                  juce::Colour(0xff090909),
                                   cx+face,cy+face,false);
     capBezel.addColour(0.36,brass.darker(0.40f));
     g.setGradientFill(capBezel);
@@ -412,18 +412,18 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
 
     // Matte anodised top, one fixed lighting direction and fine lathe cuts.
     // No new scratches or noise: depth comes from constructed geometry.
-    juce::ColourGradient crown(juce::Colour(0xff585c5c),
+    juce::ColourGradient crown(juce::Colour(0xff242424),
                                 cx-face*0.91f,cy-face*0.93f,
-                                juce::Colour(0xff090b0c),
+                                juce::Colour(0xff030303),
                                 cx+face*0.89f,cy+face*0.94f,false);
-    crown.addColour(0.20,juce::Colour(0xff343737));
-    crown.addColour(0.63,juce::Colour(0xff171a1b));
+    crown.addColour(0.20,juce::Colour(0xff171717));
+    crown.addColour(0.63,juce::Colour(0xff090909));
     g.setGradientFill(crown);
     g.fillEllipse(cx-face+1.0f,cy-face+1.0f,
                   2*(face-1.0f),2*(face-1.0f));
     // A broad stationary grazing highlight gives the solid knob cap weight.
     juce::ColourGradient capLustre(
-        juce::Colours::white.withAlpha(0.105f),
+        juce::Colours::white.withAlpha(0.035f),
         cx-face*0.60f,cy-face*0.64f,
         juce::Colours::white.withAlpha(0.0f),
         cx+face*0.48f,cy+face*0.62f,false);
@@ -433,7 +433,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
     for(int ring=0;ring<2;++ring) {
         const float rr=face*(0.47f+ring*0.29f);
         g.setColour((ring%2==0?juce::Colours::black:juce::Colours::white)
-                    .withAlpha(ring%2==0?0.052f:0.021f));
+                    .withAlpha(ring%2==0?0.052f:0.010f));
         g.drawEllipse(cx-rr,cy-rr,rr*2,rr*2,0.48f);
     }
     // Small continuous machined arcs read as directional light, not decals.
@@ -445,11 +445,11 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawRotarySlider(
         g.strokePath(arc,juce::PathStrokeType(lineWidth));
     };
     arcAt(face-1.55f,-1.45f,-0.22f,1.15f,
-          juce::Colour(0xffb4bdc3).withAlpha(0.38f));
+          juce::Colour(0xff666666).withAlpha(0.19f));
     arcAt(face-2.2f,0.67f,2.54f,1.3f,
           juce::Colours::black.withAlpha(0.43f));
     arcAt(grip-0.9f,-1.47f,-0.17f,0.70f,
-          juce::Colour(0xffadb7bd).withAlpha(0.27f));
+          juce::Colour(0xff666666).withAlpha(0.13f));
 
     // Only the physical ivory pointer moves. Body/knurling/shadows stay
     // centred and the pointer follows the DAW-automated parameter exactly.
