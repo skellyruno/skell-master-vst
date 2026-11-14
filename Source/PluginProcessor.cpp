@@ -162,7 +162,11 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     for (int i = 0; i < samples; ++i) {
         maximumL = juce::jmax(maximumL, std::abs(readL[i]));
         maximumR = juce::jmax(maximumR, std::abs(readR[i]));
-        maximumTP = juce::jmax(maximumTP, truePeakMonitor.process(readL[i], readR[i]));
+        // On true mono buses, avoid reconstructing an identical second
+        // channel. Stereo keeps the original sample-for-sample FIR path.
+        maximumTP = juce::jmax(maximumTP, channels == 1
+            ? truePeakMonitor.processMono(readL[i])
+            : truePeakMonitor.process(readL[i], readR[i]));
         loudnessMonitor.process(readL[i], readR[i]);
     }
     atomicMax(peakLeft, maximumL);
