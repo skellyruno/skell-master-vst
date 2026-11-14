@@ -143,12 +143,20 @@ int main() {
         check(skinButton && static_cast<bool>(skinButton->onClick),
               "left skull must have functional SkellCore skin callback");
         const auto originalSkin=editor.selectedSkin();
-        skinButton->onClick();
-        check(editor.selectedSkin()==skellcore::ui::nextSkin(originalSkin),
-              "skull click advances shared SkellCore theme");
-        for(int remaining=0;remaining<3;++remaining) skinButton->onClick();
-        check(editor.selectedSkin()==originalSkin,
-              "four skull clicks return to the original palette");
+        const bool originalEmerald=editor.isEmeraldBlackTheme();
+        int emeraldVisits=0;
+        for(int click=0;click<5;++click) {
+            skinButton->onClick();
+            if(editor.isEmeraldBlackTheme()) ++emeraldVisits;
+        }
+        check(emeraldVisits==1,
+              "fifth skin must be the optional Emerald Black hardware theme");
+        check(editor.selectedSkin()==originalSkin
+              && editor.isEmeraldBlackTheme()==originalEmerald,
+              "five skull clicks must cycle back to the original theme");
+        check(std::abs(processor.parameters.getRawParameterValue("drive")
+                            ->load(std::memory_order_relaxed))<0.0001f,
+              "skin cycling must not alter mastering DSP parameters");
         editor.setVisible(true); // Offscreen component has no native desktop peer.
 
         // Visual coverage: compact min/default, intermediate, design, large.
