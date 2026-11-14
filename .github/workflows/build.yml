@@ -9,6 +9,7 @@ on:
       - 'CMakeLists.txt'
       - 'Source/**'
       - 'tests/**'
+      - 'tools/normalize_vst3_moduleinfo.py'
 
 # During rapid UI/DSP iterations, do not waste Windows runners compiling
 # superseded snapshots. Always compile and publish the most recent commit.
@@ -27,6 +28,15 @@ jobs:
         run: cmake -S . -B build -A x64
       - name: Build
         run: cmake --build build --config Release --parallel 4
+      - name: Validate VST3 metadata as strict JSON
+        shell: pwsh
+        run: |
+          python tools/normalize_vst3_moduleinfo.py --self-test
+          $plugin = Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Select-Object -First 1
+          if (-not $plugin) { throw 'VST3 bundle missing before metadata validation' }
+          $metadata = Join-Path $plugin.FullName 'Contents/Resources/moduleinfo.json'
+          if (-not (Test-Path $metadata)) { throw 'VST3 moduleinfo.json missing' }
+          python tools/normalize_vst3_moduleinfo.py "$metadata"
       - name: Test mastering DSP
         run: ctest --test-dir build -C Release --output-on-failure --verbose
       - name: Package
