@@ -11,6 +11,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <stdexcept>
 #include <memory>
 #include <string>
 #include <vector>
@@ -101,7 +102,7 @@ int main(int argc, char** argv) {
         juce::String error;
         auto plugin=formats.createPluginInstance(*descriptions.getFirst(),sampleRate,
                                                  blockSize,error);
-        require(plugin!=nullptr,"Cannot instantiate built VST3: "+error.toStdString().c_str());
+        if (!plugin) throw std::runtime_error("Cannot instantiate built VST3: " + error.toStdString());
         plugin->setPlayConfigDetails(2,2,sampleRate,blockSize);
         plugin->prepareToPlay(sampleRate,blockSize);
         require(plugin->getLatencySamples()>=0,"Negative VST3 latency");
@@ -188,7 +189,7 @@ int main(int argc, char** argv) {
                     "Failed to write rendered WAV");
         }
         plugin->releaseResources();
-        const double dB=[&](double linear) {
+        const auto dB=[](double linear) {
             return 20.0*std::log10(std::max(1.e-14,linear));
         };
         const double rms=std::sqrt(metrics.sumSquares/std::max<size_t>(1,metrics.count));
