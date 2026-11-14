@@ -90,6 +90,12 @@ add_executable(SkellyDSPTests tests/test_mastering.cpp)
 target_compile_features(SkellyDSPTests PRIVATE cxx_std_17)
 add_test(NAME SkellyDSPTests COMMAND SkellyDSPTests)
 
+# Independent diagnostic: confirms that a sample-peak ceiling alone cannot
+# certify intersample true-peak compliance. No DSP behavior is modified.
+add_executable(SkellyTruePeakGapTests tests/test_true_peak_gap.cpp)
+target_compile_features(SkellyTruePeakGapTests PRIVATE cxx_std_17)
+add_test(NAME SkellyTruePeakGapTests COMMAND SkellyTruePeakGapTests)
+
 # Real JUCE editor + processor smoke tests on the Windows runner. Renders
 # offscreen snapshots at multiple sizes and verifies controls/layout/host DSP.
 # Link the plugin's shared-code target rather than recompiling the engine/UI.
