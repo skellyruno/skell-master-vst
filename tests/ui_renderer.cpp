@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
             {"reference_1200", 1200, 760, 0, 0, false},
             {"preset_selected", 702, 445, 0, 8, false},
             {"mastering_active", 702, 445, 0, 4, false},
-            {"theme_neon", 702, 445, 0, 5, false}
+            {"theme_emerald_black", 702, 445, 0, 9, false}
         } : std::vector<skellcore::ui::headless::Scene>{
             {"minimum_620", 620, 393, 0, 0, false},
             {"default_702", 702, 445, 0, 0, false},
@@ -112,7 +112,8 @@ int main(int argc, char** argv) {
             {"mastering_active", 702, 445, 0, 4, false},
             {"theme_neon", 702, 445, 0, 5, false},
             {"theme_ivory", 702, 445, 0, 6, false},
-            {"theme_obsidian", 702, 445, 0, 7, false}
+            {"theme_obsidian", 702, 445, 0, 7, false},
+            {"theme_emerald_black", 702, 445, 0, 9, false}
         };
         options.configure = [&](const skellcore::ui::headless::Scene& scene) {
             // The exact same real left-skull callback used in the plugin is
@@ -121,7 +122,10 @@ int main(int argc, char** argv) {
                 : scene.mode==6 ? skellcore::ui::SkullSkin::Ivory
                 : scene.mode==7 ? skellcore::ui::SkullSkin::Obsidian
                 : skellcore::ui::SkullSkin::Ossuary;
-            for(int step=0;step<4 && editor.selectedSkin()!=target;++step) {
+            const bool wantEmeraldBlack = scene.mode==9;
+            for(int step=0;step<5
+                && (editor.selectedSkin()!=target
+                    || editor.isEmeraldBlackTheme()!=wantEmeraldBlack);++step) {
                 for(int child=0;child<editor.getNumChildComponents();++child) {
                     auto* c=editor.getChildComponent(child);
                     if(c && c->getComponentID()=="skellcore-theme-skull") {
@@ -179,7 +183,7 @@ int main(int argc, char** argv) {
         options.mustDiffer = quick
             ? std::vector<std::pair<juce::String,juce::String>>{
                 {"preset_selected", "mastering_active"},
-                {"preset_selected", "theme_neon"}
+                {"preset_selected", "theme_emerald_black"}
               }
             : std::vector<std::pair<juce::String,juce::String>>{
             {"default_702", "bypass_default"},
@@ -188,7 +192,8 @@ int main(int argc, char** argv) {
             {"default_702", "mastering_active"},
             {"default_702", "theme_neon"},
             {"default_702", "theme_ivory"},
-            {"default_702", "theme_obsidian"}
+            {"default_702", "theme_obsidian"},
+            {"default_702", "theme_emerald_black"}
         };
         const auto report = skellcore::ui::headless::render(editor, output, options);
         for (const auto& error : report.errors) {
@@ -204,7 +209,7 @@ int main(int argc, char** argv) {
         // Contact sheet composed only of actual captured PNG files.
         const std::vector<juce::String> selected = quick
             ? std::vector<juce::String>{"reference_1200", "preset_selected",
-                                        "mastering_active", "theme_neon"}
+                                        "mastering_active", "theme_emerald_black"}
             : std::vector<juce::String>{"minimum_620", "default_702", "reference_1200",
                                         "bypass_default", "drive_selected", "theme_neon"};
         constexpr int cellW = 600, cellH = 400;
