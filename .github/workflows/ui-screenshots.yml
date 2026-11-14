@@ -14,6 +14,9 @@ concurrency:
 
 jobs:
   real-editor-screenshots:
+    # Paused at user request: no hosted screenshot jobs, even on manual dispatch.
+    # Local Quick4 rendering remains available without GitHub Actions.
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
