@@ -123,11 +123,11 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
                   uint32_t seed=0x6172u, float radius=9.0f, float wear=1.0f) {
     g.setColour(juce::Colours::black.withAlpha(0.9f));
     g.fillRoundedRectangle(r.translated(0,3.5f),radius);
-    juce::ColourGradient enamel(green?juce::Colour(0xff1d5137):juce::Colour(0xff1a1b17),
-                r.getX(),r.getY(),green?juce::Colour(0xff04130d):juce::Colour(0xff070907),
+    juce::ColourGradient enamel(green?juce::Colour(0xff16432e):juce::Colour(0xff11130f),
+                r.getX(),r.getY(),green?juce::Colour(0xff030f0a):juce::Colour(0xff040604),
                 r.getX()+r.getWidth()*0.8f,r.getBottom(),false);
-    enamel.addColour(0.27,green?juce::Colour(0xff143e2a):juce::Colour(0xff141713));
-    enamel.addColour(0.56,green?juce::Colour(0xff0c281b):juce::Colour(0xff10120e));
+    enamel.addColour(0.27,green?juce::Colour(0xff0e3020):juce::Colour(0xff0e100c));
+    enamel.addColour(0.56,green?juce::Colour(0xff071d12):juce::Colour(0xff090b08));
     g.setGradientFill(enamel);
     g.fillRoundedRectangle(r,radius);
     // Authentic source-image material grain overlays only large STATIC panels.
@@ -145,7 +145,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
         if (grain.isValid()) {
             juce::Graphics::ScopedSaveState textureScope(g);
             g.setTiledImageFill(grain, static_cast<int>(r.getX()+4),
-                                static_cast<int>(r.getY()+4), green ? 0.43f : 0.41f);
+                                static_cast<int>(r.getY()+4), green ? 0.39f : 0.36f);
             g.fillRoundedRectangle(r.reduced(6.0f),juce::jmax(0.0f,radius-4.0f));
         }
     }
@@ -219,7 +219,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
     }
     // Irregular flaked enamel near the panel borders, with warm exposed metal
     // beneath the black or green paint. Keep chips behind the inset trim.
-    const int edgeMarks=juce::jlimit(6,85,static_cast<int>(r.getWidth()/16.0f));
+    const int edgeMarks=juce::jlimit(10,125,static_cast<int>(r.getWidth()/11.0f));
     for (int i=0;i<edgeMarks;++i) {
         const auto h=noise(seed+static_cast<uint32_t>(i*463+0x72e3u));
         const float t=static_cast<float>(h%10001u)/10001.0f;
@@ -236,7 +236,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
     // Cluster small chipped-paint marks toward the rim/corners rather than
     // repeating a uniform scratch pattern across the control labels.
     if (r.getWidth() > 350.0f && r.getHeight() > 70.0f) {
-        for (int i=0;i<48;++i) {
+        for (int i=0;i<74;++i) {
             const auto n=noise(seed+0x6cc6u+static_cast<uint32_t>(i*293u));
             const float u=static_cast<float>(n%8191u)/8191.0f;
             const float v=static_cast<float>((n>>13)%4093u)/4093.0f;
@@ -246,7 +246,7 @@ inline void plate(juce::Graphics& g, juce::Rectangle<float> r, bool green=false,
             const float y=(top?r.getY()+7.0f:r.getBottom()-7.0f)
                           +(top?1.0f:-1.0f)*v*3.0f;
             const float w=1.3f+static_cast<float>((n>>26)&7u)*0.8f;
-            g.setColour(gold.withAlpha(i%7==0?0.48f:0.22f));
+            g.setColour(gold.withAlpha(i%7==0?0.46f:0.17f));
             g.fillEllipse(x,y,w,0.55f+(w*0.20f));
         }
     }
