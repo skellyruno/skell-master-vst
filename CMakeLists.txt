@@ -125,6 +125,23 @@ if(WIN32)
     juce_generate_juce_header(SkellyUITests)
     add_test(NAME SkellyUITests COMMAND SkellyUITests)
     set_tests_properties(SkellyUITests PROPERTIES TIMEOUT 90)
+
+    # REAL compiled VST3 render, not a linked processor simulation. Loads
+    # the packaged plugin via JUCE's Windows VST3 host implementation and
+    # processes a deterministic bass/transient/stereo waveform. Optional
+    # WAV arguments permit local user-reference A/B without uploading audio.
+    juce_add_console_app(SkellyVST3HostAudioTests PRODUCT_NAME "Skell Master VST3 Audio Test")
+    target_sources(SkellyVST3HostAudioTests PRIVATE tests/test_vst3_host_audio.cpp)
+    target_compile_features(SkellyVST3HostAudioTests PRIVATE cxx_std_17)
+    target_compile_definitions(SkellyVST3HostAudioTests PRIVATE
+        JUCE_PLUGINHOST_VST3=1 JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0)
+    target_link_libraries(SkellyVST3HostAudioTests PRIVATE
+        juce::juce_audio_utils juce::juce_audio_processors
+        juce::juce_audio_formats juce::juce_dsp)
+    juce_generate_juce_header(SkellyVST3HostAudioTests)
+    add_test(NAME SkellyVST3HostAudioTests COMMAND SkellyVST3HostAudioTests)
+    set_tests_properties(SkellyVST3HostAudioTests PROPERTIES TIMEOUT 180)
 endif()
 
 
