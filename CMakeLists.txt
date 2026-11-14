@@ -96,6 +96,12 @@ add_executable(SkellyTruePeakGapTests tests/test_true_peak_gap.cpp)
 target_compile_features(SkellyTruePeakGapTests PRIVATE cxx_std_17)
 add_test(NAME SkellyTruePeakGapTests COMMAND SkellyTruePeakGapTests)
 
+# Experimental audio coloration prototype: compiled/tested separately from the
+# shipped mastering processing chain until real-music A/B is approved.
+add_executable(SkellyFiveBandColorTests tests/test_five_band_color.cpp)
+target_compile_features(SkellyFiveBandColorTests PRIVATE cxx_std_17)
+add_test(NAME SkellyFiveBandColorTests COMMAND SkellyFiveBandColorTests)
+
 # Real JUCE editor + processor smoke tests on the Windows runner. Renders
 # offscreen snapshots at multiple sizes and verifies controls/layout/host DSP.
 # Link the plugin's shared-code target rather than recompiling the engine/UI.
