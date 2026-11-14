@@ -102,6 +102,12 @@ add_executable(SkellyFiveBandColorTests tests/test_five_band_color.cpp)
 target_compile_features(SkellyFiveBandColorTests PRIVATE cxx_std_17)
 add_test(NAME SkellyFiveBandColorTests COMMAND SkellyFiveBandColorTests)
 
+# Reference chain's +2dB / 5kHz post-limiter presence is an original,
+# optional prototype, not wired to the release audio path.
+add_executable(SkellyPostLimiterPresenceTests tests/test_post_limiter_presence.cpp)
+target_compile_features(SkellyPostLimiterPresenceTests PRIVATE cxx_std_17)
+add_test(NAME SkellyPostLimiterPresenceTests COMMAND SkellyPostLimiterPresenceTests)
+
 # Real JUCE editor + processor smoke tests on the Windows runner. Renders
 # offscreen snapshots at multiple sizes and verifies controls/layout/host DSP.
 # Link the plugin's shared-code target rather than recompiling the engine/UI.
