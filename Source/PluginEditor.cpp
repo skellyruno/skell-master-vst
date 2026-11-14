@@ -137,6 +137,16 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawComboBox(
     arrow.lineTo(cx,cy+2.0f);
     arrow.lineTo(cx+4.0f,cy-2.0f);
     g.strokePath(arrow,juce::PathStrokeType(1.6f));
+    // A restrained enamel reflection makes the recessed preset window read
+    // as physical glass. The lens lighting stays fixed as controls change.
+    if (width > 48 && height > 15) {
+        g.setColour(juce::Colours::white.withAlpha(0.14f));
+        g.drawLine(7.0f, 4.0f, static_cast<float>(width)-27.0f, 4.0f, 0.85f);
+        g.setColour(accent.withAlpha(0.42f));
+        g.drawLine(8.0f, static_cast<float>(height)-4.1f,
+                   static_cast<float>(width)-28.0f,
+                   static_cast<float>(height)-4.1f, 1.45f);
+    }
 }
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
@@ -839,6 +849,10 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
     // Its label is engraved above the recessed glass, never faked as LEDs.
     font(g,11,true);g.setColour(hw::parchment);
     text(g,"PRESET",983,210,157,15,juce::Justification::centredLeft);
+    // Tiny engraved accent under the legend: a physical status detail that
+    // stays outside the actual clickable glass-backed preset selector.
+    g.setColour(hardwareAccent(skin).withAlpha(0.75f));
+    g.fillRoundedRectangle(985.0f,224.0f,56.0f,1.8f,0.9f);
     if (!active) return;
 
     font(g,37,true);
