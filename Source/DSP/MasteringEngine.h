@@ -246,6 +246,29 @@ public:
         newest = 0;
     }
     // Maximum of the 4 reconstructed phases for this frame, across channels.
+    // The JUCE wrapper can use this on a true mono bus. Only one channel
+    // needs interpolation; the second ring is kept in sync so reset and
+    // subsequent stereo calls remain correct. The meter never alters sound.
+    float processMono(float sample) noexcept {
+        const double value = detail::finiteSample(static_cast<double>(sample));
+        const auto write = static_cast<std::size_t>(newest);
+        history[0][write] = value;
+        history[1][write] = value;
+        double maximum = std::abs(value);
+        double reconstructed[4] {};
+        int idx = newest;
+        for (int k = 0; k < 12; ++k) {
+            const auto& taps = fir[static_cast<std::size_t>(k)];
+            const double valueAtTap = history[0][static_cast<std::size_t>(idx)];
+            for (int phase = 0; phase < 4; ++phase)
+                reconstructed[phase] += valueAtTap * taps[static_cast<std::size_t>(phase)];
+            if (--idx < 0) idx = 11;
+        }
+        for (double phase : reconstructed)
+            maximum = std::max(maximum, std::abs(phase));
+        if (++newest == 12) newest = 0;
+        return static_cast<float>(maximum);
+    }
     float process(float left, float right) noexcept {
         history[0][static_cast<std::size_t>(newest)] =
             detail::finiteSample(static_cast<double>(left));
@@ -379,17 +402,27 @@ public:
     }
 
     void setParameters(const MasterParameters& p) noexcept {
-        input.setTarget(detail::dbToLinear(detail::clamp(p.inputDb, -18, 18)));
-        drive.setTarget(detail::clamp(p.drive, 0, 1));
-        glueAmt.setTarget(detail::clamp(p.glue, 0, 1));
-        dynamicsAmt.setTarget(detail::clamp(p.dynamics, 0, 1));
-        lows.setTarget(detail::clamp(p.lowsDb, -6, 6));
-        highs.setTarget(detail::clamp(p.highsDb, -6, 6));
-        sauceAmt.setTarget(detail::clamp(p.sauce, 0, 1));
-        transientsAmt.setTarget(detail::clamp(p.transients, 0, 1));
-        output.setTarget(detail::dbToLinear(detail::clamp(p.outputDb, -18, 12)));
-        clipperMix.setTarget(detail::clamp(p.clipper, 0, 1));
-        ceiling.setTarget(detail::dbToLinear(detail::clamp(p.ceilingDb, -3, -0.1)));
+        // Unexpected non-finite host automation must never become an active
+        // effect. std::min/std::max on NaN used to select the upper bound,
+        // e.g. accidentally setting DRIVE/GLUE to 100% and INPUT to +18dB.
+        // Normal finite parameter values follow the exact previous path.
+        const auto safe = [](double value, double lo, double hi) noexcept {
+            return detail::clamp(detail::finiteSample(value), lo, hi);
+        };
+        input.setTarget(detail::dbToLinear(safe(p.inputDb, -18, 18)));
+        drive.setTarget(safe(p.drive, 0, 1));
+        glueAmt.setTarget(safe(p.glue, 0, 1));
+        dynamicsAmt.setTarget(safe(p.dynamics, 0, 1));
+        lows.setTarget(safe(p.lowsDb, -6, 6));
+        highs.setTarget(safe(p.highsDb, -6, 6));
+        sauceAmt.setTarget(safe(p.sauce, 0, 1));
+        transientsAmt.setTarget(safe(p.transients, 0, 1));
+        output.setTarget(detail::dbToLinear(safe(p.outputDb, -18, 12)));
+        clipperMix.setTarget(safe(p.clipper, 0, 1));
+        // For an invalid ceiling, fall back to the established -1dBFS
+        // factory value, not the upper edge of -0.1dBFS.
+        ceiling.setTarget(detail::dbToLinear(detail::clamp(
+            std::isfinite(p.ceilingDb) ? p.ceilingDb : -1.0, -3, -0.1)));
         bypassMix.setTarget(p.bypass ? 1.0 : 0.0);
     }
 
@@ -399,9 +432,14 @@ public:
         using namespace detail;
         // A NaN/Inf arriving from an upstream plugin must not persist inside
         // EQ, sidechain, feedback or limiter states for the rest of the session.
-        const double rawL = detail::finiteSample(static_cast<double>(inLeft));
-        const double rawR = channels == 2
-            ? detail::finiteSample(static_cast<double>(inRight)) : rawL;
+        // Share the +48dBFS input guard of the real JUCE host wrapper.
+        // Portable calls with huge but finite float samples must not create
+        // infinite intermediate/output values (especially in bypass).
+        // Ordinary program audio is bit-identical to the previous path.
+        const double rawL = detail::clamp(
+            detail::finiteSample(static_cast<double>(inLeft)), -256.0, 256.0);
+        const double rawR = channels == 2 ? detail::clamp(
+            detail::finiteSample(static_cast<double>(inRight)), -256.0, 256.0) : rawL;
         double l = rawL, r = rawR;
         const double inputGain = input.next();
         const double d = drive.next();
@@ -433,12 +471,18 @@ public:
         // 2nd-order RBJ shelves; retune every ~0.33ms at 192 kHz, with smoothed gains.
         if (--eqCounter <= 0) {
             eqCounter = 64;
-            if (std::abs(eqLo - lastEqLows) > 0.00003 || std::abs(eqHi - lastEqHighs) > 0.00003) {
-                for (int c = 0; c < channels; ++c) {
+            // Split coefficient recalculation: automating LOWS should not
+            // repeatedly recompute the HIGH shelf's expensive trig/pow
+            // functions, or vice versa. Both now retain their own threshold.
+            if (std::abs(eqLo - lastEqLows) > 0.00003) {
+                for (int c = 0; c < channels; ++c)
                     lowShelf[static_cast<std::size_t>(c)].setShelf(rate, 115, eqLo, false);
+                lastEqLows = eqLo;
+            }
+            if (std::abs(eqHi - lastEqHighs) > 0.00003) {
+                for (int c = 0; c < channels; ++c)
                     highShelf[static_cast<std::size_t>(c)].setShelf(rate, 8200, eqHi, true);
-                }
-                lastEqLows = eqLo; lastEqHighs = eqHi;
+                lastEqHighs = eqHi;
             }
         }
         l = highShelf[0].process(lowShelf[0].process(l));
