@@ -12,6 +12,9 @@ concurrency:
 
 jobs:
   real-editor-screenshots:
+    # Disabled at user request; no GitHub-hosted screenshot jobs.
+    # Real local Quick4 UI inspections can still run outside CI.
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:

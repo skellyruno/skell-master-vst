@@ -19,6 +19,7 @@ jobs:
         run: cmake -S . -B build -A x64
       - name: Build
         run: cmake --build build --config Release --parallel 4
+      # Keep normal DSP/JUCE regression checks; no hosted UI screenshot uploads.
       - name: Test mastering DSP
         run: ctest --test-dir build -C Release --output-on-failure --verbose
       - name: Package
@@ -33,11 +34,3 @@ jobs:
           name: SkellPlugin-Windows-VST3
           path: SkellPlugin-Windows-VST3.zip
           if-no-files-found: error
-      - name: Upload UI regression snapshots
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          retention-days: 14
-          name: SkellyMaster-UI-Regression
-          path: build/ui-snapshots/*.png
-          if-no-files-found: ignore
