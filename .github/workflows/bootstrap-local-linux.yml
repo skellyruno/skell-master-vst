@@ -2,10 +2,9 @@ name: One-time local Linux JUCE SDK bootstrap
 # Developer SDK transfer only. This workflow never captures UI screenshots.
 # Routine screenshots, C++ editing and recompilation are local, and Windows
 # release validation remains in the independent build.yml workflow.
+# Bootstrap is complete: keep this available only when explicitly needed.
+# Local C++ recompiles and Quick4 screenshots do NOT use GitHub Actions.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/bootstrap-local-linux.yml'
   workflow_dispatch:
 jobs:
   export-linux-development-headers:
