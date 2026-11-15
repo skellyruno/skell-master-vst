@@ -81,7 +81,10 @@ int main(int argc, char** argv) {
             (!rateMode && argc>=2) ? juce::String::fromUTF8(argv[1]) : juce::String());
         require(bundle.exists(),"VST3 path does not exist");
         juce::AudioPluginFormatManager formats;
-        formats.addDefaultFormats();
+        // JUCE 8.0.9+ removed AudioPluginFormatManager::addDefaultFormats().
+        // Register the actual headless VST3 host implementation explicitly:
+        // this executable renders audio and intentionally never creates a UI.
+        juce::addHeadlessDefaultFormatsToManager(formats);
         juce::AudioPluginFormat* vst3=nullptr;
         for(int i=0;i<formats.getNumFormats();++i) {
             auto* format=formats.getFormat(i);
