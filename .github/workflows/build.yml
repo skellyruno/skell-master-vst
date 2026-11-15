@@ -10,6 +10,7 @@ on:
       - 'Source/**'
       - 'tests/**'
       - 'tools/normalize_vst3_moduleinfo.py'
+      - 'AGENTS.md'
 
 # During rapid UI/DSP iterations, do not waste Windows runners compiling
 # superseded snapshots. Always compile and publish the most recent commit.
@@ -33,9 +34,31 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $plugin = Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Select-Object -First 1
-          if (-not $plugin) { throw 'VST3 bundle missing' }
-          Compress-Archive -Path $plugin.FullName -DestinationPath SkellPlugin-Windows-VST3.zip
+          $ErrorActionPreference = 'Stop'
+          $bundles = @(Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Where-Object { $_.FullName -match '[\\/]Release[\\/]' -and $_.Name -eq 'Skelly Master.vst3' })
+          if ($bundles.Count -ne 1) { throw "Expected exactly one Release Skelly Master.vst3 bundle; found $($bundles.Count)" }
+          $plugin = $bundles[0]
+          $binary = Join-Path $plugin.FullName 'Contents/x86_64-win/Skelly Master.vst3'
+          if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Windows VST3 module missing: $binary" }
+          $bytes = [System.IO.File]::ReadAllBytes($binary)
+          if ($bytes.Length -lt 512 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'Invalid Windows PE DOS signature' }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          if ($peOffset -lt 0x40 -or $peOffset -gt ($bytes.Length - 24) -or
+              [Text.Encoding]::ASCII.GetString($bytes, $peOffset, 4) -ne "PE" + [char]0 + [char]0) {
+            throw 'Invalid Windows PE signature'
+          }
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          if ($machine -ne 0x8664) { throw "Expected AMD64 PE machine, got $machine" }
+          $info = Join-Path $plugin.FullName 'Contents/Resources/moduleinfo.json'
+          if (Test-Path -LiteralPath $info) {
+            $metadata = Get-Content -LiteralPath $info -Raw | ConvertFrom-Json -ErrorAction Stop
+            if (-not $metadata.Classes -or @($metadata.Classes).Count -eq 0) { throw 'moduleinfo.json missing Classes' }
+          }
+          $hash = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash
+          Write-Host "VST3 binary SHA256: $hash"
+          Compress-Archive -LiteralPath $plugin.FullName -DestinationPath SkellPlugin-Windows-VST3.zip -Force
+          $zip = (Get-FileHash -LiteralPath SkellPlugin-Windows-VST3.zip -Algorithm SHA256).Hash
+          Write-Host "VST3 archive SHA256: $zip"
       - uses: actions/upload-artifact@v6
         with:
           retention-days: 14
