@@ -17,7 +17,7 @@ juce_add_plugin(SkellyMaster
     BUNDLE_ID "audio.skelly.master"
     PLUGIN_MANUFACTURER_CODE SkAu
     PLUGIN_CODE SkM1
-    FORMATS VST3 Standalone
+    FORMATS VST3
     PRODUCT_NAME "Skelly Master"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
@@ -89,8 +89,8 @@ if(SKELLY_MASTER_BUILD_UI_RENDERER)
     set(SKELLCORE_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(SkellCoreRendererSource)
 
-    # A plain executable avoids conflicting JUCE_STANDALONE_APPLICATION
-    # compile definitions inherited from plugin shared code.
+    # A plain executable keeps the local renderer independent from plugin
+    # wrapper formats; it is developer-only and never enters the VST3 package.
     add_executable(SkellyMasterUIRenderer tests/ui_renderer.cpp)
     target_include_directories(SkellyMasterUIRenderer PRIVATE
         "${CMAKE_CURRENT_BINARY_DIR}/SkellyMaster_artefacts/JuceLibraryCode")
