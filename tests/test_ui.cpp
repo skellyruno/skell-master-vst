@@ -382,7 +382,7 @@ int main() {
         for (const int sampleRate : {44100, 48000, 96000}) {
             processor.prepareToPlay(static_cast<double>(sampleRate),512);
             const auto latency=processor.getLatencySamples();
-            check(latency>=11 && latency<sampleRate/30,
+            check(latency>=32 && latency<sampleRate/30,
                   "reported plugin latency outside reasonable range");
             skelly::StereoTruePeakMonitor outputTruePeak;
             outputTruePeak.reset();
