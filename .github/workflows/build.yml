@@ -12,6 +12,9 @@ on:
       - 'tools/normalize_vst3_moduleinfo.py'
       - 'AGENTS.md'
 
+permissions:
+  contents: read
+
 # During rapid UI/DSP iterations, do not waste Windows runners compiling
 # superseded snapshots. Always compile and publish the most recent commit.
 concurrency:
@@ -22,6 +25,7 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 40
     env:
       SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
