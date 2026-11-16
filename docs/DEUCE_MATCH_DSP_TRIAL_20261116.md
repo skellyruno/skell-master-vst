@@ -32,7 +32,7 @@ The named `SKELL MASTER` factory now enables a real, saved APVTS boolean `deuceM
 2. `PostLimiterPresencePrototype` applies the reference-derived +2 dB / 5 kHz bell after downsampling, before final output safety.
 3. `StereoTruePeakGuard` replaces the production sample-only guard. It uses the existing 48-tap / 4-phase detector, 11 host-sample lookahead, stereo-linked gain, 85 ms release and 0.3 dB margin. Bypass keeps the same delay but does not attenuate.
 
-The original four factory presets retain their parameter values and keep `deuceMatch=OFF`. Existing parameter IDs remain unchanged; `deuceMatch` is appended after `bypass`. State schema advances to v4, and V1/V2/V3 sessions receive an explicit neutral `deuceMatch=OFF` value. A UI regression exercises APVTS save/reload and the legacy missing-parameter default. The `ceiling` control now represents a true-peak target, with an internal 0.3 dB reconstruction margin.
+The original four factory presets retain their parameter values and keep `deuceMatch=OFF`. Existing parameter IDs remain unchanged; `deuceMatch` is appended after `bypass`. State schema advances to v4, and V1/V2/V3 sessions receive an explicit neutral `deuceMatch=OFF` value. A UI regression exercises APVTS save/reload and the legacy missing-parameter default. The `ceiling` control now represents a true-peak target, with an internal 0.6 dB reconstruction margin.
 
 ## Verification gates
 
