@@ -60,6 +60,7 @@ private:
     skelly::experimental::FiveBandColorPrototype fiveBandColor;
     skelly::experimental::PostLimiterPresencePrototype postLimiterPresence;
     // Fixed-size stereo-linked true-peak lookahead; no audio-thread allocation.
+    skelly::StereoPeakGuard legacySafetyGuard;
     skelly::StereoTruePeakGuard safetyGuard;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyMasterAudioProcessor)
 };
