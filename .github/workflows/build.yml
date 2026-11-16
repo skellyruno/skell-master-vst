@@ -35,7 +35,7 @@ jobs:
       # Keep normal DSP/JUCE regression checks; no hosted UI screenshot uploads.
       - name: Test mastering DSP and JUCE UI
         run: ctest --test-dir build -C Release --output-on-failure --verbose
-      - name: Package one flat Windows VST3 bundle
+      - name: Stage one flat Windows VST3 bundle
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -76,7 +76,28 @@ jobs:
           $stage = Join-Path $PWD 'release-package'
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
           Copy-Item -LiteralPath $plugin.FullName -Destination (Join-Path $stage 'Skelly Master.vst3') -Recurse
-
+          @(
+            "$binaryHash  Skelly Master.vst3/Contents/x86_64-win/Skelly Master.vst3"
+            "$metadataHash  Skelly Master.vst3/Contents/Resources/moduleinfo.json"
+          ) | Set-Content -LiteralPath (Join-Path $stage 'SHA256SUMS.txt') -Encoding ascii
+          Write-Host "Staged one flat VST3 bundle; binary SHA256: $binaryHash"
+          Get-ChildItem -LiteralPath $stage -Force | Select-Object Name,Length,Mode | Format-Table -AutoSize
+      - name: Validate exact staged VST3 with pluginval
+        uses: Tracktion/pluginval/validate@v2.0.0-beta3
+        with:
+          plugins: release-package/Skelly Master.vst3
+          strictness-level: 5
+          pluginval-version: v2.0.0-beta3
+      - name: Write provenance after all validation gates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = Join-Path $PWD 'release-package/Skelly Master.vst3'
+          $binary = Join-Path $bundle 'Contents/x86_64-win/Skelly Master.vst3'
+          $info = Join-Path $bundle 'Contents/Resources/moduleinfo.json'
+          $metadata = Get-Content -LiteralPath $info -Raw | ConvertFrom-Json -ErrorAction Stop
+          $binaryHash = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+          $metadataHash = (Get-FileHash -LiteralPath $info -Algorithm SHA256).Hash.ToLowerInvariant()
           $manifest = [ordered]@{
             schema_version = 1
             product = 'Skelly Master'
@@ -87,6 +108,9 @@ jobs:
             source_commit = $env:SOURCE_COMMIT
             ci_checkout_commit = $env:GITHUB_SHA
             workflow_run_id = $env:GITHUB_RUN_ID
+            windows_build = 'passed'
+            ctest = 'passed'
+            pluginval = @{ strictness_level = 5; result = 'passed'; target = 'release-package/Skelly Master.vst3' }
             binary_sha256 = $binaryHash
             moduleinfo_sha256 = $metadataHash
             package_status = 'preview-only'
@@ -96,13 +120,11 @@ jobs:
               'Vendor URL and support email are not configured'
             )
           }
-          $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $stage 'build-info.json') -Encoding utf8
-          @(
-            "$binaryHash  Skelly Master.vst3/Contents/x86_64-win/Skelly Master.vst3"
-            "$metadataHash  Skelly Master.vst3/Contents/Resources/moduleinfo.json"
-          ) | Set-Content -LiteralPath (Join-Path $stage 'SHA256SUMS.txt') -Encoding ascii
-          Write-Host "Staged one flat VST3 bundle; binary SHA256: $binaryHash"
-          Get-ChildItem -LiteralPath $stage -Force | Select-Object Name,Length,Mode | Format-Table -AutoSize
+          $manifestPath = Join-Path $PWD 'release-package/build-info.json'
+          $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+          $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Add-Content -LiteralPath (Join-Path $PWD 'release-package/SHA256SUMS.txt') -Value "$manifestHash  build-info.json" -Encoding ascii
+          Write-Host "Release provenance written after Windows build, CTest and pluginval strictness 5 passed."
       - uses: actions/upload-artifact@v6
         with:
           retention-days: 14
