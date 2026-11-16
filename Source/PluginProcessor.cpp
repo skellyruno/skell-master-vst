@@ -164,7 +164,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     oversampler->processSamplesDown(original);
 
     // The Deuce reference's final +2dB / 5kHz EQ sits after its limiter.
-    // Keep it opt-in and follow it with the true-peak lookahead guard.
+    // Keep it opt-in; legacy factories retain their original sample limiter.
     const double ceiling = skelly::detail::dbToLinear(p.ceilingDb);
     auto* outL = buffer.getWritePointer(0);
     auto* outR = channels == 2 ? buffer.getWritePointer(1) : nullptr;
