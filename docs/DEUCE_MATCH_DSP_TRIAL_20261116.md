@@ -30,7 +30,7 @@ The named `SKELL MASTER` factory now enables a real, saved APVTS boolean `deuceM
 
 1. `FiveBandColorPrototype` runs in the existing 4x oversampled signal path at wet 0.75 with intensities {0.38, 0.55, 0.64, 0.72, 0.84}.
 2. `PostLimiterPresencePrototype` applies the reference-derived +2 dB / 5 kHz bell after downsampling, before final output safety.
-3. `StereoTruePeakGuard` replaces the production sample-only guard. Only the opt-in Deuce Match path uses a 257-tap / 4-phase Kaiser reconstruction detector, 32 host-sample lookahead, stereo-linked gain, 85 ms release and 1.0 dB internal margin. Legacy factories retain the original sample-peak guard. Bypass keeps the same delay but does not attenuate.
+3. The opt-in Deuce Match path uses `StereoTruePeakGuard`: a 257-tap / 4-phase Kaiser reconstruction detector, 32 host-sample lookahead, stereo-linked gain, 85 ms release and 1.0 dB internal margin. Legacy factories retain the original `StereoPeakGuard` sample-peak limiter. Bypass keeps the same delay but does not attenuate.
 
 The original four factory presets retain their parameter values and keep `deuceMatch=OFF`. Existing parameter IDs remain unchanged; `deuceMatch` is appended after `bypass`. State schema advances to v4, and V1/V2/V3 sessions receive an explicit neutral `deuceMatch=OFF` value. A UI regression exercises APVTS save/reload and the legacy missing-parameter default. The `ceiling` control is a true-peak target in Deuce Match mode, with a 1.0 dB internal reconstruction margin. The plugin reports a fixed 32-sample PDC delay in both modes; legacy factories keep their original sample-peak limiting and use the true-peak delay in bypass.
 
