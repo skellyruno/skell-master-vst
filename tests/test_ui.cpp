@@ -91,6 +91,9 @@ int main() {
               "photographic panel grain assets did not decode");
         std::cout << "PASS: reference-derived hardware images decoded\n";
         SkellyMasterAudioProcessor processor;
+        check(processor.getNumPrograms() == 1, "Master must expose its single default program");
+        check(processor.getProgramName(0) == "Default", "VST3 default program name must be non-empty");
+        check(processor.getProgramName(1).isEmpty(), "out-of-range program index must remain empty");
         processor.prepareToPlay(48000.0, 512);
         SkellyMasterAudioProcessorEditor editor(processor);
         editor.setVisible(true); // Offscreen component has no native desktop peer.
