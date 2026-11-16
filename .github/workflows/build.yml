@@ -44,6 +44,9 @@ jobs:
           $plugin = $bundles[0]
           $binary = Join-Path $plugin.FullName 'Contents/x86_64-win/Skelly Master.vst3'
           if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Windows VST3 module missing: $binary" }
+          $moduleDir = Join-Path $plugin.FullName 'Contents/x86_64-win'
+          $modules = @(Get-ChildItem -LiteralPath $moduleDir -File -Filter '*.vst3')
+          if ($modules.Count -ne 1 -or $modules[0].Name -ne 'Skelly Master.vst3') { throw "Expected exactly one x64 Skelly Master module, found $($modules.Count)" }
           $bytes = [System.IO.File]::ReadAllBytes($binary)
           if ($bytes.Length -lt 512 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'Invalid Windows PE DOS signature' }
           $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
@@ -73,9 +76,15 @@ jobs:
 
           $binaryHash = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
           $metadataHash = (Get-FileHash -LiteralPath $info -Algorithm SHA256).Hash.ToLowerInvariant()
+          $standalone = @(Get-ChildItem -Path build -Recurse -File -Filter 'Skelly Master.exe')
+          if ($standalone.Count -ne 0) { throw 'Unexpected standalone executable in VST3-only build' }
           $stage = Join-Path $PWD 'release-package'
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
           Copy-Item -LiteralPath $plugin.FullName -Destination (Join-Path $stage 'Skelly Master.vst3') -Recurse
+          $stagedBinary = Join-Path $stage 'Skelly Master.vst3/Contents/x86_64-win/Skelly Master.vst3'
+          $stagedInfo = Join-Path $stage 'Skelly Master.vst3/Contents/Resources/moduleinfo.json'
+          if ((Get-FileHash -LiteralPath $stagedBinary -Algorithm SHA256).Hash.ToLowerInvariant() -ne $binaryHash) { throw 'Staged VST3 binary hash mismatch' }
+          if ((Get-FileHash -LiteralPath $stagedInfo -Algorithm SHA256).Hash.ToLowerInvariant() -ne $metadataHash) { throw 'Staged moduleinfo hash mismatch' }
           @(
             "$binaryHash  Skelly Master.vst3/Contents/x86_64-win/Skelly Master.vst3"
             "$metadataHash  Skelly Master.vst3/Contents/Resources/moduleinfo.json"
