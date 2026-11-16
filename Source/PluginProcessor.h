@@ -59,7 +59,7 @@ private:
     // +2dB / 5kHz post-limiter bell at host rate. Neutral by default.
     skelly::experimental::FiveBandColorPrototype fiveBandColor;
     skelly::experimental::PostLimiterPresencePrototype postLimiterPresence;
-    // Fixed-size stereo-linked true-peak lookahead; no audio-thread allocation.
+    // Legacy sample guard plus Deuce-only fixed-size true-peak lookahead.
     skelly::StereoPeakGuard legacySafetyGuard;
     skelly::StereoTruePeakGuard safetyGuard;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyMasterAudioProcessor)
