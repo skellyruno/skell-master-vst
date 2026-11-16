@@ -194,7 +194,44 @@ int main() {
                   << " dBTP\n";
     }
 
-    // Deterministic full-band bursts verify linked attenuation and finite tails
+    // Legacy factory path must retain the original sample-only guard while
+    // Deuce Match opts into reconstructed true-peak limiting.
+    {
+        constexpr double rate = 48000.0;
+        constexpr double ceiling = 0.8912509381337456; // -1 dBFS
+        StereoPeakGuard legacy;
+        legacy.prepare(rate);
+        StereoTruePeakGuard deuce;
+        deuce.prepare(rate);
+        std::vector<StereoFrame> legacyRendered, deuceRendered;
+        legacyRendered.reserve(7200);
+        deuceRendered.reserve(7200);
+        for (int i = 0; i < 7200; ++i) {
+            const double phase = 2.0 * 3.14159265358979323846
+                * 20000.0 * static_cast<double>(i) / rate + 3.14159265358979323846 / 4.0;
+            const float left = static_cast<float>(0.85 * std::sin(phase));
+            const float right = left * 0.73f;
+            legacyRendered.push_back(legacy.process({left, right}, ceiling));
+            deuceRendered.push_back(deuce.process({left, right}, ceiling, false));
+        }
+        double legacySamplePeak = 0.0;
+        for (const auto& frame : legacyRendered)
+            legacySamplePeak = std::max(legacySamplePeak,
+                std::max(std::abs(static_cast<double>(frame.left)),
+                         std::abs(static_cast<double>(frame.right))));
+        const double legacyTruePeak = independentSincPeak(legacyRendered);
+        const double deuceTruePeak = independentSincPeak(deuceRendered);
+        require(legacySamplePeak <= 0.85 + 1.0e-4,
+                "legacy sample-peak guard changed audio already below its sample ceiling");
+        require(legacyTruePeak > detail::dbToLinear(-1.0) + 1.0e-3,
+                "legacy path unexpectedly enabled the new true-peak limiter");
+        require(deuceTruePeak <= detail::dbToLinear(-1.0) + 3.0e-4,
+                "Deuce Match true-peak path failed the same inter-sample stress signal");
+        std::cout<<"PASS: legacy sample guard preserved; Deuce Match true-peak peak "
+                 <<20.0*std::log10(std::max(1.0e-12,deuceTruePeak))<<" dBTP\\n";
+    }
+
+// Deterministic full-band bursts verify linked attenuation and finite tails
     // at all supported host rates. The 16x oracle is independent of both the
     // production 257-tap detector and the test's 4x Kaiser cross-check.
     for (const double rate : {44100.0, 48000.0, 96000.0}) {
