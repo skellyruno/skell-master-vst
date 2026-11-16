@@ -135,8 +135,8 @@ int main() {
         StereoTruePeakMonitor outputMeter;
         guard.prepare(rate);
         outputMeter.reset();
-        require(guard.getLatencySamples()==11,
-                "true-peak guard must report its exact 11-sample lookahead");
+        require(guard.getLatencySamples()==32,
+                "true-peak guard must report its exact 32-sample lookahead");
         double maxTruePeak=0.0,maxSample=0.0;
         const int frames=static_cast<int>(rate*0.10);
         for(int i=0;i<frames;++i) {
@@ -220,10 +220,15 @@ int main() {
         require(maxTruePeak<=target+3.0e-4,
                 "full-band burst exceeded the true-peak target");
         const double independentPeak=independentPolyphasePeak4x(rendered);
+        const double independentPeak16x=independentSincPeak(rendered);
         require(independentPeak<=target+3.0e-4,
                 "independent 257-tap Kaiser reconstruction exceeded -1.0 dBTP on full-band bursts");
+        require(independentPeak16x<=target+3.0e-4,
+                "independent 16x sinc reconstruction exceeded -1.0 dBTP on full-band bursts");
         std::cout<<"PASS: independent 257-tap Kaiser full-band peak "
-                 <<20.0*std::log10(std::max(1.0e-12,independentPeak))<<" dBTP\\n";
+                 <<20.0*std::log10(std::max(1.0e-12,independentPeak))
+                 <<" dBTP; independent 16x sinc "
+                 <<20.0*std::log10(std::max(1.0e-12,independentPeak16x))<<" dBTP\\n";
         require(worstRatio<2.0e-5,
                 "stereo-linked true-peak gain changed channel balance");
         for(int i=0;i<rate/10;++i) {
@@ -241,9 +246,9 @@ int main() {
             const float x=i==0 ? 0.25f : 0.0f;
             const auto out=guard.process({x,-0.5f*x},
                                          detail::dbToLinear(-1.0),true);
-            if(i<11) require(out.left==0.0f&&out.right==0.0f,
+            if(i<32) require(out.left==0.0f&&out.right==0.0f,
                              "bypass delay emitted before its 11-sample latency");
-            if(i==11) require(out.left==0.25f&&out.right==-0.125f,
+            if(i==32) require(out.left==0.25f&&out.right==-0.125f,
                              "bypass did not preserve the exact delayed impulse");
             require(guard.currentGain()==1.0,
                     "bypass must never apply true-peak attenuation");
