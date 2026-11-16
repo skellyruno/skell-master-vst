@@ -73,7 +73,6 @@ void SkellyMasterAudioProcessor::releaseResources() {
     fiveBandColor.reset();
     postLimiterPresence.reset();
     legacySafetyGuard.reset();
-    legacySafetyGuard.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
     loudnessMonitor.reset();
@@ -86,6 +85,7 @@ void SkellyMasterAudioProcessor::reset() {
     engine.reset();
     fiveBandColor.reset();
     postLimiterPresence.reset();
+    legacySafetyGuard.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
     loudnessMonitor.reset();
