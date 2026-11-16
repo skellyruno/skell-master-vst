@@ -231,7 +231,7 @@ int main() {
                  <<20.0*std::log10(std::max(1.0e-12,deuceTruePeak))<<" dBTP\\n";
     }
 
-// Deterministic full-band bursts verify linked attenuation and finite tails
+    // Deterministic full-band bursts verify linked attenuation and finite tails
     // at all supported host rates. The 16x oracle is independent of both the
     // production 257-tap detector and the test's 4x Kaiser cross-check.
     for (const double rate : {44100.0, 48000.0, 96000.0}) {
