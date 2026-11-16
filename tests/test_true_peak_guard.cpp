@@ -201,17 +201,22 @@ int main() {
         constexpr double ceiling = 0.8912509381337456; // -1 dBFS
         StereoPeakGuard legacy;
         legacy.prepare(rate);
+        StereoTruePeakGuard legacyDelay;
+        legacyDelay.prepare(rate);
         StereoTruePeakGuard deuce;
         deuce.prepare(rate);
-        std::vector<StereoFrame> legacyRendered, deuceRendered;
+        std::vector<StereoFrame> legacyRendered, legacyDelayed, deuceRendered;
         legacyRendered.reserve(7200);
+        legacyDelayed.reserve(7200);
         deuceRendered.reserve(7200);
         for (int i = 0; i < 7200; ++i) {
             const double phase = 2.0 * 3.14159265358979323846
                 * 20000.0 * static_cast<double>(i) / rate + 3.14159265358979323846 / 4.0;
             const float left = static_cast<float>(0.85 * std::sin(phase));
             const float right = left * 0.73f;
-            legacyRendered.push_back(legacy.process({left, right}, ceiling));
+            const auto legacyFrame = legacy.process({left, right}, ceiling);
+            legacyRendered.push_back(legacyFrame);
+            legacyDelayed.push_back(legacyDelay.process(legacyFrame, ceiling, true));
             deuceRendered.push_back(deuce.process({left, right}, ceiling, false));
         }
         double legacySamplePeak = 0.0;
@@ -219,8 +224,17 @@ int main() {
             legacySamplePeak = std::max(legacySamplePeak,
                 std::max(std::abs(static_cast<double>(frame.left)),
                          std::abs(static_cast<double>(frame.right))));
-        const double legacyTruePeak = independentSincPeak(legacyRendered);
+        const double legacyTruePeak = independentSincPeak(legacyDelayed);
         const double deuceTruePeak = independentSincPeak(deuceRendered);
+        for (std::size_t i = 0; i < legacyDelayed.size(); ++i) {
+            const StereoFrame expected = i < 32 ? StereoFrame{}
+                : legacyRendered[i - 32];
+            require(legacyDelayed[i].left == expected.left
+                    && legacyDelayed[i].right == expected.right,
+                    "legacy sample guard changed while applying fixed PDC delay");
+            require(legacyDelay.currentGain() == 1.0,
+                    "legacy PDC delay must not apply true-peak attenuation");
+        }
         require(legacySamplePeak <= 0.85 + 1.0e-4,
                 "legacy sample-peak guard changed audio already below its sample ceiling");
         require(legacyTruePeak > detail::dbToLinear(-1.0) + 1.0e-3,
