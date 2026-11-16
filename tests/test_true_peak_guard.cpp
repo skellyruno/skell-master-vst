@@ -21,6 +21,9 @@ static double independentSincPeak(const std::vector<skelly::StereoFrame>& sample
     constexpr int phases = 16;
     constexpr int taps = 2 * halfTaps + 1;
     static const auto weights = [] {
+        constexpr int halfTaps = 32;
+        constexpr int phases = 16;
+        constexpr int taps = 2 * halfTaps + 1;
         std::array<std::array<double, taps>, phases> result {};
         for (int phase = 0; phase < phases; ++phase) {
             const double fraction = static_cast<double>(phase) / phases;
@@ -82,6 +85,7 @@ static double besselI0(double x) {
 static double independentPolyphasePeak4x(const std::vector<skelly::StereoFrame>& samples) {
     constexpr int up=4, taps=257, center=128, phases=4;
     static const auto coefficients=[] {
+        constexpr int up=4, taps=257, center=128, phases=4;
         std::array<double,taps> h {};
         double sum=0.0;
         constexpr double beta=12.0;
