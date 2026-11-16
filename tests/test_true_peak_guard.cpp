@@ -6,9 +6,64 @@
 #include <iostream>
 #include <limits>
 #include <random>
+#include <vector>
 
 static void require(bool ok, const char* message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(EXIT_FAILURE); }
+}
+
+static constexpr double independentPi = 3.1415926535897932384626433832795;
+
+// Test-only 16x windowed-sinc reconstruction. This deliberately does not use
+// StereoTruePeakMonitor, so the limiter is not checked by its own detector.
+static double independentSincPeak(const std::vector<skelly::StereoFrame>& samples) {
+    constexpr int halfTaps = 32;
+    constexpr int phases = 16;
+    constexpr int taps = 2 * halfTaps + 1;
+    static const auto weights = [] {
+        std::array<std::array<double, taps>, phases> result {};
+        for (int phase = 0; phase < phases; ++phase) {
+            const double fraction = static_cast<double>(phase) / phases;
+            double sum = 0.0;
+            for (int tap = -halfTaps; tap <= halfTaps; ++tap) {
+                const double distance = fraction - static_cast<double>(tap);
+                const double sinc = std::abs(distance) < 1.0e-12
+                    ? 1.0 : std::sin(independentPi * distance) / (independentPi * distance);
+                const double normalized = distance / halfTaps;
+                const double window = std::abs(distance) <= halfTaps
+                    ? 0.42 + 0.5 * std::cos(independentPi * normalized)
+                          + 0.08 * std::cos(2.0 * independentPi * normalized)
+                    : 0.0;
+                const double value = sinc * window;
+                result[static_cast<std::size_t>(phase)]
+                      [static_cast<std::size_t>(tap + halfTaps)] = value;
+                sum += value;
+            }
+            for (auto& value : result[static_cast<std::size_t>(phase)])
+                value /= sum;
+        }
+        return result;
+    }();
+
+    double peak = 0.0;
+    for (int frame = halfTaps;
+         frame < static_cast<int>(samples.size()) - halfTaps - 1; ++frame) {
+        const auto& current = samples[static_cast<std::size_t>(frame)];
+        peak = std::max(peak, std::max(std::abs(static_cast<double>(current.left)),
+                                      std::abs(static_cast<double>(current.right))));
+        for (int phase = 1; phase < phases; ++phase) {
+            double left = 0.0, right = 0.0;
+            for (int tap = -halfTaps; tap <= halfTaps; ++tap) {
+                const auto& sample = samples[static_cast<std::size_t>(frame + tap)];
+                const double weight = weights[static_cast<std::size_t>(phase)]
+                                            [static_cast<std::size_t>(tap + halfTaps)];
+                left += weight * sample.left;
+                right += weight * sample.right;
+            }
+            peak = std::max(peak, std::max(std::abs(left), std::abs(right)));
+        }
+    }
+    return peak;
 }
 
 int main() {
@@ -47,6 +102,36 @@ int main() {
                  <<20.0*std::log10(std::max(1.0e-12,maxTruePeak))
                  <<" dBTP, sample peak "
                  <<20.0*std::log10(std::max(1.0e-12,maxSample))<<" dBFS\n";
+    }
+
+    // Independent true-peak oracle at 20kHz. The previous test compared the
+    // guard to the same 4x FIR used internally and could therefore miss filter
+    // under-reading near the top of the audio band.
+    for (const double rate : {44100.0, 48000.0, 96000.0}) {
+        StereoTruePeakGuard guard;
+        guard.prepare(rate);
+        const int frames = static_cast<int>(rate * 0.15);
+        std::vector<StereoFrame> input, rendered;
+        input.reserve(static_cast<std::size_t>(frames));
+        rendered.reserve(static_cast<std::size_t>(frames));
+        for (int i = 0; i < frames; ++i) {
+            const double phase = 2.0 * pi * 20000.0 * i / rate + pi / 4.0;
+            const float left = static_cast<float>(0.95 * std::sin(phase));
+            const float right = left * 0.73f;
+            input.push_back({left, right});
+            const auto out = guard.process({left, right}, detail::dbToLinear(-1.0), false);
+            rendered.push_back(out);
+        }
+        const double referencePeak = independentSincPeak(input);
+        require(std::abs(referencePeak - 0.95) < 0.002,
+                "independent 16x sinc reference must recover the 20kHz sine peak");
+        const double independentPeak = independentSincPeak(rendered);
+        require(independentPeak <= target + 3.0e-4,
+                "independent 16x sinc reconstruction exceeded -1.25 dBTP at 20kHz");
+        std::cout << "PASS: independent 16x sinc 20kHz true peak at "
+                  << rate << " Hz = "
+                  << 20.0 * std::log10(std::max(1.0e-12, independentPeak))
+                  << " dBTP\n";
     }
 
     // Deterministic full-band bursts verify linked attenuation and finite tails.
