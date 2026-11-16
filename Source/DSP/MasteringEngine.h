@@ -319,8 +319,8 @@ private:
 // Stereo-linked, host-rate true-peak safety stage. The existing 48-tap / 4-phase
 // ITU Annex 2 monitor sees the next 12-sample window while the oldest sample is
 // delayed by 11 frames. Gain attacks immediately and releases over 85ms. A fixed
-// 0.6dB margin covers finite-FIR reconstruction error measured against an independent
-// high-resolution sinc reference. Bypass preserves
+// 0.8dB margin covers the measured under-read of the compact 48-tap FIR against an
+// independent 257-tap Kaiser 4x reconstruction on full-band stress audio. Bypass preserves
 // the same 11-sample latency but never attenuates. No allocations or locks.
 class StereoTruePeakGuard {
 public:
@@ -353,7 +353,7 @@ public:
         const double requestedCeiling = std::clamp(
             std::isfinite(ceilingLinear) ? ceilingLinear : detail::dbToLinear(-1.0),
             1.0e-5, 1.0);
-        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-0.6);
+        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-0.8);
         const double wantedGain = (!bypass && measuredPeak > truePeakLimit)
             ? truePeakLimit / std::max(measuredPeak, 1.0e-12) : 1.0;
 
