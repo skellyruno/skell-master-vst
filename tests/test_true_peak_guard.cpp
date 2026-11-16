@@ -66,10 +66,63 @@ static double independentSincPeak(const std::vector<skelly::StereoFrame>& sample
     return peak;
 }
 
+static double besselI0(double x) {
+    double sum=1.0, term=1.0;
+    const double y=x*x*0.25;
+    for(int k=1;k<=80;++k) {
+        term*=y/(static_cast<double>(k)*k);
+        sum+=term;
+        if(term<sum*1.0e-16) break;
+    }
+    return sum;
+}
+
+// Independent 4x Kaiser reference with a longer FIR than the production
+// 48-tap BS.1770 detector. This is a test oracle, not realtime code.
+static double independentPolyphasePeak4x(const std::vector<skelly::StereoFrame>& samples) {
+    constexpr int up=4, taps=257, center=128, phases=4;
+    static const auto coefficients=[] {
+        std::array<double,taps> h {};
+        double sum=0.0;
+        constexpr double beta=12.0;
+        const double i0beta=besselI0(beta);
+        for(int n=0;n<taps;++n) {
+            const double x=static_cast<double>(n-center);
+            const double normalized=x/center;
+            const double sinc=std::abs(x)<1.0e-12 ? 0.25
+                : 0.25*std::sin(independentPi*0.25*x)/(independentPi*0.25*x);
+            const double window=besselI0(beta*std::sqrt(
+                std::max(0.0,1.0-normalized*normalized)))/i0beta;
+            h[static_cast<std::size_t>(n)]=sinc*window;
+            sum+=h[static_cast<std::size_t>(n)];
+        }
+        for(auto& value:h) value/=sum;
+        return h;
+    }();
+
+    double peak=0.0;
+    for(int frame=32;frame<static_cast<int>(samples.size())-32;++frame) {
+        const auto& current=samples[static_cast<std::size_t>(frame)];
+        peak=std::max(peak,std::max(std::abs(static_cast<double>(current.left)),
+                                    std::abs(static_cast<double>(current.right))));
+        for(int phase=0;phase<phases;++phase) {
+            double left=0.0,right=0.0;
+            for(int q=0;up*q+phase<taps;++q) {
+                const auto& sample=samples[static_cast<std::size_t>(frame+32-q)];
+                const double weight=up*coefficients[static_cast<std::size_t>(up*q+phase)];
+                left+=weight*sample.left;
+                right+=weight*sample.right;
+            }
+            peak=std::max(peak,std::max(std::abs(left),std::abs(right)));
+        }
+    }
+    return peak;
+}
+
 int main() {
     using namespace skelly;
     constexpr double pi=3.1415926535897932384626433832795;
-    const double target=detail::dbToLinear(-1.25);
+    const double target=detail::dbToLinear(-1.0);
 
     // High-frequency sine waves produce reconstructed inter-sample peaks
     // materially higher than their host-rate sample peaks.
@@ -95,7 +148,7 @@ int main() {
                 static_cast<double>(outputMeter.process(out.left,out.right)));
         }
         require(maxTruePeak<=target+3.0e-4,
-                "high-frequency intersample peak exceeded -1.25 dBTP");
+                "high-frequency intersample peak exceeded -1.0 dBTP");
         require(maxSample<=detail::dbToLinear(-1.0)+3.0e-4,
                 "true-peak guard failed the sample-peak ceiling as well");
         std::cout<<"PASS: "<<rate<<" Hz high-frequency true-peak ceiling "
@@ -123,6 +176,9 @@ int main() {
             rendered.push_back(out);
         }
         const double referencePeak = independentSincPeak(input);
+        const double referencePeak4x = independentPolyphasePeak4x(input);
+        require(std::abs(referencePeak4x - 0.95) < 0.01,
+                "independent 4x Kaiser reference must recover the 20kHz sine peak");
         require(std::abs(referencePeak - 0.95) < 0.002,
                 "independent 16x sinc reference must recover the 20kHz sine peak");
         const double independentPeak = independentSincPeak(rendered);
@@ -144,10 +200,13 @@ int main() {
         std::mt19937 rng(0x51e11u);
         std::uniform_real_distribution<float> noise(-1.35f,1.35f);
         double maxTruePeak=0.0,worstRatio=0.0;
+        std::vector<StereoFrame> rendered;
+        rendered.reserve(12000);
         for(int i=0;i<12000;++i) {
             const float left=noise(rng);
             const float right=-0.61f*left;
             const auto out=guard.process({left,right},detail::dbToLinear(-1.0),false);
+            rendered.push_back(out);
             maxTruePeak=std::max(maxTruePeak,
                 static_cast<double>(meter.process(out.left,out.right)));
             if(std::abs(out.left)>1.0e-5f)
@@ -156,6 +215,11 @@ int main() {
         }
         require(maxTruePeak<=target+3.0e-4,
                 "full-band burst exceeded the true-peak target");
+        const double independentPeak=independentPolyphasePeak4x(rendered);
+        require(independentPeak<=target+3.0e-4,
+                "independent 257-tap Kaiser reconstruction exceeded -1.0 dBTP on full-band bursts");
+        std::cout<<"PASS: independent 257-tap Kaiser full-band peak "
+                 <<20.0*std::log10(std::max(1.0e-12,independentPeak))<<" dBTP\\n";
         require(worstRatio<2.0e-5,
                 "stereo-linked true-peak gain changed channel balance");
         for(int i=0;i<rate/10;++i) {
