@@ -194,9 +194,10 @@ int main() {
                   << " dBTP\n";
     }
 
-    // Deterministic full-band bursts verify linked attenuation and finite tails.
-    {
-        constexpr double rate=48000.0;
+    // Deterministic full-band bursts verify linked attenuation and finite tails
+    // at all supported host rates. The 16x oracle is independent of both the
+    // production 257-tap detector and the test's 4x Kaiser cross-check.
+    for (const double rate : {44100.0, 48000.0, 96000.0}) {
         StereoTruePeakGuard guard;
         StereoTruePeakMonitor meter;
         guard.prepare(rate);
@@ -204,9 +205,10 @@ int main() {
         std::mt19937 rng(0x51e11u);
         std::uniform_real_distribution<float> noise(-1.35f,1.35f);
         double maxTruePeak=0.0,worstRatio=0.0;
+        const int frames=static_cast<int>(rate*0.25);
         std::vector<StereoFrame> rendered;
-        rendered.reserve(12000);
-        for(int i=0;i<12000;++i) {
+        rendered.reserve(static_cast<std::size_t>(frames));
+        for(int i=0;i<frames;++i) {
             const float left=noise(rng);
             const float right=-0.61f*left;
             const auto out=guard.process({left,right},detail::dbToLinear(-1.0),false);
@@ -225,13 +227,13 @@ int main() {
                 "independent 257-tap Kaiser reconstruction exceeded -1.0 dBTP on full-band bursts");
         require(independentPeak16x<=target+3.0e-4,
                 "independent 16x sinc reconstruction exceeded -1.0 dBTP on full-band bursts");
-        std::cout<<"PASS: independent 257-tap Kaiser full-band peak "
+        std::cout<<"PASS: full-band true peak at "<<rate<<" Hz; Kaiser "
                  <<20.0*std::log10(std::max(1.0e-12,independentPeak))
-                 <<" dBTP; independent 16x sinc "
+                 <<" dBTP, independent 16x sinc "
                  <<20.0*std::log10(std::max(1.0e-12,independentPeak16x))<<" dBTP\\n";
         require(worstRatio<2.0e-5,
                 "stereo-linked true-peak gain changed channel balance");
-        for(int i=0;i<rate/10;++i) {
+        for(int i=0;i<static_cast<int>(rate/10.0);++i) {
             const auto out=guard.process({0.0f,0.0f},detail::dbToLinear(-1.0),false);
             require(std::isfinite(out.left)&&std::isfinite(out.right),
                     "true-peak release tail became nonfinite");
@@ -247,7 +249,7 @@ int main() {
             const auto out=guard.process({x,-0.5f*x},
                                          detail::dbToLinear(-1.0),true);
             if(i<32) require(out.left==0.0f&&out.right==0.0f,
-                             "bypass delay emitted before its 11-sample latency");
+                             "bypass delay emitted before its 32-sample latency");
             if(i==32) require(out.left==0.25f&&out.right==-0.125f,
                              "bypass did not preserve the exact delayed impulse");
             require(guard.currentGain()==1.0,
