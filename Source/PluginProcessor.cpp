@@ -31,6 +31,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout SkellyMasterAudioProcessor::
     add("clipper",    "Clip", 0.0f, 100.0f, 1.0f, 0.0f, "%");
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"bypass", 1}, "Bypass", false));
+    // Appended so all pre-existing host parameter IDs and order remain stable.
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"deuceMatch", 1}, "Deuce Match", false));
     return layout;
 }
 
@@ -53,9 +56,12 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     const double highRate = sampleRate * static_cast<double>(oversamplingFactor);
     lookaheadSamples = juce::jmax(4, static_cast<int>(std::ceil(sampleRate * 0.0015)) * oversamplingFactor);
     engine.prepare(highRate, activeChannels, lookaheadSamples);
-    setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
-                      + lookaheadSamples / oversamplingFactor);
+    fiveBandColor.prepare(highRate);
+    postLimiterPresence.prepare(sampleRate);
     safetyGuard.prepare(sampleRate);
+    setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
+                      + lookaheadSamples / oversamplingFactor
+                      + safetyGuard.getLatencySamples());
     truePeakMonitor.reset();
     loudnessMonitor.prepare(sampleRate,activeChannels);
     peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
@@ -63,6 +69,8 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
 }
 
 void SkellyMasterAudioProcessor::releaseResources() {
+    fiveBandColor.reset();
+    postLimiterPresence.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
     loudnessMonitor.reset();
@@ -73,6 +81,8 @@ void SkellyMasterAudioProcessor::releaseResources() {
 void SkellyMasterAudioProcessor::reset() {
     if (oversampler) oversampler->reset();
     engine.reset();
+    fiveBandColor.reset();
+    postLimiterPresence.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
     loudnessMonitor.reset();
@@ -111,6 +121,14 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     engine.setParameters(p);
     engine.beginBlock();
 
+    // Only the SKELL MASTER factory (or explicit host automation) enables
+    // these Deuce-derived stages. Existing sessions default to neutral.
+    const bool deuceMatch = parameters.getRawParameterValue("deuceMatch")
+        ->load(std::memory_order_relaxed) >= 0.5f && !p.bypass;
+    skelly::experimental::FiveBandColorSettings deuceColor;
+    deuceColor.wet = deuceMatch ? 0.75 : 0.0;
+    deuceColor.intensity = {0.38, 0.55, 0.64, 0.72, 0.84};
+
     // Reject malformed input BEFORE JUCE's oversampling filter stages.
     // Sanitizing only the oversampled samples is too late: NaN or Inf can
     // contaminate IIR filter memory and persist long after the bad sample.
@@ -134,27 +152,28 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     const size_t highRateFrames = highRateBlock.getNumSamples();
     for (size_t i = 0; i < highRateFrames; ++i) {
         const auto out = engine.processFrame(left[i], channels == 2 ? right[i] : left[i]);
-        left[i] = out.left;
-        if (channels == 2) right[i] = out.right;
+        double colorL = out.left;
+        double colorR = channels == 2 ? out.right : out.left;
+        fiveBandColor.process(colorL, colorR, deuceColor);
+        left[i] = static_cast<float>(colorL);
+        if (channels == 2) right[i] = static_cast<float>(colorR);
     }
     oversampler->processSamplesDown(original);
 
-    // Stereo-linked post-oversampling limiter. Shared and regression-tested
-    // with the standalone C++ DSP module: immediate attenuation, smooth
-    // recovery, no audio-thread allocations. Ceiling is sample-peak only.
-    if (!p.bypass) {
-        const double ceiling = skelly::detail::dbToLinear(p.ceilingDb);
-        auto* outL = buffer.getWritePointer(0);
-        auto* outR = channels == 2 ? buffer.getWritePointer(1) : nullptr;
-        for (int i = 0; i < samples; ++i) {
-            const auto corrected = safetyGuard.process(
-                {outL[i], outR ? outR[i] : outL[i]}, ceiling);
-            outL[i] = corrected.left;
-            if (outR) outR[i] = corrected.right;
-        }
-    } else {
-        // Bypass must be unmodified, apart from the existing aligned delay.
-        safetyGuard.reset();
+    // The Deuce reference's final +2dB / 5kHz EQ sits after its limiter.
+    // Keep it opt-in and follow it with the true-peak lookahead guard.
+    const double ceiling = skelly::detail::dbToLinear(p.ceilingDb);
+    auto* outL = buffer.getWritePointer(0);
+    auto* outR = channels == 2 ? buffer.getWritePointer(1) : nullptr;
+    const double presenceWet = deuceMatch ? 1.0 : 0.0;
+    for (int i = 0; i < samples; ++i) {
+        double postL = outL[i];
+        double postR = outR ? outR[i] : postL;
+        postLimiterPresence.process(postL, postR, presenceWet);
+        const auto corrected = safetyGuard.process(
+            {static_cast<float>(postL), static_cast<float>(postR)}, ceiling, p.bypass);
+        outL[i] = corrected.left;
+        if (outR) outR[i] = corrected.right;
     }
     float maximumL = 0.0f, maximumR = 0.0f, maximumTP = 0.0f;
     const auto* readL = buffer.getReadPointer(0);
@@ -188,7 +207,7 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",3,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",4,nullptr);
     if (auto xml=snapshot.createXml()) copyXmlToBinary(*xml,dest);
 }
 
@@ -227,7 +246,22 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             clipperState.setProperty("value",0.0f,nullptr);
             snapshot.appendChild(clipperState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",3,nullptr);
+        // V1/V2/V3 sessions predate Deuce Match. Add an explicit neutral
+        // value so the new reference-only stages never activate on old projects.
+        bool hasDeuceMatch=false;
+        for(int index=0;index<snapshot.getNumChildren();++index) {
+            if(snapshot.getChild(index).getProperty("id").toString()=="deuceMatch") {
+                hasDeuceMatch=true;
+                break;
+            }
+        }
+        if(!hasDeuceMatch && snapshot.getNumChildren()>0) {
+            juce::ValueTree deuceMatchState(snapshot.getChild(0).getType());
+            deuceMatchState.setProperty("id","deuceMatch",nullptr);
+            deuceMatchState.setProperty("value",0.0f,nullptr);
+            snapshot.appendChild(deuceMatchState,nullptr);
+        }
+        snapshot.setProperty("skellMasterStateVersion",4,nullptr);
         parameters.replaceState(snapshot);
     }
 }

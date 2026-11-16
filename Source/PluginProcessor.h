@@ -2,6 +2,8 @@
 #include <JuceHeader.h>
 #include "DSP/MasteringEngine.h"
 #include "DSP/LoudnessMeter.h"
+#include "DSP/FiveBandColorPrototype.h"
+#include "DSP/PostLimiterPresencePrototype.h"
 #include <atomic>
 #include <memory>
 
@@ -53,7 +55,11 @@ private:
     std::atomic<float> momentaryLufs {-100.0f}, shortTermLufs {-100.0f};
     int activeChannels = 2;
     int lookaheadSamples = 0;
-    // Fixed-size stereo-linked final safety processing; no audio-thread allocation.
-    skelly::StereoPeakGuard safetyGuard;
+    // Opt-in Deuce reference stages: five-band coloration at 4x and a
+    // +2dB / 5kHz post-limiter bell at host rate. Neutral by default.
+    skelly::experimental::FiveBandColorPrototype fiveBandColor;
+    skelly::experimental::PostLimiterPresencePrototype postLimiterPresence;
+    // Fixed-size stereo-linked true-peak lookahead; no audio-thread allocation.
+    skelly::StereoTruePeakGuard safetyGuard;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyMasterAudioProcessor)
 };

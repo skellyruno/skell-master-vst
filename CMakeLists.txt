@@ -73,7 +73,9 @@ target_sources(SkellyMaster PRIVATE
     Source/UI/StarSkullMark.h
     Source/UI/HardwareFinish.h
     Source/DSP/MasteringEngine.h
-    Source/DSP/LoudnessMeter.h)
+    Source/DSP/LoudnessMeter.h
+    Source/DSP/FiveBandColorPrototype.h
+    Source/DSP/PostLimiterPresencePrototype.h)
 target_compile_features(SkellyMaster PRIVATE cxx_std_17)
 target_compile_definitions(SkellyMaster PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0)
 target_compile_definitions(SkellyMaster PRIVATE
@@ -90,20 +92,25 @@ add_executable(SkellyDSPTests tests/test_mastering.cpp)
 target_compile_features(SkellyDSPTests PRIVATE cxx_std_17)
 add_test(NAME SkellyDSPTests COMMAND SkellyDSPTests)
 
-# Independent diagnostic: confirms that a sample-peak ceiling alone cannot
-# certify intersample true-peak compliance. No DSP behavior is modified.
+# Legacy diagnostic: confirms why the old sample-peak-only guard could not
+# certify intersample true-peak compliance. Production now uses the guard below.
 add_executable(SkellyTruePeakGapTests tests/test_true_peak_gap.cpp)
 target_compile_features(SkellyTruePeakGapTests PRIVATE cxx_std_17)
 add_test(NAME SkellyTruePeakGapTests COMMAND SkellyTruePeakGapTests)
 
-# Experimental audio coloration prototype: compiled/tested separately from the
-# shipped mastering processing chain until real-music A/B is approved.
+# Production final true-peak guard: 4x reconstruction, 11-sample lookahead,
+# linked stereo gain, fixed safety margin, bypass alignment and finite recovery.
+add_executable(SkellyTruePeakGuardTests tests/test_true_peak_guard.cpp)
+target_compile_features(SkellyTruePeakGuardTests PRIVATE cxx_std_17)
+add_test(NAME SkellyTruePeakGuardTests COMMAND SkellyTruePeakGuardTests)
+
+# Deuce Match uses this five-band stage only when the SKELL MASTER factory is selected.
 add_executable(SkellyFiveBandColorTests tests/test_five_band_color.cpp)
 target_compile_features(SkellyFiveBandColorTests PRIVATE cxx_std_17)
 add_test(NAME SkellyFiveBandColorTests COMMAND SkellyFiveBandColorTests)
 
-# Reference chain's +2dB / 5kHz post-limiter presence is an original,
-# optional prototype, not wired to the release audio path.
+# Reference chain's +2dB / 5kHz post-limiter presence is used only by the
+# opt-in Deuce Match mode; zero mix remains exact dry for all legacy presets.
 add_executable(SkellyPostLimiterPresenceTests tests/test_post_limiter_presence.cpp)
 target_compile_features(SkellyPostLimiterPresenceTests PRIVATE cxx_std_17)
 add_test(NAME SkellyPostLimiterPresenceTests COMMAND SkellyPostLimiterPresenceTests)
