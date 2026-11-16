@@ -41,3 +41,12 @@ The original four factory presets retain their parameter values and keep `deuceM
 - Native reference-audio render / synchronized A-B: not yet run on this branch.
 - FL Studio session save/reload and user listening acceptance: not run.
 - The old offline five-band page is retained as a comparison baseline; it is not represented as the output of this new production-path code.
+
+
+## 2026-11-16 — independent true-peak calibration correction
+
+The first 0.3 dB safety margin passed a regression that used the same 4x FIR detector as both limiter and test oracle. Re-checking the recovered 15-second master/no-chain excerpts with an independent 16x windowed-sinc reconstruction and FFmpeg `ebur128=peak=true` showed the guarded output at about **-1.03 / -1.1 dBTP**, above the test's -1.25 dBTP target. The test was circular; the audio evidence exposed the gap.
+
+The final guard margin is now **0.6 dB**. A local offline Python mirror of the guard (not the compiled VST3) measured the two original excerpts at approximately **-1.33 / -1.34 dBTP** with the independent sinc reconstruction; FFmpeg reported **-1.4 dBTP** for both. A new portable C++ regression uses a separate 16-phase, 65-tap Blackman-windowed sinc oracle on a 20 kHz tone at 44.1 / 48 / 96 kHz, verifies its unprocessed reference peak, then requires the guarded output to remain below -1.25 dBTP. This prevents the guard from being validated only by its own detector.
+
+The new exact-head Windows workflow must pass this independent regression. The offline reference calibration is not a native VST3 music render; FL Studio session recall, target-music VST3 A/B, CPU/latency profiling and user listening acceptance remain open.
