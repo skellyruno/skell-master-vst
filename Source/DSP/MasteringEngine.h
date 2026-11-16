@@ -374,7 +374,7 @@ public:
         for (int phase = 0; phase < oversampling; ++phase) {
             double reconstructedLeft = 0.0;
             double reconstructedRight = 0.0;
-            for (int q = 0; q < historyLength; ++q) {
+            for (int q = 0; oversampling * q + phase < tapCount; ++q) {
                 int index = static_cast<int>(writeIndex) - q;
                 if (index < 0)
                     index += historyLength;
