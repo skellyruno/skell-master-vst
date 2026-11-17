@@ -316,21 +316,118 @@ private:
     int newest = 0;
 };
 
-// Stereo-linked, host-rate true-peak safety stage. The existing 48-tap / 4-phase
-// ITU Annex 2 monitor sees the next 12-sample window while the oldest sample is
-// delayed by 11 frames. Gain attacks immediately and releases over 85ms. A fixed
-// 0.8dB margin covers the measured under-read of the compact 48-tap FIR against an
-// independent 257-tap Kaiser 4x reconstruction on full-band stress audio. Bypass preserves
-// the same 11-sample latency but never attenuates. No allocations or locks.
+// Four-times reconstructed true-peak detector with a longer, symmetric Kaiser FIR.
+// At each host frame it estimates the interval around the sample delayed by 32 frames.
+// Coefficients are prepared off the audio thread; processing uses fixed arrays only.
+class StereoTruePeakDetector4x {
+public:
+    static constexpr int oversampling = 4;
+    static constexpr int tapCount = 257;
+    static constexpr int centerTap = 128;
+    static constexpr int lookaheadSamples = 32;
+    static constexpr int historyLength = 2 * lookaheadSamples + 1;
+
+    void prepare() noexcept {
+        constexpr double pi = 3.1415926535897932384626433832795;
+        constexpr double beta = 12.0;
+        const double i0Beta = besselI0(beta);
+        double sum = 0.0;
+        for (int n = 0; n < tapCount; ++n) {
+            const double x = static_cast<double>(n - centerTap);
+            const double normalized = x / static_cast<double>(centerTap);
+            const double argument = pi * 0.25 * x;
+            const double sinc = std::abs(x) < 1.0e-12
+                ? 0.25 : 0.25 * std::sin(argument) / argument;
+            const double window = besselI0(beta * std::sqrt(
+                std::max(0.0, 1.0 - normalized * normalized))) / i0Beta;
+            coefficients[static_cast<std::size_t>(n)] = sinc * window;
+            sum += sinc * window;
+        }
+        if (std::isfinite(sum) && std::abs(sum) > 1.0e-12) {
+            for (auto& value : coefficients)
+                value /= sum;
+        }
+        reset();
+    }
+
+    void reset() noexcept {
+        history.fill({});
+        writeIndex = 0;
+    }
+
+    float process(float left, float right) noexcept {
+        const float safeLeft = static_cast<float>(detail::clamp(
+            detail::finiteSample(static_cast<double>(left)), -256.0, 256.0));
+        const float safeRight = static_cast<float>(detail::clamp(
+            detail::finiteSample(static_cast<double>(right)), -256.0, 256.0));
+        history[writeIndex] = { safeLeft, safeRight };
+
+        int delayedIndex = static_cast<int>(writeIndex) - lookaheadSamples;
+        if (delayedIndex < 0)
+            delayedIndex += historyLength;
+        const auto& delayed = history[static_cast<std::size_t>(delayedIndex)];
+        double maximum = std::max(std::abs(static_cast<double>(delayed.left)),
+                                  std::abs(static_cast<double>(delayed.right)));
+
+        // Each phase is one reconstructed point between the delayed sample
+        // and its next host-rate neighbour. Stereo channels share one peak.
+        for (int phase = 0; phase < oversampling; ++phase) {
+            double reconstructedLeft = 0.0;
+            double reconstructedRight = 0.0;
+            for (int q = 0; oversampling * q + phase < tapCount; ++q) {
+                int index = static_cast<int>(writeIndex) - q;
+                if (index < 0)
+                    index += historyLength;
+                const auto& sample = history[static_cast<std::size_t>(index)];
+                const double weight = static_cast<double>(oversampling)
+                    * coefficients[static_cast<std::size_t>(oversampling * q + phase)];
+                reconstructedLeft += weight * sample.left;
+                reconstructedRight += weight * sample.right;
+            }
+            maximum = std::max(maximum, std::max(std::abs(reconstructedLeft),
+                                                 std::abs(reconstructedRight)));
+        }
+
+        if (++writeIndex == static_cast<std::size_t>(historyLength))
+            writeIndex = 0;
+        return static_cast<float>(maximum);
+    }
+
+private:
+    static double besselI0(double x) noexcept {
+        double sum = 1.0;
+        double term = 1.0;
+        const double y = x * x * 0.25;
+        for (int k = 1; k <= 80; ++k) {
+            term *= y / (static_cast<double>(k) * k);
+            sum += term;
+            if (term < sum * 1.0e-16)
+                break;
+        }
+        return sum;
+    }
+
+    std::array<double, tapCount> coefficients {};
+    std::array<StereoFrame, historyLength> history {};
+    std::size_t writeIndex = 0;
+};
+
+// Stereo-linked host-rate true-peak safety stage. A 257-tap / 4-phase Kaiser
+// reconstruction detector sees the interval 32 host samples ahead of the
+// delayed output. Gain attacks immediately and releases over 85ms. A fixed
+// 1.0dB margin covers the remaining difference to an independent 16x
+// windowed-sinc oracle on high-crest full-band stress signals. Bypass preserves
+// the same 32-sample latency but never attenuates. No audio-thread allocation.
 class StereoTruePeakGuard {
 public:
-    static constexpr int delayLength = 12;
-    static constexpr int lookaheadSamples = delayLength - 1;
+    static constexpr int delayLength = StereoTruePeakDetector4x::lookaheadSamples + 1;
+    static constexpr int lookaheadSamples = StereoTruePeakDetector4x::lookaheadSamples;
 
     void prepare(double sampleRate) noexcept {
         const double rate = std::isfinite(sampleRate)
             ? std::max(1.0, sampleRate) : 48000.0;
         release = std::exp(-1.0 / (rate * 0.085));
+        detector.prepare();
         reset();
     }
 
@@ -353,7 +450,7 @@ public:
         const double requestedCeiling = std::clamp(
             std::isfinite(ceilingLinear) ? ceilingLinear : detail::dbToLinear(-1.0),
             1.0e-5, 1.0);
-        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-0.8);
+        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-1.0);
         const double wantedGain = (!bypass && measuredPeak > truePeakLimit)
             ? truePeakLimit / std::max(measuredPeak, 1.0e-12) : 1.0;
 
@@ -381,7 +478,7 @@ public:
     int getLatencySamples() const noexcept { return lookaheadSamples; }
 
 private:
-    StereoTruePeakMonitor detector;
+    StereoTruePeakDetector4x detector;
     std::array<std::array<float, delayLength>, 2> delay {};
     std::size_t writeIndex = 0;
     double gain = 1.0;

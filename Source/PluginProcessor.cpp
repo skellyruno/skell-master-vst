@@ -58,6 +58,7 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     engine.prepare(highRate, activeChannels, lookaheadSamples);
     fiveBandColor.prepare(highRate);
     postLimiterPresence.prepare(sampleRate);
+    legacySafetyGuard.prepare(sampleRate);
     safetyGuard.prepare(sampleRate);
     setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
                       + lookaheadSamples / oversamplingFactor
@@ -71,6 +72,7 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
 void SkellyMasterAudioProcessor::releaseResources() {
     fiveBandColor.reset();
     postLimiterPresence.reset();
+    legacySafetyGuard.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
     loudnessMonitor.reset();
@@ -83,6 +85,7 @@ void SkellyMasterAudioProcessor::reset() {
     engine.reset();
     fiveBandColor.reset();
     postLimiterPresence.reset();
+    legacySafetyGuard.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
     loudnessMonitor.reset();
@@ -161,7 +164,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     oversampler->processSamplesDown(original);
 
     // The Deuce reference's final +2dB / 5kHz EQ sits after its limiter.
-    // Keep it opt-in and follow it with the true-peak lookahead guard.
+    // Keep it opt-in; legacy factories retain their original sample limiter.
     const double ceiling = skelly::detail::dbToLinear(p.ceilingDb);
     auto* outL = buffer.getWritePointer(0);
     auto* outR = channels == 2 ? buffer.getWritePointer(1) : nullptr;
@@ -170,8 +173,18 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         double postL = outL[i];
         double postR = outR ? outR[i] : postL;
         postLimiterPresence.process(postL, postR, presenceWet);
+        const skelly::StereoFrame postFrame {
+            static_cast<float>(postL), static_cast<float>(postR)
+        };
+        // Preserve the original sample-peak guard for all legacy factories.
+        // Only the opt-in SKELL MASTER / Deuce Match path uses reconstructed
+        // true-peak limiting. The fixed 32-sample delay remains in both paths
+        // so host PDC never changes when the automatable mode is switched.
+        const auto legacyLimited = legacySafetyGuard.process(postFrame, ceiling);
+        const auto inputToTruePeak = deuceMatch ? postFrame
+            : (p.bypass ? postFrame : legacyLimited);
         const auto corrected = safetyGuard.process(
-            {static_cast<float>(postL), static_cast<float>(postR)}, ceiling, p.bypass);
+            inputToTruePeak, ceiling, p.bypass || !deuceMatch);
         outL[i] = corrected.left;
         if (outR) outR[i] = corrected.right;
     }
@@ -195,8 +208,10 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     shortTermLufs.store(static_cast<float>(loudnessMonitor.shortTermLufs()),std::memory_order_relaxed);
     // Report the strongest gain reduction actually applied, including the
     // final safety stage after the JUCE downsampler.
+    const double activeGuardGain = deuceMatch ? safetyGuard.currentGain()
+        : (p.bypass ? 1.0 : legacySafetyGuard.currentGain());
     const float postReductionDb = static_cast<float>(
-        juce::jmax(0.0, -skelly::detail::linearToDb(safetyGuard.currentGain())));
+        juce::jmax(0.0, -skelly::detail::linearToDb(activeGuardGain)));
     atomicMax(reduction, juce::jmax(static_cast<float>(engine.getBlockGainReductionDb()),
                                    p.bypass ? 0.0f : postReductionDb));
 }

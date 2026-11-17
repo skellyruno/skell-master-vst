@@ -135,8 +135,8 @@ int main() {
         StereoTruePeakMonitor outputMeter;
         guard.prepare(rate);
         outputMeter.reset();
-        require(guard.getLatencySamples()==11,
-                "true-peak guard must report its exact 11-sample lookahead");
+        require(guard.getLatencySamples()==32,
+                "true-peak guard must report its exact 32-sample lookahead");
         double maxTruePeak=0.0,maxSample=0.0;
         const int frames=static_cast<int>(rate*0.10);
         for(int i=0;i<frames;++i) {
@@ -194,9 +194,61 @@ int main() {
                   << " dBTP\n";
     }
 
-    // Deterministic full-band bursts verify linked attenuation and finite tails.
+    // Legacy factory path must retain the original sample-only guard while
+    // Deuce Match opts into reconstructed true-peak limiting.
     {
-        constexpr double rate=48000.0;
+        constexpr double rate = 48000.0;
+        constexpr double ceiling = 0.8912509381337456; // -1 dBFS
+        StereoPeakGuard legacy;
+        legacy.prepare(rate);
+        StereoTruePeakGuard legacyDelay;
+        legacyDelay.prepare(rate);
+        StereoTruePeakGuard deuce;
+        deuce.prepare(rate);
+        std::vector<StereoFrame> legacyRendered, legacyDelayed, deuceRendered;
+        legacyRendered.reserve(7200);
+        legacyDelayed.reserve(7200);
+        deuceRendered.reserve(7200);
+        for (int i = 0; i < 7200; ++i) {
+            const double phase = 2.0 * 3.14159265358979323846
+                * 20000.0 * static_cast<double>(i) / rate + 3.14159265358979323846 / 4.0;
+            const float left = static_cast<float>(0.92 * std::sin(phase));
+            const float right = left * 0.73f;
+            const auto legacyFrame = legacy.process({left, right}, ceiling);
+            legacyRendered.push_back(legacyFrame);
+            legacyDelayed.push_back(legacyDelay.process(legacyFrame, ceiling, true));
+            deuceRendered.push_back(deuce.process({left, right}, ceiling, false));
+        }
+        double legacySamplePeak = 0.0;
+        for (const auto& frame : legacyRendered)
+            legacySamplePeak = std::max(legacySamplePeak,
+                std::max(std::abs(static_cast<double>(frame.left)),
+                         std::abs(static_cast<double>(frame.right))));
+        const double legacyTruePeak = independentSincPeak(legacyDelayed);
+        const double deuceTruePeak = independentSincPeak(deuceRendered);
+        for (std::size_t i = 0; i < legacyDelayed.size(); ++i) {
+            const StereoFrame expected = i < 32 ? StereoFrame{}
+                : legacyRendered[i - 32];
+            require(legacyDelayed[i].left == expected.left
+                    && legacyDelayed[i].right == expected.right,
+                    "legacy sample guard changed while applying fixed PDC delay");
+            require(legacyDelay.currentGain() == 1.0,
+                    "legacy PDC delay must not apply true-peak attenuation");
+        }
+        require(legacySamplePeak > 0.85 && legacySamplePeak < ceiling - 1.0e-4,
+                "legacy sample-peak guard must pass through samples below its ceiling");
+        require(legacyTruePeak > detail::dbToLinear(-1.0) + 1.0e-3,
+                "legacy path unexpectedly enabled the new true-peak limiter");
+        require(deuceTruePeak <= detail::dbToLinear(-1.0) + 3.0e-4,
+                "Deuce Match true-peak path failed the same inter-sample stress signal");
+        std::cout<<"PASS: legacy sample guard preserved; Deuce Match true-peak peak "
+                 <<20.0*std::log10(std::max(1.0e-12,deuceTruePeak))<<" dBTP\\n";
+    }
+
+    // Deterministic full-band bursts verify linked attenuation and finite tails
+    // at all supported host rates. The 16x oracle is independent of both the
+    // production 257-tap detector and the test's 4x Kaiser cross-check.
+    for (const double rate : {44100.0, 48000.0, 96000.0}) {
         StereoTruePeakGuard guard;
         StereoTruePeakMonitor meter;
         guard.prepare(rate);
@@ -204,9 +256,10 @@ int main() {
         std::mt19937 rng(0x51e11u);
         std::uniform_real_distribution<float> noise(-1.35f,1.35f);
         double maxTruePeak=0.0,worstRatio=0.0;
+        const int frames=static_cast<int>(rate*0.25);
         std::vector<StereoFrame> rendered;
-        rendered.reserve(12000);
-        for(int i=0;i<12000;++i) {
+        rendered.reserve(static_cast<std::size_t>(frames));
+        for(int i=0;i<frames;++i) {
             const float left=noise(rng);
             const float right=-0.61f*left;
             const auto out=guard.process({left,right},detail::dbToLinear(-1.0),false);
@@ -220,13 +273,18 @@ int main() {
         require(maxTruePeak<=target+3.0e-4,
                 "full-band burst exceeded the true-peak target");
         const double independentPeak=independentPolyphasePeak4x(rendered);
+        const double independentPeak16x=independentSincPeak(rendered);
         require(independentPeak<=target+3.0e-4,
                 "independent 257-tap Kaiser reconstruction exceeded -1.0 dBTP on full-band bursts");
-        std::cout<<"PASS: independent 257-tap Kaiser full-band peak "
-                 <<20.0*std::log10(std::max(1.0e-12,independentPeak))<<" dBTP\\n";
+        require(independentPeak16x<=target+3.0e-4,
+                "independent 16x sinc reconstruction exceeded -1.0 dBTP on full-band bursts");
+        std::cout<<"PASS: full-band true peak at "<<rate<<" Hz; Kaiser "
+                 <<20.0*std::log10(std::max(1.0e-12,independentPeak))
+                 <<" dBTP, independent 16x sinc "
+                 <<20.0*std::log10(std::max(1.0e-12,independentPeak16x))<<" dBTP\\n";
         require(worstRatio<2.0e-5,
                 "stereo-linked true-peak gain changed channel balance");
-        for(int i=0;i<rate/10;++i) {
+        for(int i=0;i<static_cast<int>(rate/10.0);++i) {
             const auto out=guard.process({0.0f,0.0f},detail::dbToLinear(-1.0),false);
             require(std::isfinite(out.left)&&std::isfinite(out.right),
                     "true-peak release tail became nonfinite");
@@ -241,9 +299,9 @@ int main() {
             const float x=i==0 ? 0.25f : 0.0f;
             const auto out=guard.process({x,-0.5f*x},
                                          detail::dbToLinear(-1.0),true);
-            if(i<11) require(out.left==0.0f&&out.right==0.0f,
-                             "bypass delay emitted before its 11-sample latency");
-            if(i==11) require(out.left==0.25f&&out.right==-0.125f,
+            if(i<32) require(out.left==0.0f&&out.right==0.0f,
+                             "bypass delay emitted before its 32-sample latency");
+            if(i==32) require(out.left==0.25f&&out.right==-0.125f,
                              "bypass did not preserve the exact delayed impulse");
             require(guard.currentGain()==1.0,
                     "bypass must never apply true-peak attenuation");
