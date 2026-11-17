@@ -317,6 +317,8 @@ int main() {
         bypassWarmed.prepare(48000.0);
         alwaysTracking.prepare(48000.0);
         const double ceiling = detail::dbToLinear(-1.0);
+        std::vector<StereoFrame> resumedOutput;
+        resumedOutput.reserve(4096);
         for (int i = 0; i < 256; ++i) {
             const float x = static_cast<float>(0.05 * std::sin(
                 2.0 * detail::pi * 997.0 * static_cast<double>(i) / 48000.0));
@@ -325,6 +327,7 @@ int main() {
             const auto trackedOut = alwaysTracking.process(input, ceiling, false);
             require(bypassOut.left == trackedOut.left && bypassOut.right == trackedOut.right,
                     "bypassed warm-up changed the fixed-latency dry signal");
+            resumedOutput.push_back(bypassOut);
         }
         double maxSamplePeak = 0.0;
         for (int i = 256; i < 4096; ++i) {
@@ -337,13 +340,19 @@ int main() {
             require(std::abs(bypassOut.left - trackedOut.left) < 1.0e-7f
                     && std::abs(bypassOut.right - trackedOut.right) < 1.0e-7f,
                     "bypassed true-peak detector lost history before re-enable");
+            resumedOutput.push_back(bypassOut);
             maxSamplePeak = std::max(maxSamplePeak,
                 std::max(std::abs(static_cast<double>(bypassOut.left)),
                          std::abs(static_cast<double>(bypassOut.right))));
         }
         require(maxSamplePeak > 0.1 && maxSamplePeak < 0.90,
                 "re-enabled Deuce guard did not resume finite peak control");
-        std::cout << "PASS: bypass skips FIR measurement, retains history, and re-enables cleanly\n";
+        const double resumedTruePeak = independentSincPeak(resumedOutput);
+        require(resumedTruePeak <= ceiling + 3.0e-4,
+                "reactivated Deuce guard exceeded the requested -1 dBTP ceiling");
+        std::cout << "PASS: bypass skips FIR measurement, retains history, and re-enables cleanly; "
+                  << "reactivated true peak "
+                  << 20.0 * std::log10(std::max(1.0e-12, resumedTruePeak)) << " dBTP\n";
     }
 
     // Direct detector regression: history-only updates must produce the same
