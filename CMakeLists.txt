@@ -105,7 +105,7 @@ add_executable(SkellyTruePeakGuardTests tests/test_true_peak_guard.cpp)
 target_compile_features(SkellyTruePeakGuardTests PRIVATE cxx_std_17)
 add_test(NAME SkellyTruePeakGuardTests COMMAND SkellyTruePeakGuardTests)
 
-# Deuce Match uses this five-band stage only when the SKELL MASTER factory is selected.
+# Deuce Match uses this five-band stage when its appended host parameter is enabled.
 add_executable(SkellyFiveBandColorTests tests/test_five_band_color.cpp)
 target_compile_features(SkellyFiveBandColorTests PRIVATE cxx_std_17)
 add_test(NAME SkellyFiveBandColorTests COMMAND SkellyFiveBandColorTests)
