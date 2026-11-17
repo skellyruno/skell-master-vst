@@ -20,6 +20,10 @@ static void require(bool condition, const char* why) {
     if (!condition) throw std::runtime_error(why);
 }
 
+static void require(bool condition, const std::string& why) {
+    if (!condition) throw std::runtime_error(why);
+}
+
 struct Measurements {
     double samplePeak=0.0, reconstructedPeak=0.0, sumSquares=0.0;
     double midEnergy=0.0, sideEnergy=0.0, firstInputImpulse=-1.0, firstOutputImpulse=-1.0;
