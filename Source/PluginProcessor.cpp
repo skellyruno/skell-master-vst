@@ -231,7 +231,7 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         const auto factoryText=savedFactoryPreset.toString().trim();
         int parsedFactoryPreset=0;
         bool validFactoryPreset=!factoryText.isEmpty();
-        for(auto cursor=factoryText.toRawUTF8();!cursor.isEmpty();++cursor) {
+        for(const char* cursor=factoryText.toRawUTF8();*cursor!='\0';++cursor) {
             const auto character=*cursor;
             if(character<'0'||character>'9') {
                 validFactoryPreset=false;
