@@ -316,6 +316,8 @@ int main() {
               "reference preset label must be visible in the real selector");
         check(processor.getFactoryPresetId()==5,
               "factory selector must update its non-automatable state identity");
+        check(processor.parameters.getParameter("skellMasterFactoryPreset")==nullptr,
+              "factory identity must not create a new automation parameter");
         const struct {const char* id; float expected;} matched[]={
             {"input",4.0f},{"drive",8.0f},{"glue",17.0f},
             {"dynamics",11.0f},{"lows",-1.0f},{"highs",3.0f},
@@ -370,15 +372,18 @@ int main() {
               "Deuce Match did not survive host state save/reload");
         check(restoredState.getFactoryPresetId()==5,
               "factory preset identity did not survive host state save/reload");
-        SkellyMasterAudioProcessorEditor restoredEditor(restoredState);
-        juce::ComboBox* restoredPreset=nullptr;
-        for(int i=0;i<restoredEditor.getNumChildComponents();++i)
-            if(auto* combo=dynamic_cast<juce::ComboBox*>(restoredEditor.getChildComponent(i)))
-                if(combo->getComponentID()=="skell-master-preset") restoredPreset=combo;
-        check(restoredPreset && restoredPreset->getSelectedId()==5,
-              "restored editor did not display the saved SKELL MASTER factory name");
+        {
+            SkellyMasterAudioProcessorEditor restoredEditor(restoredState);
+            juce::ComboBox* restoredPreset=nullptr;
+            for(int i=0;i<restoredEditor.getNumChildComponents();++i)
+                if(auto* combo=dynamic_cast<juce::ComboBox*>(restoredEditor.getChildComponent(i)))
+                    if(combo->getComponentID()=="skell-master-preset") restoredPreset=combo;
+            check(restoredPreset && restoredPreset->getSelectedId()==5,
+                  "restored editor did not display the saved SKELL MASTER factory name");
+        }
 
-        // A pre-v4 APVTS tree has no Deuce Match child; it must remain neutral.
+        // A legacy parameter tree has no Deuce Match child or factory identity;
+        // it must stay neutral and display SELECT rather than a stale factory name.
         auto legacyState=processor.parameters.copyState();
         for(int index=legacyState.getNumChildren()-1;index>=0;--index)
             if(legacyState.getChild(index).getProperty("id").toString()=="deuceMatch")
@@ -387,6 +392,8 @@ int main() {
         restoredLegacyState.parameters.replaceState(legacyState);
         check(restoredLegacyState.parameters.getRawParameterValue("deuceMatch")->load()<0.5f,
               "legacy project without Deuce Match must default to OFF");
+        check(restoredLegacyState.getFactoryPresetId()==0,
+              "legacy project without factory identity must restore the SELECT label");
         processor.parameters.getParameter("deuceMatch")->setValueNotifyingHost(0.0f);
         std::cout << "PASS: true-peak safety, Deuce Match state recall, clipper, bypass and automation bindings\n";
 
