@@ -271,9 +271,25 @@ int main(int argc, char** argv) {
         metrics.meter.reset();
         juce::AudioBuffer<float> buffer(2,blockSize);
         juce::MidiBuffer midi;
-        std::vector<float> output;
-        if(argc>=4) output.reserve(static_cast<size_t>(totalFrames)*2);
+        // Stream rendered blocks directly to disk. The previous whole-file
+        // vector plus a second full AudioBuffer doubled peak memory usage and
+        // could approach 1 GiB for the documented 10-minute / 96 kHz limit.
+        std::unique_ptr<juce::AudioFormatWriter> outputWriter;
+        if(argc>=4) {
+            const juce::File outputPath(juce::String::fromUTF8(argv[3]));
+            std::unique_ptr<juce::OutputStream> stream=outputPath.createOutputStream();
+            require(stream!=nullptr,"Could not create WAV output");
+            auto* wav=audioFormats.findFormatForFileExtension("wav");
+            require(wav!=nullptr,"JUCE WAV writer unavailable");
+            outputWriter=wav->createWriterFor(stream,
+                juce::AudioFormatWriterOptions{}
+                    .withSampleRate(sampleRate)
+                    .withNumChannels(2)
+                    .withBitsPerSample(24));
+            require(outputWriter!=nullptr,"Could not create output WAV encoder");
+        }
 
+        double dspSeconds=0.0;
         const auto started=std::chrono::steady_clock::now();
         for (juce::int64 pos=0; pos<totalFrames;pos+=blockSize) {
             const int count=static_cast<int>(std::min<juce::int64>(blockSize,totalFrames-pos));
@@ -298,37 +314,23 @@ int main(int argc, char** argv) {
             // JUCE VST3 processBlock may be called with a smaller final block.
             if(count<blockSize) buffer.clear(count,blockSize-count);
             midi.clear();
+            const auto dspStarted=std::chrono::steady_clock::now();
             plugin->processBlock(buffer,midi);
+            dspSeconds+=std::chrono::duration<double>(
+                std::chrono::steady_clock::now()-dspStarted).count();
             for(int i=0;i<count;++i) {
                 const float l=buffer.getSample(0,i),r=buffer.getSample(1,i);
                 metrics.add(l,r);
-                if(argc>=4) {output.push_back(l);output.push_back(r);}
             }
+            if(outputWriter)
+                require(outputWriter->writeFromAudioSampleBuffer(buffer,0,count),
+                        "Failed to stream rendered WAV block");
         }
         const double renderSeconds=std::chrono::duration<double>(
             std::chrono::steady_clock::now()-started).count();
-
-        if(argc>=4) {
-            const juce::File outputPath(juce::String::fromUTF8(argv[3]));
-            std::unique_ptr<juce::OutputStream> stream=outputPath.createOutputStream();
-            require(stream!=nullptr,"Could not create WAV output");
-            auto* wav=audioFormats.findFormatForFileExtension("wav");
-            require(wav!=nullptr,"JUCE WAV writer unavailable");
-            auto writer=wav->createWriterFor(stream,
-                juce::AudioFormatWriterOptions{}
-                    .withSampleRate(sampleRate)
-                    .withNumChannels(2)
-                    .withBitsPerSample(24));
-            require(writer!=nullptr,"Could not create output WAV encoder");
-            // JUCE 8 writer now owns the stream on success.
-            juce::AudioBuffer<float> audio(2,static_cast<int>(totalFrames));
-            for(int i=0;i<audio.getNumSamples();++i) {
-                audio.setSample(0,i,output[static_cast<size_t>(2*i)]);
-                audio.setSample(1,i,output[static_cast<size_t>(2*i+1)]);
-            }
-            require(writer->writeFromAudioSampleBuffer(audio,0,audio.getNumSamples()),
-                    "Failed to write rendered WAV");
-        }
+        // Close the writer before returning so the WAV header/frame count is
+        // finalized even when the caller immediately inspects the output.
+        outputWriter.reset();
         plugin->releaseResources();
         const auto dB=[](double linear) {
             return 20.0*std::log10(std::max(1.e-14,linear));
@@ -355,7 +357,7 @@ int main(int argc, char** argv) {
                  <<" side_mid_db="<<width
                  <<" wall_seconds="<<renderSeconds
                  <<" audio_seconds="<<totalFrames/sampleRate
-                 <<" cpu_percent_one_core="<<100.0*renderSeconds/(totalFrames/sampleRate)
+                 <<" cpu_percent_one_core="<<100.0*dspSeconds/(totalFrames/sampleRate)
                  <<'\n';
         return EXIT_SUCCESS;
     } catch(const std::exception& e) {
