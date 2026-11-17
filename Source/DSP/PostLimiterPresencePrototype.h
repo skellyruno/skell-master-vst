@@ -1,9 +1,10 @@
 #pragma once
-// SKELL MASTER | optional post-limiter 5 kHz presence prototype.
-// This is NOT connected to the production plugin. The user's master chain
-// applies a +2 dB 5 kHz analog EQ *after* L2, unlike the current Skell Master
-// pre-limiter high shelf. No Waves code, coefficients or proprietary presets
-// are copied. A true-peak-safe final output stage is a separate release gate.
+// SKELL MASTER | opt-in post-downsample 5 kHz presence stage.
+// Deuce Match invokes this after the 4x oversampled MasteringEngine output
+// and before the final true-peak guard. The reference API-550A also sits after
+// L2, but the preceding five-band stage currently follows MasteringEngine's
+// internal limiter, so the overall chain topology remains an approximation.
+// No Waves code, coefficients or proprietary preset state are copied.
 #include <algorithm>
 #include <array>
 #include <cmath>

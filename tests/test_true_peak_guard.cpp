@@ -308,6 +308,73 @@ int main() {
         }
     }
 
+    // A bypassed guard must keep its FIR history warm while skipping the
+    // expensive reconstruction. Enabling it later must match an always-tracking
+    // guard from the very first delayed output frame.
+    {
+        StereoTruePeakGuard bypassWarmed;
+        StereoTruePeakGuard alwaysTracking;
+        bypassWarmed.prepare(48000.0);
+        alwaysTracking.prepare(48000.0);
+        const double ceiling = detail::dbToLinear(-1.0);
+        for (int i = 0; i < 256; ++i) {
+            const float x = static_cast<float>(0.05 * std::sin(
+                2.0 * detail::pi * 997.0 * static_cast<double>(i) / 48000.0));
+            const StereoFrame input { x, -0.61f * x };
+            const auto bypassOut = bypassWarmed.process(input, ceiling, true);
+            const auto trackedOut = alwaysTracking.process(input, ceiling, false);
+            require(bypassOut.left == trackedOut.left && bypassOut.right == trackedOut.right,
+                    "bypassed warm-up changed the fixed-latency dry signal");
+        }
+        double maxSamplePeak = 0.0;
+        for (int i = 256; i < 4096; ++i) {
+            const double phase = 2.0 * detail::pi * 20000.0
+                * static_cast<double>(i) / 48000.0 + detail::pi / 4.0;
+            const float left = static_cast<float>(0.92 * std::sin(phase));
+            const StereoFrame input { left, 0.73f * left };
+            const auto bypassOut = bypassWarmed.process(input, ceiling, false);
+            const auto trackedOut = alwaysTracking.process(input, ceiling, false);
+            require(std::abs(bypassOut.left - trackedOut.left) < 1.0e-7f
+                    && std::abs(bypassOut.right - trackedOut.right) < 1.0e-7f,
+                    "bypassed true-peak detector lost history before re-enable");
+            maxSamplePeak = std::max(maxSamplePeak,
+                std::max(std::abs(static_cast<double>(bypassOut.left)),
+                         std::abs(static_cast<double>(bypassOut.right))));
+        }
+        require(maxSamplePeak > 0.1 && maxSamplePeak < 0.90,
+                "re-enabled Deuce guard did not resume finite peak control");
+        std::cout << "PASS: bypass skips FIR measurement, retains history, and re-enables cleanly\n";
+    }
+
+    // Direct detector regression: history-only updates must produce the same
+    // first subsequent reconstruction as full measurement throughout warm-up.
+    {
+        StereoTruePeakDetector4x historyOnly;
+        StereoTruePeakDetector4x continuouslyMeasured;
+        historyOnly.prepare();
+        continuouslyMeasured.prepare();
+        for (int i = 0; i < 384; ++i) {
+            const double phase = 2.0 * detail::pi * (300.0 + (i % 7) * 130.0)
+                * static_cast<double>(i) / 48000.0;
+            const float left = static_cast<float>(0.3 * std::sin(phase));
+            const float right = -0.57f * left;
+            require(historyOnly.process(left, right, false) == 0.0f,
+                    "history-only detector unexpectedly performed peak measurement");
+            (void) continuouslyMeasured.process(left, right, true);
+        }
+        for (int i = 384; i < 768; ++i) {
+            const double phase = 2.0 * detail::pi * 20000.0
+                * static_cast<double>(i) / 48000.0;
+            const float left = static_cast<float>(0.9 * std::sin(phase));
+            const float right = -0.63f * left;
+            const float resumed = historyOnly.process(left, right, true);
+            const float reference = continuouslyMeasured.process(left, right, true);
+            require(std::abs(resumed - reference) < 1.0e-7f,
+                    "history-only detector diverged after measurement resumed");
+        }
+        std::cout << "PASS: history-only detector resumes exact rolling FIR measurement\n";
+    }
+
     // Reset, silence, and malformed inputs cannot poison detector or delay state.
     {
         StereoTruePeakGuard guard;
