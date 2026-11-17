@@ -69,6 +69,29 @@ static void setBoolParameterByName(juce::AudioPluginInstance& instance,
     require(found,"Cannot find VST3 boolean parameter by expected public name");
 }
 
+static void requireHostStateRoundTrip(juce::AudioPluginInstance& source,
+                                       juce::AudioPluginInstance& restored,
+                                       const char* context) {
+    juce::MemoryBlock state;
+    source.getStateInformation(state);
+    require(state.getSize() > 0, "VST3 host state snapshot is empty");
+    restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+
+    const auto sourceParameters = source.getParameters();
+    const auto restoredParameters = restored.getParameters();
+    require(sourceParameters.size() == restoredParameters.size(),
+            "VST3 host state changed the parameter count");
+    for (int i = 0; i < sourceParameters.size(); ++i) {
+        const auto sourceName = sourceParameters[i]->getName(128);
+        const auto restoredName = restoredParameters[i]->getName(128);
+        require(sourceName == restoredName,
+                "VST3 host state changed parameter ordering or identity");
+        require(std::abs(sourceParameters[i]->getValue()
+                         - restoredParameters[i]->getValue()) <= 1.0e-5f,
+                context);
+    }
+}
+
 static juce::File locateVST3(const juce::String& userArg) {
     if (userArg.isNotEmpty()) return juce::File(userArg);
     const auto root=juce::File::getCurrentWorkingDirectory();
@@ -151,6 +174,23 @@ int main(int argc, char** argv) {
         setParameterByName(*plugin,"Ceiling Adjust",0.0f);
         setParameterByName(*plugin,"Clip",14.0f);
         setBoolParameterByName(*plugin,"Deuce Match",true);
+
+        // Exercise the actual hosted VST3 component-state path, not only the
+        // processor/UI fixture. Every public parameter must survive a fresh
+        // plugin instance restoring the saved binary state.
+        auto restoredPlugin = formats.createPluginInstance(
+            *descriptions.getFirst(), sampleRate, blockSize, error);
+        require(restoredPlugin != nullptr,
+                "Cannot instantiate second VST3 for host-state roundtrip: " + error.toStdString());
+        requireHostStateRoundTrip(*plugin, *restoredPlugin,
+            "VST3 host state did not preserve all factory parameter values");
+
+        // Bypass is independently serialized and must not silently clear or
+        // activate Deuce Match when the host reopens a project.
+        setBoolParameterByName(*plugin,"Bypass",true);
+        requireHostStateRoundTrip(*plugin, *restoredPlugin,
+            "VST3 host state did not preserve bypass alongside Deuce Match");
+        setBoolParameterByName(*plugin,"Bypass",false);
 
         const juce::int64 inputFrames=reader ? reader->lengthInSamples
                                            : static_cast<juce::int64>(sampleRate*9);
