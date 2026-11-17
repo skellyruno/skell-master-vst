@@ -238,6 +238,29 @@ int main() {
                   << ", old-order post-limiter peak " << oldOrderPeak << "\\n";
     }
 
+    // Bypass must disable the optional nonlinear color stage even if the
+    // factory selection/automation still requests Deuce Match. The processor
+    // continues to call the stage at zero wet, so crossover history stays warm.
+    {
+        skelly::MasteringEngine bypassEngine;
+        bypassEngine.prepare(192000.0, 2, 288);
+        skelly::MasterParameters p;
+        p.deuceMatch = true;
+        p.bypass = true;
+        bypassEngine.setParameters(p);
+        require(!bypassEngine.isPreLimiterColorEnabled(),
+                "latency-aligned bypass must disable pre-limiter Deuce coloration");
+        p.bypass = false;
+        bypassEngine.setParameters(p);
+        require(bypassEngine.isPreLimiterColorEnabled(),
+                "leaving bypass must restore the selected Deuce coloration");
+        p.deuceMatch = false;
+        bypassEngine.setParameters(p);
+        require(!bypassEngine.isPreLimiterColorEnabled(),
+                "turning off Deuce Match must disable pre-limiter coloration");
+    }
+    std::cout << "PASS: Deuce color is bypass-gated while crossover history remains warm\\n";
+
     // Meaningful measured CPU data (machine-specific, not a universal spec).
     color.reset();
     volatile double sink=0.0;
