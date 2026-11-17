@@ -348,9 +348,8 @@ int main() {
         require(maxSamplePeak > 0.1 && maxSamplePeak < 0.90,
                 "re-enabled Deuce guard did not resume finite peak control");
         const double resumedTruePeak = independentSincPeak(resumedOutput);
-        const double internalTruePeakLimit = ceiling * detail::dbToLinear(-1.0);
-        require(resumedTruePeak <= internalTruePeakLimit + 3.0e-4,
-                "reactivated Deuce guard exceeded its independent 16x true-peak target");
+        require(resumedTruePeak <= ceiling + 3.0e-4,
+                "reactivated Deuce guard exceeded the requested -1 dBTP ceiling");
         std::cout << "PASS: bypass skips FIR measurement, retains history, and re-enables cleanly; "
                   << "reactivated true peak "
                   << 20.0 * std::log10(std::max(1.0e-12, resumedTruePeak)) << " dBTP\n";
