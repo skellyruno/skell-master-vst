@@ -69,13 +69,43 @@ static void setBoolParameterByName(juce::AudioPluginInstance& instance,
     require(found,"Cannot find VST3 boolean parameter by expected public name");
 }
 
+static int getFactoryIdentityFromHostState(juce::AudioPluginInstance& instance) {
+    juce::MemoryBlock state;
+    instance.getStateInformation(state);
+    require(state.getSize() > 0, "VST3 host state snapshot is empty");
+    auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(),
+                                                       static_cast<int>(state.getSize()));
+    require(xml != nullptr, "VST3 host state XML is missing");
+    return xml->getIntAttribute("skellMasterFactoryPreset", -1);
+}
+
+static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, int presetId) {
+    juce::MemoryBlock state;
+    instance.getStateInformation(state);
+    require(state.getSize() > 0, "VST3 host state snapshot is empty");
+    auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(),
+                                                       static_cast<int>(state.getSize()));
+    require(xml != nullptr, "VST3 host state XML is missing");
+    xml->setAttribute("skellMasterFactoryPreset", presetId);
+
+    juce::MemoryBlock updatedState;
+    juce::AudioProcessor::copyXmlToBinary(*xml, updatedState);
+    instance.setStateInformation(updatedState.getData(),
+                                  static_cast<int>(updatedState.getSize()));
+    require(getFactoryIdentityFromHostState(instance) == presetId,
+            "VST3 host could not restore the non-automatable factory identity");
+}
+
 static void requireHostStateRoundTrip(juce::AudioPluginInstance& source,
                                        juce::AudioPluginInstance& restored,
                                        const char* context) {
+    const int sourceFactoryIdentity = getFactoryIdentityFromHostState(source);
     juce::MemoryBlock state;
     source.getStateInformation(state);
     require(state.getSize() > 0, "VST3 host state snapshot is empty");
     restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    require(getFactoryIdentityFromHostState(restored) == sourceFactoryIdentity,
+            "VST3 host state did not preserve non-automatable factory identity");
 
     const auto sourceParameters = source.getParameters();
     const auto restoredParameters = restored.getParameters();
@@ -174,6 +204,11 @@ int main(int argc, char** argv) {
         setParameterByName(*plugin,"Ceiling Adjust",0.0f);
         setParameterByName(*plugin,"Clip",14.0f);
         setBoolParameterByName(*plugin,"Deuce Match",true);
+        // Factory identity is deliberately non-automatable and is not present
+        // in getParameters(). Seed the named SKELL MASTER identity through the
+        // real serialized host-state path so the following VST3 roundtrip
+        // verifies it separately from the exposed APVTS parameters.
+        setFactoryIdentityForHostTest(*plugin, 5);
 
         // Exercise the actual hosted VST3 component-state path, not only the
         // processor/UI fixture. Every public parameter must survive a fresh
