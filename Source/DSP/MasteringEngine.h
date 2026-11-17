@@ -603,7 +603,10 @@ public:
         ceiling.setTarget(detail::dbToLinear(detail::clamp(
             std::isfinite(p.ceilingDb) ? p.ceilingDb : -1.0, -3, -0.1)));
         bypassMix.setTarget(p.bypass ? 1.0 : 0.0);
-        deuceMatch = p.deuceMatch;
+        // The bypass path is latency-aligned dry. Fade the optional nonlinear
+        // Deuce color stage to neutral while bypassed; FiveBandColorPrototype
+        // still tracks its crossover history at zero wet for click-free re-enable.
+        deuceMatch = p.deuceMatch && !p.bypass;
     }
 
     void beginBlock() noexcept { gainReduction = 1.0; outputPeak = 0.0; }
@@ -780,6 +783,8 @@ public:
     double getBlockGainReductionDb() const noexcept { return detail::clamp(-detail::linearToDb(gainReduction), 0, 48); }
     double getBlockOutputPeak() const noexcept { return outputPeak; }
     int getLookaheadSamples() const noexcept { return lookahead; }
+    // Diagnostic for regression coverage of the optional pre-limiter color path.
+    bool isPreLimiterColorEnabled() const noexcept { return deuceMatch; }
 private:
     double rate = 192000, dcR = 0.999;
     int channels = 2, lookahead = 288, writeIndex = 0, eqCounter = 0;

@@ -238,6 +238,110 @@ int main() {
                   << ", old-order post-limiter peak " << oldOrderPeak << "\\n";
     }
 
+    // Bypass must disable the optional nonlinear color stage even if the
+    // factory selection/automation still requests Deuce Match. Exercise real
+    // audio through bypass and reactivation: the crossover filters must keep
+    // tracking while wet=0, and the settled output must rejoin an always-active
+    // reference engine without a stale-state transient or gain discontinuity.
+    {
+        constexpr double engineRate = 192000.0;
+        constexpr int lookahead = 288;
+        constexpr int warmFrames = static_cast<int>(engineRate * 0.25);
+        constexpr int transitionFrames = static_cast<int>(engineRate * 0.25);
+        constexpr int settleStart = static_cast<int>(engineRate * 0.15);
+
+        skelly::MasteringEngine bypassEngine;
+        skelly::MasteringEngine alwaysOnEngine;
+        bypassEngine.prepare(engineRate, 2, lookahead);
+        alwaysOnEngine.prepare(engineRate, 2, lookahead);
+
+        skelly::MasterParameters p;
+        p.deuceMatch = true;
+        p.bypass = true;
+        bypassEngine.setParameters(p);
+        require(!bypassEngine.isPreLimiterColorEnabled(),
+                "latency-aligned bypass must disable pre-limiter Deuce coloration");
+
+        auto active = p;
+        active.bypass = false;
+        alwaysOnEngine.setParameters(active);
+        require(alwaysOnEngine.isPreLimiterColorEnabled(),
+                "always-active reference must enable Deuce coloration");
+
+        // A quiet stereo multitone keeps every downstream limiter/clipper
+        // below threshold, isolating the color-stage state transition.
+        for (int i = 0; i < warmFrames; ++i) {
+            const double t = static_cast<double>(i) / engineRate;
+            const float left = static_cast<float>(
+                0.32 * std::sin(2.0 * pi * 997.0 * t)
+                + 0.07 * std::sin(2.0 * pi * 83.0 * t));
+            const float right = static_cast<float>(
+                0.27 * std::sin(2.0 * pi * 997.0 * t + 0.23)
+                - 0.05 * std::sin(2.0 * pi * 127.0 * t));
+            const auto bypassOut = bypassEngine.processFrame(left, right);
+            const auto activeOut = alwaysOnEngine.processFrame(left, right);
+            require(std::isfinite(bypassOut.left) && std::isfinite(bypassOut.right)
+                    && std::isfinite(activeOut.left) && std::isfinite(activeOut.right),
+                    "bypassed/active Deuce engines must remain finite during warm-up");
+        }
+
+        p.bypass = false;
+        bypassEngine.setParameters(p);
+        require(bypassEngine.isPreLimiterColorEnabled(),
+                "leaving bypass must restore the selected Deuce coloration");
+
+        double maximumStep = 0.0;
+        double maximumSample = 0.0;
+        double settledDifference = 0.0;
+        float previousLeft = 0.0f, previousRight = 0.0f;
+        bool havePrevious = false;
+        for (int i = 0; i < transitionFrames; ++i) {
+            const int n = warmFrames + i;
+            const double t = static_cast<double>(n) / engineRate;
+            const float left = static_cast<float>(
+                0.32 * std::sin(2.0 * pi * 997.0 * t)
+                + 0.07 * std::sin(2.0 * pi * 83.0 * t));
+            const float right = static_cast<float>(
+                0.27 * std::sin(2.0 * pi * 997.0 * t + 0.23)
+                - 0.05 * std::sin(2.0 * pi * 127.0 * t));
+            const auto reenabled = bypassEngine.processFrame(left, right);
+            const auto reference = alwaysOnEngine.processFrame(left, right);
+            require(std::isfinite(reenabled.left) && std::isfinite(reenabled.right)
+                    && std::isfinite(reference.left) && std::isfinite(reference.right),
+                    "Deuce reactivation produced a non-finite sample");
+
+            maximumSample = std::max(maximumSample,
+                std::max(std::abs(static_cast<double>(reenabled.left)),
+                         std::abs(static_cast<double>(reenabled.right))));
+            if (havePrevious) {
+                maximumStep = std::max(maximumStep,
+                    std::max(std::abs(static_cast<double>(reenabled.left - previousLeft)),
+                             std::abs(static_cast<double>(reenabled.right - previousRight))));
+            }
+            previousLeft = reenabled.left;
+            previousRight = reenabled.right;
+            havePrevious = true;
+
+            if (i >= settleStart) {
+                settledDifference = std::max(settledDifference,
+                    std::max(std::abs(static_cast<double>(reenabled.left - reference.left)),
+                             std::abs(static_cast<double>(reenabled.right - reference.right))));
+            }
+        }
+        require(maximumSample < 0.8,
+                "Deuce reactivation created an unexpected gain spike");
+        require(maximumStep < 0.05,
+                "Deuce reactivation created an abrupt sample discontinuity");
+        require(settledDifference < 2.0e-5,
+                "warm bypass crossover history did not converge to the always-active output");
+
+        p.deuceMatch = false;
+        bypassEngine.setParameters(p);
+        require(!bypassEngine.isPreLimiterColorEnabled(),
+                "turning off Deuce Match must disable pre-limiter coloration");
+    }
+    std::cout << "PASS: Deuce bypass warm-history, smooth reactivation and active-output convergence\\n";
+
     // Meaningful measured CPU data (machine-specific, not a universal spec).
     color.reset();
     volatile double sink=0.0;
