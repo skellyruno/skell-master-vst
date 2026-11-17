@@ -80,6 +80,10 @@ static int getFactoryIdentityFromHostState(juce::AudioPluginInstance& instance) 
     auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(),
                                                        static_cast<int>(state.getSize()));
     require(xml != nullptr, "VST3 host state XML is missing");
+    const auto identityText = xml->getStringAttribute(
+        "skellMasterFactoryPreset", "<missing>");
+    std::cout << "HOST_STATE_XML root=" << xml->getTagName().toStdString()
+              << " factory=" << identityText.toStdString() << "\\n";
     return xml->getIntAttribute("skellMasterFactoryPreset", -1);
 }
 
@@ -90,7 +94,15 @@ static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, i
     auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(),
                                                        static_cast<int>(state.getSize()));
     require(xml != nullptr, "VST3 host state XML is missing");
+    std::cout << "HOST_STATE_INJECT root=" << xml->getTagName().toStdString()
+              << " target=" << presetId
+              << " prior=" << xml->getStringAttribute(
+                     "skellMasterFactoryPreset", "<missing>").toStdString()
+              << "\\n";
     xml->setAttribute("skellMasterFactoryPreset", presetId);
+    std::cout << "HOST_STATE_INJECTED factory="
+              << xml->getStringAttribute("skellMasterFactoryPreset").toStdString()
+              << "\\n";
 
     juce::MemoryBlock updatedState;
     juce::AudioProcessor::copyXmlToBinary(*xml, updatedState);
