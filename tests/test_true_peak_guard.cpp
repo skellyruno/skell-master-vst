@@ -212,7 +212,7 @@ int main() {
         for (int i = 0; i < 7200; ++i) {
             const double phase = 2.0 * 3.14159265358979323846
                 * 20000.0 * static_cast<double>(i) / rate + 3.14159265358979323846 / 4.0;
-            const float left = static_cast<float>(0.85 * std::sin(phase));
+            const float left = static_cast<float>(0.92 * std::sin(phase));
             const float right = left * 0.73f;
             const auto legacyFrame = legacy.process({left, right}, ceiling);
             legacyRendered.push_back(legacyFrame);
@@ -235,8 +235,8 @@ int main() {
             require(legacyDelay.currentGain() == 1.0,
                     "legacy PDC delay must not apply true-peak attenuation");
         }
-        require(legacySamplePeak <= 0.85 + 1.0e-4,
-                "legacy sample-peak guard changed audio already below its sample ceiling");
+        require(legacySamplePeak > 0.85 && legacySamplePeak < ceiling - 1.0e-4,
+                "legacy sample-peak guard must pass through samples below its ceiling");
         require(legacyTruePeak > detail::dbToLinear(-1.0) + 1.0e-3,
                 "legacy path unexpectedly enabled the new true-peak limiter");
         require(deuceTruePeak <= detail::dbToLinear(-1.0) + 3.0e-4,
