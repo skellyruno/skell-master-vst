@@ -367,6 +367,12 @@ int main() {
               "Deuce Match did not survive host state save/reload");
         check(restoredState.getFactoryPresetId()==5,
               "factory preset identity did not survive host state save/reload");
+        check(restoredState.parameters.getRawParameterValue("bypass")->load()<0.5f,
+              "SKELL MASTER factory state unexpectedly restored bypass");
+        for (const auto& value : matched)
+            check(std::abs(restoredState.parameters.getRawParameterValue(value.id)->load()
+                           -value.expected)<.12f,
+                  "SKELL MASTER parameter value did not survive host state save/reload");
         {
             SkellyMasterAudioProcessorEditor restoredEditor(restoredState);
             juce::ComboBox* restoredPreset=nullptr;
