@@ -388,12 +388,33 @@ int main() {
         for(int index=legacyState.getNumChildren()-1;index>=0;--index)
             if(legacyState.getChild(index).getProperty("id").toString()=="deuceMatch")
                 legacyState.removeChild(index,nullptr);
+        legacyState.setProperty("skellMasterStateVersion",4,nullptr);
+        legacyState.removeProperty("skellMasterFactoryPreset",nullptr);
+        auto legacyXml=legacyState.createXml();
+        check(static_cast<bool>(legacyXml),"legacy host state XML must be created");
+        juce::MemoryBlock legacyBlob;
+        juce::AudioProcessor::copyXmlToBinary(*legacyXml,legacyBlob);
         SkellyMasterAudioProcessor restoredLegacyState;
-        restoredLegacyState.parameters.replaceState(legacyState);
+        restoredLegacyState.setFactoryPresetId(5);
+        restoredLegacyState.setStateInformation(legacyBlob.getData(),
+                                                 static_cast<int>(legacyBlob.getSize()));
         check(restoredLegacyState.parameters.getRawParameterValue("deuceMatch")->load()<0.5f,
               "legacy project without Deuce Match must default to OFF");
         check(restoredLegacyState.getFactoryPresetId()==0,
-              "legacy project without factory identity must restore the SELECT label");
+              "legacy host state without factory identity must restore the SELECT label");
+
+        auto malformedFactoryState=processor.parameters.copyState();
+        malformedFactoryState.setProperty("skellMasterStateVersion",5,nullptr);
+        malformedFactoryState.setProperty("skellMasterFactoryPreset",juce::String("99"),nullptr);
+        auto malformedFactoryXml=malformedFactoryState.createXml();
+        check(static_cast<bool>(malformedFactoryXml),"malformed factory state XML must be created");
+        juce::MemoryBlock malformedFactoryBlob;
+        juce::AudioProcessor::copyXmlToBinary(*malformedFactoryXml,malformedFactoryBlob);
+        SkellyMasterAudioProcessor restoredMalformedFactoryState;
+        restoredMalformedFactoryState.setStateInformation(
+            malformedFactoryBlob.getData(),static_cast<int>(malformedFactoryBlob.getSize()));
+        check(restoredMalformedFactoryState.getFactoryPresetId()==5,
+              "out-of-range serialized factory identity must clamp to the last valid preset");
         processor.parameters.getParameter("deuceMatch")->setValueNotifyingHost(0.0f);
         std::cout << "PASS: true-peak safety, Deuce Match state recall, clipper, bypass and automation bindings\n";
 
