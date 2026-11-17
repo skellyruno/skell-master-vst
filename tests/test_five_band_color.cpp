@@ -1,4 +1,4 @@
-#include "../Source/DSP/FiveBandColorPrototype.h"
+#include "../Source/DSP/MasteringEngine.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -172,6 +172,71 @@ int main() {
                 "five-band silence recovery became non-finite");
     }
     std::cout << "PASS: full 5-band automation, malformed settings and silent tails\n";
+
+    // Production topology regression: the Deuce five-band stage must be
+    // inside MasteringEngine BEFORE its internal lookahead limiter. A mirror
+    // of the old post-limiter order deliberately exceeds the same ceiling.
+    {
+        constexpr double engineRate = 192000.0;
+        constexpr int lookahead = 288; // 1.5 ms at the 4x processing rate
+        const double ceiling = skelly::detail::dbToLinear(-1.0);
+
+        skelly::MasteringEngine preLimiterEngine;
+        skelly::MasteringEngine oldOrderEngine;
+        preLimiterEngine.prepare(engineRate, 2, lookahead);
+        oldOrderEngine.prepare(engineRate, 2, lookahead);
+
+        skelly::MasterParameters deuceParams;
+        deuceParams.deuceMatch = true;
+        deuceParams.ceilingDb = -1.0;
+        preLimiterEngine.setParameters(deuceParams);
+
+        skelly::MasterParameters neutralParams;
+        neutralParams.ceilingDb = -1.0;
+        oldOrderEngine.setParameters(neutralParams);
+
+        FiveBandColorPrototype postLimiterMirror;
+        postLimiterMirror.prepare(engineRate);
+        FiveBandColorSettings referenceColor;
+        referenceColor.wet = 0.75;
+        referenceColor.intensity = {0.38, 0.55, 0.64, 0.72, 0.84};
+
+        double preLimiterPeak = 0.0;
+        double oldOrderPeak = 0.0;
+        double preLimiterEnergy = 0.0;
+        constexpr int frames = static_cast<int>(engineRate * 0.25);
+        for (int i = 0; i < frames; ++i) {
+            const float input = static_cast<float>(
+                1.2 * std::sin(2.0 * pi * 1000.0 * i / engineRate));
+            const auto pre = preLimiterEngine.processFrame(input, input);
+            const auto neutral = oldOrderEngine.processFrame(input, input);
+
+            double postL = neutral.left;
+            double postR = neutral.right;
+            postLimiterMirror.process(postL, postR, referenceColor);
+
+            require(std::isfinite(pre.left) && std::isfinite(pre.right)
+                    && std::isfinite(postL) && std::isfinite(postR),
+                    "pre/post-limiter five-band routing must remain finite");
+            if (i > static_cast<int>(engineRate * 0.15)) {
+                preLimiterPeak = std::max(preLimiterPeak,
+                    std::max(std::abs(static_cast<double>(pre.left)),
+                             std::abs(static_cast<double>(pre.right))));
+                oldOrderPeak = std::max(oldOrderPeak,
+                    std::max(std::abs(postL), std::abs(postR)));
+                preLimiterEnergy += static_cast<double>(pre.left) * pre.left;
+            }
+        }
+        require(preLimiterPeak <= ceiling + 1.0e-5,
+                "pre-limiter Deuce coloration escaped the internal sample ceiling");
+        require(oldOrderPeak > ceiling + 1.0e-4,
+                "post-limiter mirror did not expose the old color-stage ordering");
+        require(preLimiterEnergy > 1.0,
+                "pre-limiter Deuce mode unexpectedly muted the programme");
+        std::cout << "PASS: Deuce five-band coloration precedes internal limiter; "
+                  << "pre-limiter peak " << preLimiterPeak
+                  << ", old-order post-limiter peak " << oldOrderPeak << "\\n";
+    }
 
     // Meaningful measured CPU data (machine-specific, not a universal spec).
     color.reset();

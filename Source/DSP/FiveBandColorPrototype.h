@@ -1,11 +1,11 @@
 #pragma once
 
 // SKELL MASTER | opt-in, portable five-band coloration stage.
-// The current Deuce Match production path invokes this original approximation
-// after MasteringEngine::processFrame (which already includes its internal
-// lookahead limiter) and before host-rate downsampling. It is default-off:
-// legacy factories and old sessions do not activate it. This placement is
-// not the reference chain's pre-L2 Vitamin topology and is not a vendor clone.
+// MasteringEngine invokes this original approximation inside its 4x path,
+// after the existing compression/imaging stages and before the internal
+// clipper/lookahead limiter. It is default-off: legacy factories and old
+// sessions do not activate it. This approximates a pre-L2 color stage; it is
+// a custom design, not a clone of any proprietary vendor algorithm.
 //
 // Designed for the existing 4x oversampled DSP domain; no allocations,
 // locks, I/O, or coefficient calculations on the audio thread. Zero mix

@@ -56,7 +56,6 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     const double highRate = sampleRate * static_cast<double>(oversamplingFactor);
     lookaheadSamples = juce::jmax(4, static_cast<int>(std::ceil(sampleRate * 0.0015)) * oversamplingFactor);
     engine.prepare(highRate, activeChannels, lookaheadSamples);
-    fiveBandColor.prepare(highRate);
     postLimiterPresence.prepare(sampleRate);
     legacySafetyGuard.prepare(sampleRate);
     safetyGuard.prepare(sampleRate);
@@ -70,7 +69,6 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
 }
 
 void SkellyMasterAudioProcessor::releaseResources() {
-    fiveBandColor.reset();
     postLimiterPresence.reset();
     legacySafetyGuard.reset();
     safetyGuard.reset();
@@ -83,7 +81,6 @@ void SkellyMasterAudioProcessor::releaseResources() {
 void SkellyMasterAudioProcessor::reset() {
     if (oversampler) oversampler->reset();
     engine.reset();
-    fiveBandColor.reset();
     postLimiterPresence.reset();
     legacySafetyGuard.reset();
     safetyGuard.reset();
@@ -121,16 +118,14 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.ceilingDb = skelly::detail::ceilingOffsetToDb(
         parameters.getRawParameterValue("ceiling")->load(std::memory_order_relaxed));
     p.bypass = parameters.getRawParameterValue("bypass")->load(std::memory_order_relaxed) >= 0.5f;
+    // Keep the mode flag in the portable engine so the five-band stage runs
+    // before its internal lookahead limiter. Bypass still returns the aligned
+    // dry path; the wrapper's post-limiter presence and safety stages stay gated.
+    p.deuceMatch = parameters.getRawParameterValue("deuceMatch")
+        ->load(std::memory_order_relaxed) >= 0.5f;
     engine.setParameters(p);
     engine.beginBlock();
-
-    // Only the SKELL MASTER factory (or explicit host automation) enables
-    // these Deuce-derived stages. Existing sessions default to neutral.
-    const bool deuceMatch = parameters.getRawParameterValue("deuceMatch")
-        ->load(std::memory_order_relaxed) >= 0.5f && !p.bypass;
-    skelly::experimental::FiveBandColorSettings deuceColor;
-    deuceColor.wet = deuceMatch ? 0.75 : 0.0;
-    deuceColor.intensity = {0.38, 0.55, 0.64, 0.72, 0.84};
+    const bool deuceMatch = p.deuceMatch && !p.bypass;
 
     // Reject malformed input BEFORE JUCE's oversampling filter stages.
     // Sanitizing only the oversampled samples is too late: NaN or Inf can
@@ -155,11 +150,8 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     const size_t highRateFrames = highRateBlock.getNumSamples();
     for (size_t i = 0; i < highRateFrames; ++i) {
         const auto out = engine.processFrame(left[i], channels == 2 ? right[i] : left[i]);
-        double colorL = out.left;
-        double colorR = channels == 2 ? out.right : out.left;
-        fiveBandColor.process(colorL, colorR, deuceColor);
-        left[i] = static_cast<float>(colorL);
-        if (channels == 2) right[i] = static_cast<float>(colorR);
+        left[i] = out.left;
+        if (channels == 2) right[i] = out.right;
     }
     oversampler->processSamplesDown(original);
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "FiveBandColorPrototype.h"
+
 // SKELLY MASTER | portable DSP core (C++17, no GUI or host dependencies).
 // State is allocated during prepare(); processFrame() performs no allocation.
 #include <algorithm>
@@ -196,6 +198,7 @@ struct MasterParameters {
     double clipper = 0.0;  // 0=original transparent limiter, 1=pre-limit soft clipper
     double ceilingDb = -1.0;
     bool bypass = false;
+    bool deuceMatch = false; // opt-in pre-limiter five-band reference coloration
 };
 
 struct StereoFrame { float left = 0.0f, right = 0.0f; };
@@ -550,6 +553,7 @@ public:
         dynamicsComp.prepare(rate, 8, 110);
         hf[0].prepare(rate, 2400); hf[1].prepare(rate, 2400);
         stereoImager.prepare(rate);
+        fiveBandColor.prepare(rate);
         driveShaper.prepare();
         dcR = std::exp(-2.0 * detail::pi * 5.0 / rate);
         fastAtk = std::exp(-1.0 / (rate * 0.002));
@@ -568,6 +572,7 @@ public:
         for (auto& f : highShelf) f.reset();
         for (auto& f : hf) f.reset();
         stereoImager.reset();
+        fiveBandColor.reset();
         glueComp.reset(); dynamicsComp.reset();
         dcInput.fill(0.0); dcOutput.fill(0.0);
         fastEnv = slowEnv = 0.0; limiterGain = 1.0; limiterHold = 0; writeIndex = 0;
@@ -598,6 +603,7 @@ public:
         ceiling.setTarget(detail::dbToLinear(detail::clamp(
             std::isfinite(p.ceilingDb) ? p.ceilingDb : -1.0, -3, -0.1)));
         bypassMix.setTarget(p.bypass ? 1.0 : 0.0);
+        deuceMatch = p.deuceMatch;
     }
 
     void beginBlock() noexcept { gainReduction = 1.0; outputPeak = 0.0; }
@@ -690,6 +696,15 @@ public:
         // is not widened further. The imaging filters track even at 0% SAUCE.
         if (channels == 2)
             stereoImager.process(l, r, s);
+
+        // Deuce Match's five-band coloration approximates the reference's
+        // pre-L2 color stage. Keep it INSIDE the 4x engine so the following
+        // clipper and lookahead limiter see the colored peaks before limiting.
+        experimental::FiveBandColorSettings colorSettings;
+        colorSettings.wet = deuceMatch ? 0.75 : 0.0;
+        colorSettings.intensity = {0.38, 0.55, 0.64, 0.72, 0.84};
+        fiveBandColor.process(l, r, colorSettings);
+
         l *= outGain; r *= outGain;
 
         // Optional oversampled soft clipping ahead of the existing lookahead
@@ -773,6 +788,8 @@ private:
     std::array<detail::Biquad, 2> lowShelf, highShelf;
     std::array<detail::OnePole, 2> hf;
     StereoImager stereoImager;
+    experimental::FiveBandColorPrototype fiveBandColor;
+    bool deuceMatch = false;
     detail::DriveShaper driveShaper;
     detail::Compressor glueComp, dynamicsComp;
     std::array<double, 2> dcInput{}, dcOutput{};

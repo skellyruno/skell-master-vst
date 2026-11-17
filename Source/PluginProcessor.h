@@ -2,7 +2,6 @@
 #include <JuceHeader.h>
 #include "DSP/MasteringEngine.h"
 #include "DSP/LoudnessMeter.h"
-#include "DSP/FiveBandColorPrototype.h"
 #include "DSP/PostLimiterPresencePrototype.h"
 #include <atomic>
 #include <memory>
@@ -55,9 +54,8 @@ private:
     std::atomic<float> momentaryLufs {-100.0f}, shortTermLufs {-100.0f};
     int activeChannels = 2;
     int lookaheadSamples = 0;
-    // Opt-in Deuce reference stages: five-band coloration at 4x and a
-    // +2dB / 5kHz post-limiter bell at host rate. Neutral by default.
-    skelly::experimental::FiveBandColorPrototype fiveBandColor;
+    // Five-band Deuce coloration now lives before the internal limiter in
+    // MasteringEngine. The +2dB / 5kHz reference bell remains post-limiter.
     skelly::experimental::PostLimiterPresencePrototype postLimiterPresence;
     // Legacy sample guard plus Deuce-only fixed-size true-peak lookahead.
     skelly::StereoPeakGuard legacySafetyGuard;
