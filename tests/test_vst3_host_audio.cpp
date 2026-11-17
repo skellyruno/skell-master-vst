@@ -73,41 +73,54 @@ static void setBoolParameterByName(juce::AudioPluginInstance& instance,
     require(found,"Cannot find VST3 boolean parameter by expected public name");
 }
 
+// JUCE's hosted VST3 state is an outer VST3PluginState XML wrapper.
+// The actual processor state is base64 inside its IComponent child; editing
+// only an attribute on the outer wrapper does not reach the plugin at all.
+static std::unique_ptr<juce::XmlElement> getComponentStateXml(
+    juce::AudioPluginInstance& instance,
+    std::unique_ptr<juce::XmlElement>& wrapper) {
+    juce::MemoryBlock hostState;
+    instance.getStateInformation(hostState);
+    require(hostState.getSize() > 0, "VST3 host state snapshot is empty");
+    wrapper = juce::AudioProcessor::getXmlFromBinary(
+        hostState.getData(), static_cast<int>(hostState.getSize()));
+    require(wrapper != nullptr, "VST3 host state XML is missing");
+    require(wrapper->hasTagName("VST3PluginState"),
+            "Unexpected JUCE hosted VST3 state wrapper");
+    auto* component = wrapper->getChildByName("IComponent");
+    require(component != nullptr, "VST3 IComponent state is missing");
+    juce::MemoryBlock componentState;
+    require(componentState.fromBase64Encoding(component->getAllSubText()),
+            "VST3 IComponent state base64 is invalid");
+    auto componentXml = juce::AudioProcessor::getXmlFromBinary(
+        componentState.getData(), static_cast<int>(componentState.getSize()));
+    require(componentXml != nullptr, "VST3 processor component state XML is missing");
+    require(componentXml->hasTagName("SKELLY_MASTER_PARAMETERS"),
+            "VST3 IComponent did not contain the Skell Master processor state");
+    return componentXml;
+}
+
 static int getFactoryIdentityFromHostState(juce::AudioPluginInstance& instance) {
-    juce::MemoryBlock state;
-    instance.getStateInformation(state);
-    require(state.getSize() > 0, "VST3 host state snapshot is empty");
-    auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(),
-                                                       static_cast<int>(state.getSize()));
-    require(xml != nullptr, "VST3 host state XML is missing");
-    const auto identityText = xml->getStringAttribute(
-        "skellMasterFactoryPreset", "<missing>");
-    std::cout << "HOST_STATE_XML root=" << xml->getTagName().toStdString()
-              << " factory=" << identityText.toStdString() << "\\n";
-    return xml->getIntAttribute("skellMasterFactoryPreset", -1);
+    std::unique_ptr<juce::XmlElement> wrapper;
+    const auto componentXml = getComponentStateXml(instance, wrapper);
+    return componentXml->getIntAttribute("skellMasterFactoryPreset", -1);
 }
 
 static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, int presetId) {
-    juce::MemoryBlock state;
-    instance.getStateInformation(state);
-    require(state.getSize() > 0, "VST3 host state snapshot is empty");
-    auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(),
-                                                       static_cast<int>(state.getSize()));
-    require(xml != nullptr, "VST3 host state XML is missing");
-    std::cout << "HOST_STATE_INJECT root=" << xml->getTagName().toStdString()
-              << " target=" << presetId
-              << " prior=" << xml->getStringAttribute(
-                     "skellMasterFactoryPreset", "<missing>").toStdString()
-              << "\\n";
-    xml->setAttribute("skellMasterFactoryPreset", presetId);
-    std::cout << "HOST_STATE_INJECTED factory="
-              << xml->getStringAttribute("skellMasterFactoryPreset").toStdString()
-              << "\\n";
+    std::unique_ptr<juce::XmlElement> wrapper;
+    auto componentXml = getComponentStateXml(instance, wrapper);
+    componentXml->setAttribute("skellMasterFactoryPreset", presetId);
 
-    juce::MemoryBlock updatedState;
-    juce::AudioProcessor::copyXmlToBinary(*xml, updatedState);
-    instance.setStateInformation(updatedState.getData(),
-                                  static_cast<int>(updatedState.getSize()));
+    juce::MemoryBlock updatedComponentState;
+    juce::AudioProcessor::copyXmlToBinary(*componentXml, updatedComponentState);
+    auto* component = wrapper->getChildByName("IComponent");
+    require(component != nullptr, "VST3 IComponent state disappeared");
+    component->setText(updatedComponentState.toBase64Encoding());
+
+    juce::MemoryBlock updatedHostState;
+    juce::AudioProcessor::copyXmlToBinary(*wrapper, updatedHostState);
+    instance.setStateInformation(updatedHostState.getData(),
+                                  static_cast<int>(updatedHostState.getSize()));
     require(getFactoryIdentityFromHostState(instance) == presetId,
             "VST3 host could not restore the non-automatable factory identity");
 }
