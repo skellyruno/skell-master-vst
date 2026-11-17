@@ -1,9 +1,11 @@
 #pragma once
 
-// SKELL MASTER | experimental, portable five-band coloration engine.
-// The *production* plugin does NOT activate this prototype. It is an
-// independently tested starting point for a future user-approved sound
-// engine, never a clone of any proprietary vendor algorithm.
+// SKELL MASTER | opt-in, portable five-band coloration stage.
+// The current Deuce Match production path invokes this original approximation
+// after MasteringEngine::processFrame (which already includes its internal
+// lookahead limiter) and before host-rate downsampling. It is default-off:
+// legacy factories and old sessions do not activate it. This placement is
+// not the reference chain's pre-L2 Vitamin topology and is not a vendor clone.
 //
 // Designed for the existing 4x oversampled DSP domain; no allocations,
 // locks, I/O, or coefficient calculations on the audio thread. Zero mix
