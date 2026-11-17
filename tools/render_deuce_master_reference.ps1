@@ -25,6 +25,12 @@ $outputPath = [System.IO.Path]::GetFullPath($OutputWav)
 if ([string]::Equals($inputPath, $outputPath, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'Input and output paths must be different.'
 }
+if ([System.IO.Path]::GetExtension($inputPath) -ine '.wav') {
+    throw 'Input must be a WAV file.'
+}
+if ([System.IO.Path]::GetExtension($outputPath) -ine '.wav') {
+    throw 'Output must use a .wav extension.'
+}
 
 $logPath = "$outputPath.render.log"
 foreach ($path in @($outputPath, $logPath)) {
@@ -37,6 +43,9 @@ foreach ($path in @($outputPath, $logPath)) {
 }
 
 $outputDirectory = Split-Path -Parent $outputPath
+if ([string]::IsNullOrWhiteSpace($outputDirectory)) {
+    $outputDirectory = (Get-Location).Path
+}
 if (-not (Test-Path -LiteralPath $outputDirectory)) {
     New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 }
