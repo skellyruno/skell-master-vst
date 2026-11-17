@@ -34,6 +34,14 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     juce::AudioProcessorValueTreeState parameters;
 
+    // Factory selector identity is UI state, not an automatable parameter.
+    void setFactoryPresetId(int presetId) noexcept {
+        factoryPresetId.store(juce::jlimit(0, 5, presetId), std::memory_order_relaxed);
+    }
+    int getFactoryPresetId() const noexcept {
+        return factoryPresetId.load(std::memory_order_relaxed);
+    }
+
     // Lock-free peak accumulation. GUI calls exchange(0) once per frame.
     float consumePeakLeft() noexcept { return peakLeft.exchange(0.0f, std::memory_order_relaxed); }
     float consumePeakRight() noexcept { return peakRight.exchange(0.0f, std::memory_order_relaxed); }
@@ -52,6 +60,7 @@ private:
     skelly::StereoTruePeakMonitor truePeakMonitor;
     skelly::StereoLoudnessMonitor loudnessMonitor;
     std::atomic<float> momentaryLufs {-100.0f}, shortTermLufs {-100.0f};
+    std::atomic<int> factoryPresetId { 0 };
     int activeChannels = 2;
     int lookaheadSamples = 0;
     // Five-band Deuce coloration now lives before the internal limiter in

@@ -214,7 +214,8 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",4,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",5,nullptr);
+    snapshot.setProperty("skellMasterFactoryPreset",getFactoryPresetId(),nullptr);
     if (auto xml=snapshot.createXml()) copyXmlToBinary(*xml,dest);
 }
 
@@ -223,6 +224,14 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         if (!xml->hasTagName(parameters.state.getType())) return;
         auto snapshot=juce::ValueTree::fromXml(*xml);
         if (!snapshot.isValid()) return;
+        // ValueTree XML attributes can be surfaced as strings after reload.
+        // Parse the saved UI identity and clamp it; absent/malformed legacy
+        // values restore the neutral SELECT label (0).
+        const auto savedFactoryPreset=snapshot.getProperty("skellMasterFactoryPreset",{});
+        const int restoredFactoryPreset=juce::jlimit(
+            0,5,savedFactoryPreset.toString().getIntValue());
+        setFactoryPresetId(restoredFactoryPreset);
+        snapshot.setProperty("skellMasterFactoryPreset",restoredFactoryPreset,nullptr);
         // Version-one presets contain the actual -3..-0.1 dBFS ceiling.
         // Migrate just that value to the new centred adjustment, retaining
         // the exact effective threshold without changing any other setting.
@@ -268,7 +277,7 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             deuceMatchState.setProperty("value",0.0f,nullptr);
             snapshot.appendChild(deuceMatchState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",4,nullptr);
+        snapshot.setProperty("skellMasterStateVersion",5,nullptr);
         parameters.replaceState(snapshot);
     }
 }

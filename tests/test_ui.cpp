@@ -354,8 +354,10 @@ int main() {
         check(processor.parameters.getRawParameterValue("deuceMatch")->load()<.5f,
               "reset did not disable Deuce Match mode");
 
-        // Host project state must preserve the selected factory's actual DSP mode.
-        processor.parameters.getParameter("deuceMatch")->setValueNotifyingHost(1.0f);
+        // Host project state must preserve the named factory identity as well as its real DSP mode.
+        preset->setSelectedId(5,juce::sendNotificationSync);
+        check(processor.getFactoryPresetId()==5,
+              "selecting SKELL MASTER must store its non-automatable factory identity");
         juce::MemoryBlock savedState;
         processor.getStateInformation(savedState);
         SkellyMasterAudioProcessor restoredState;
@@ -363,18 +365,52 @@ int main() {
                                           static_cast<int>(savedState.getSize()));
         check(restoredState.parameters.getRawParameterValue("deuceMatch")->load()>=0.5f,
               "Deuce Match did not survive host state save/reload");
+        check(restoredState.getFactoryPresetId()==5,
+              "factory preset identity did not survive host state save/reload");
+        {
+            SkellyMasterAudioProcessorEditor restoredEditor(restoredState);
+            juce::ComboBox* restoredPreset=nullptr;
+            for(int i=0;i<restoredEditor.getNumChildComponents();++i)
+                if(auto* combo=dynamic_cast<juce::ComboBox*>(restoredEditor.getChildComponent(i)))
+                    if(combo->getComponentID()=="skell-master-preset") restoredPreset=combo;
+            check(restoredPreset && restoredPreset->getSelectedId()==5,
+                  "restored editor did not display the saved SKELL MASTER factory name");
+        }
 
-        // A pre-v4 APVTS tree has no Deuce Match child; it must remain neutral.
+        // Legacy v4 sessions predate the non-automatable factory identity and must restore neutral SELECT.
         auto legacyState=processor.parameters.copyState();
         for(int index=legacyState.getNumChildren()-1;index>=0;--index)
             if(legacyState.getChild(index).getProperty("id").toString()=="deuceMatch")
                 legacyState.removeChild(index,nullptr);
+        legacyState.setProperty("skellMasterStateVersion",4,nullptr);
+        legacyState.removeProperty("skellMasterFactoryPreset",nullptr);
+        auto legacyXml=legacyState.createXml();
+        check(static_cast<bool>(legacyXml),"legacy host state XML must be created");
+        juce::MemoryBlock legacyBlob;
+        if(legacyXml)juce::AudioProcessor::copyXmlToBinary(*legacyXml,legacyBlob);
         SkellyMasterAudioProcessor restoredLegacyState;
-        restoredLegacyState.parameters.replaceState(legacyState);
+        restoredLegacyState.setFactoryPresetId(5);
+        restoredLegacyState.setStateInformation(legacyBlob.getData(),static_cast<int>(legacyBlob.getSize()));
         check(restoredLegacyState.parameters.getRawParameterValue("deuceMatch")->load()<0.5f,
               "legacy project without Deuce Match must default to OFF");
+        check(restoredLegacyState.getFactoryPresetId()==0,
+              "legacy host state without factory identity must restore SELECT");
+
+        // XML numeric properties are text after deserialization; clamp invalid positive IDs.
+        auto malformedFactoryState=processor.parameters.copyState();
+        malformedFactoryState.setProperty("skellMasterStateVersion",5,nullptr);
+        malformedFactoryState.setProperty("skellMasterFactoryPreset",juce::String("99"),nullptr);
+        auto malformedFactoryXml=malformedFactoryState.createXml();
+        check(static_cast<bool>(malformedFactoryXml),"malformed factory state XML must be created");
+        juce::MemoryBlock malformedFactoryBlob;
+        if(malformedFactoryXml)juce::AudioProcessor::copyXmlToBinary(*malformedFactoryXml,malformedFactoryBlob);
+        SkellyMasterAudioProcessor restoredMalformedFactoryState;
+        restoredMalformedFactoryState.setStateInformation(malformedFactoryBlob.getData(),
+            static_cast<int>(malformedFactoryBlob.getSize()));
+        check(restoredMalformedFactoryState.getFactoryPresetId()==5,
+              "out-of-range serialized factory identity must clamp to the last valid preset");
         processor.parameters.getParameter("deuceMatch")->setValueNotifyingHost(0.0f);
-        std::cout << "PASS: true-peak safety, Deuce Match state recall, clipper, bypass and automation bindings\n";
+        std::cout << "PASS: true-peak safety, Deuce Match state recall, factory identity, clipper, bypass and automation bindings\n";
 
         // Host-like audio checks exercise the actual JUCE wrapper + 4x resampler.
         // Activate the real SKELL MASTER DSP path, not just its 11 parameter values.
