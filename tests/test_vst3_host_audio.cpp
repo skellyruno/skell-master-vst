@@ -115,7 +115,11 @@ static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, i
     juce::AudioProcessor::copyXmlToBinary(*componentXml, updatedComponentState);
     auto* component = wrapper->getChildByName("IComponent");
     require(component != nullptr, "VST3 IComponent state disappeared");
-    component->setText(updatedComponentState.toBase64Encoding());
+    // IComponent is a container element. JUCE serializes the stream as a
+    // child text node (appendStateFrom uses addTextElement); XmlElement::setText
+    // only works on text nodes and is a no-op/assertion on this container.
+    component->deleteAllChildElements();
+    component->addTextElement(updatedComponentState.toBase64Encoding());
 
     juce::MemoryBlock updatedHostState;
     juce::AudioProcessor::copyXmlToBinary(*wrapper, updatedHostState);
