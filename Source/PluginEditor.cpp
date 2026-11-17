@@ -547,7 +547,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     presetSelector.addItem("PUNCH MASTER",3);
     presetSelector.addItem("LOUD MASTER",4);
     presetSelector.addItem("SKELL MASTER",5);
-    presetSelector.setSelectedId(0,juce::dontSendNotification);
+    presetSelector.setSelectedId(processor.getFactoryPresetId(),juce::dontSendNotification);
     // Empty label is intentional: a quiet SELECT hint is drawn in the glass.
     presetSelector.setTextWhenNothingSelected({});
     presetSelector.setJustificationType(juce::Justification::centred);
@@ -613,6 +613,7 @@ void SkellyMasterAudioProcessorEditor::switchSkin() {
 void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     // Reset removes the selection label without activating any factory preset.
     presetSelector.setSelectedId(0,juce::dontSendNotification);
+    processor.setFactoryPresetId(0);
     for (const char* id : ids)
         if (auto* param = processor.parameters.getParameter(id)) {
             param->beginChangeGesture();
@@ -659,6 +660,7 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
         p->setValueNotifyingHost(p->convertTo0to1(presetId==5 ? 1.0f : 0.0f));
         p->endChangeGesture();
     }
+    processor.setFactoryPresetId(presetId);
 }
 
 void SkellyMasterAudioProcessorEditor::clearMeterHolds() {
@@ -671,6 +673,11 @@ void SkellyMasterAudioProcessorEditor::clearMeterHolds() {
 }
 
 void SkellyMasterAudioProcessorEditor::timerCallback() {
+    // Host state may be restored while the editor is already open. Keep the
+    // non-automatable factory label in sync without firing the preset callback.
+    const int restoredPreset=processor.getFactoryPresetId();
+    if(presetSelector.getSelectedId()!=restoredPreset)
+        presetSelector.setSelectedId(restoredPreset,juce::dontSendNotification);
     const std::array<float, 2> peaks {processor.consumePeakLeft(), processor.consumePeakRight()};
     for (size_t channel = 0; channel < meterValues.size(); ++channel) {
         meterValues[channel] = juce::jmax(peaks[channel], meterValues[channel] * 0.89f);
