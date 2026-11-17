@@ -233,11 +233,13 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         auto snapshot=juce::ValueTree::fromXml(*xml);
         if (!snapshot.isValid()) return;
 
-        // The factory name is UI state, not an automatable parameter. Older
-        // sessions have no property and safely restore the neutral SELECT label.
+        // ValueTree XML stores properties as text, so fromXml may return a
+        // String even when getStateInformation originally wrote an integer.
+        // Parse the serialized value and clamp it; a missing/invalid legacy
+        // property becomes the neutral SELECT identity (0).
         const auto savedFactoryPreset=snapshot.getProperty("skellMasterFactoryPreset",{});
-        const int restoredFactoryPreset=savedFactoryPreset.isInt()
-            ? juce::jlimit(0,5,static_cast<int>(savedFactoryPreset)) : 0;
+        const int restoredFactoryPreset=juce::jlimit(
+            0,5,savedFactoryPreset.toString().getIntValue());
         setFactoryPresetId(restoredFactoryPreset);
         snapshot.setProperty("skellMasterFactoryPreset",restoredFactoryPreset,nullptr);
 
