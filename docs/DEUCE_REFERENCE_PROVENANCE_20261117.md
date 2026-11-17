@@ -82,3 +82,22 @@ The SKELL MASTER factory enables the saved, automatable `deuceMatch` parameter. 
 - Strict moduleinfo JSON and two unique VST3 class IDs verified in the downloaded artifact.
 - No private WAV/FST bytes were pushed to GitHub.
 - Native owner-reference audio through this exact VST3, FL Studio session save/reload, real-device CPU, and user listening acceptance remain unverified.
+
+
+## 2026-11-17 owner-Library reference recheck and alignment
+
+The original owner-Library files were materialized read-only for this audit; no WAV or FST was uploaded to GitHub or modified.
+
+- `deuce w beat.wav`: SHA-256 `38d3a4c82c640b5ed24ee5b61ec04ab33c80717618e1b97fe845a590e85da484`; 44.1 kHz, stereo, 24-bit PCM, 18.75 s.
+- `deuce my master preset.wav`: SHA-256 `cfad397db8807f68b1b513653487721bdcb0daa7f3d5d204b9370f26c0b8b429`; same format and duration.
+- `master.fst`: SHA-256 `dcdb0f487b612e61c293bda574168188117c3b42b907428133f1e048c39d9e11`.
+- `rec deuce.fst`: SHA-256 `068911190350164db40955c0f111711fecd9cc7e194d3edb35fba861fa013168`.
+- `main deuce.fst`: SHA-256 `989b263f5b720a70b0d3cc24b1a4a6be914f6b80c599d0621f15232ff0999f17`.
+
+Raw FST strings and embedded Waves XML confirm the master chain order API-2500 → Vitamin → L2 → API-550, with Waves 15.0.70.71 state blocks and Setup A active. The REC chain is Fruity Parametric EQ 2 → Fruity Limiter → Soundgoodizer → Fruity Limiter. The MAIN vocal chain contains REQ 6 Stereo → SSLChannel Stereo → Fruity Compressor → DeEsser Stereo → Soundgoodizer → Fresh Air → C6 Stereo → PuigTec EQP1A. Non-Waves binary parameter maps are not claimed decoded by this pass. A local JSON artifact `Deuce_FST_Chain_Audit_2026-11-17.json` records source hashes and raw Waves parameter tokens.
+
+A fresh full-length cross-correlation of the beat-containing master pair measures the user-master file 297 samples (6.735 ms) later than the no-master input, with normalized magnitude 0.827 after 1.5 kHz low-pass mono correlation; polarity is unchanged. Full-length integrated loudness is -10.094 LUFS (no-master) and -7.659 LUFS (user-master), a +2.435 LU difference. Crest factor falls by 1.612 dB and side/mid level increases by 1.047 dB. 16× Kaiser resampling estimates +2.239 dBTP and +2.512 dBTP respectively; these are estimates, not certified true-peak readings.
+
+The new local audition package `SkellMaster_Deuce_MasterBus_Aligned_AB_2026-11-17` trims the measured 297-sample target delay and uses the same 15-second input-time interval. The shared safety attenuation is -3.512 dB; level-matched mode attenuates the louder mastered reference by a further 2.439 dB. No track is boosted. All previews are stereo 24-bit FLAC at 44.1 kHz. This remains reference-to-reference only; no Skell Master VST3 render or user listening approval is claimed.
+
+Do not conflate the separate approved vocal-only `Deuce_v25_Repro_Audit_15s.flac` (SHA-256 `$(await tools.mcp__GitHub__fetch_file({repository_full_name:"skellyruno/skell-master-vst",path:"docs/DEUCE_REFERENCE_PROVENANCE_20261117.md",ref:parent})).result.sha`) with the beat-containing master-bus pair. The v2.5 vocal champion is a separate vocal-chain reference and is not the SKELL MASTER master-bus target.

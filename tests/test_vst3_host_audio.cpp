@@ -174,8 +174,9 @@ int main(int argc, char** argv) {
     try {
         juce::ScopedJuceInitialiser_GUI gui;
         // --rate N exercises the compiled VST3 at each supported host rate
-        // using deterministic generated programme. WAV input is optional and
-        // kept strictly on the local machine, never sent to CI.
+        // using deterministic generated programme. Owner reference WAVs stay local
+        // and are never sent to CI; CI separately smoke-tests file I/O with a
+        // generated synthetic WAV fixture.
         const bool rateMode=argc>=3 && std::string(argv[1])=="--rate";
         const juce::File bundle=locateVST3(
             (!rateMode && argc>=2) ? juce::String::fromUTF8(argv[1]) : juce::String());
