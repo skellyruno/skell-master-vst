@@ -228,8 +228,22 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         // Parse the saved UI identity and clamp it; absent/malformed legacy
         // values restore the neutral SELECT label (0).
         const auto savedFactoryPreset=snapshot.getProperty("skellMasterFactoryPreset",{});
-        const int restoredFactoryPreset=juce::jlimit(
-            0,5,savedFactoryPreset.toString().getIntValue());
+        const auto factoryText=savedFactoryPreset.toString().trim();
+        int parsedFactoryPreset=0;
+        bool validFactoryPreset=!factoryText.isEmpty();
+        for(auto cursor=factoryText.toRawUTF8();!cursor.isEmpty();++cursor) {
+            const auto character=*cursor;
+            if(character<'0'||character>'9') {
+                validFactoryPreset=false;
+                break;
+            }
+            // Only values 0..6 matter: 6 is a saturating sentinel for all
+            // positive out-of-range IDs, avoiding integer overflow on hostile XML.
+            parsedFactoryPreset=juce::jmin(
+                6,parsedFactoryPreset*10+static_cast<int>(character-'0'));
+        }
+        const int restoredFactoryPreset=validFactoryPreset
+            ? juce::jmin(5,parsedFactoryPreset) : 0;
         setFactoryPresetId(restoredFactoryPreset);
         snapshot.setProperty("skellMasterFactoryPreset",restoredFactoryPreset,nullptr);
         // Version-one presets contain the actual -3..-0.1 dBFS ceiling.

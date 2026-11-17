@@ -409,6 +409,31 @@ int main() {
             static_cast<int>(malformedFactoryBlob.getSize()));
         check(restoredMalformedFactoryState.getFactoryPresetId()==5,
               "out-of-range serialized factory identity must clamp to the last valid preset");
+
+        // A numeric prefix followed by junk used to parse as factory ID 5,
+        // displaying SKELL MASTER while the saved Deuce Match mode was OFF.
+        auto suffixFactoryState=processor.parameters.copyState();
+        suffixFactoryState.setProperty("skellMasterStateVersion",5,nullptr);
+        suffixFactoryState.setProperty("skellMasterFactoryPreset",juce::String("5junk"),nullptr);
+        for(int index=0;index<suffixFactoryState.getNumChildren();++index) {
+            auto child=suffixFactoryState.getChild(index);
+            if(child.getProperty("id").toString()=="deuceMatch") {
+                child.setProperty("value",0.0f,nullptr);
+                break;
+            }
+        }
+        auto suffixFactoryXml=suffixFactoryState.createXml();
+        check(static_cast<bool>(suffixFactoryXml),"suffix factory state XML must be created");
+        juce::MemoryBlock suffixFactoryBlob;
+        if(suffixFactoryXml)juce::AudioProcessor::copyXmlToBinary(*suffixFactoryXml,suffixFactoryBlob);
+        SkellyMasterAudioProcessor restoredSuffixFactoryState;
+        restoredSuffixFactoryState.setStateInformation(suffixFactoryBlob.getData(),
+            static_cast<int>(suffixFactoryBlob.getSize()));
+        check(restoredSuffixFactoryState.getFactoryPresetId()==0,
+              "malformed numeric-prefix factory identity must restore neutral SELECT");
+        check(restoredSuffixFactoryState.parameters.getRawParameterValue("deuceMatch")->load()<0.5f,
+              "malformed factory identity must not imply Deuce Match is enabled");
+
         processor.parameters.getParameter("deuceMatch")->setValueNotifyingHost(0.0f);
         std::cout << "PASS: true-peak safety, Deuce Match state recall, factory identity, clipper, bypass and automation bindings\n";
 
