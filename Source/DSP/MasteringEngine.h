@@ -355,37 +355,43 @@ public:
         writeIndex = 0;
     }
 
-    float process(float left, float right) noexcept {
+    // When measurement is disabled (for fixed-latency bypass), keep the
+    // rolling history current but skip the four 257-tap reconstruction phases.
+    // This lets Deuce Match engage immediately without a cold-history window.
+    float process(float left, float right, bool measurePeak = true) noexcept {
         const float safeLeft = static_cast<float>(detail::clamp(
             detail::finiteSample(static_cast<double>(left)), -256.0, 256.0));
         const float safeRight = static_cast<float>(detail::clamp(
             detail::finiteSample(static_cast<double>(right)), -256.0, 256.0));
         history[writeIndex] = { safeLeft, safeRight };
 
-        int delayedIndex = static_cast<int>(writeIndex) - lookaheadSamples;
-        if (delayedIndex < 0)
-            delayedIndex += historyLength;
-        const auto& delayed = history[static_cast<std::size_t>(delayedIndex)];
-        double maximum = std::max(std::abs(static_cast<double>(delayed.left)),
-                                  std::abs(static_cast<double>(delayed.right)));
+        double maximum = 0.0;
+        if (measurePeak) {
+            int delayedIndex = static_cast<int>(writeIndex) - lookaheadSamples;
+            if (delayedIndex < 0)
+                delayedIndex += historyLength;
+            const auto& delayed = history[static_cast<std::size_t>(delayedIndex)];
+            maximum = std::max(std::abs(static_cast<double>(delayed.left)),
+                               std::abs(static_cast<double>(delayed.right)));
 
-        // Each phase is one reconstructed point between the delayed sample
-        // and its next host-rate neighbour. Stereo channels share one peak.
-        for (int phase = 0; phase < oversampling; ++phase) {
-            double reconstructedLeft = 0.0;
-            double reconstructedRight = 0.0;
-            for (int q = 0; oversampling * q + phase < tapCount; ++q) {
-                int index = static_cast<int>(writeIndex) - q;
-                if (index < 0)
-                    index += historyLength;
-                const auto& sample = history[static_cast<std::size_t>(index)];
-                const double weight = static_cast<double>(oversampling)
-                    * coefficients[static_cast<std::size_t>(oversampling * q + phase)];
-                reconstructedLeft += weight * sample.left;
-                reconstructedRight += weight * sample.right;
+            // Each phase is one reconstructed point between the delayed sample
+            // and its next host-rate neighbour. Stereo channels share one peak.
+            for (int phase = 0; phase < oversampling; ++phase) {
+                double reconstructedLeft = 0.0;
+                double reconstructedRight = 0.0;
+                for (int q = 0; oversampling * q + phase < tapCount; ++q) {
+                    int index = static_cast<int>(writeIndex) - q;
+                    if (index < 0)
+                        index += historyLength;
+                    const auto& sample = history[static_cast<std::size_t>(index)];
+                    const double weight = static_cast<double>(oversampling)
+                        * coefficients[static_cast<std::size_t>(oversampling * q + phase)];
+                    reconstructedLeft += weight * sample.left;
+                    reconstructedRight += weight * sample.right;
+                }
+                maximum = std::max(maximum, std::max(std::abs(reconstructedLeft),
+                                                     std::abs(reconstructedRight)));
             }
-            maximum = std::max(maximum, std::max(std::abs(reconstructedLeft),
-                                                 std::abs(reconstructedRight)));
         }
 
         if (++writeIndex == static_cast<std::size_t>(historyLength))
@@ -446,7 +452,7 @@ public:
         const float right = static_cast<float>(detail::clamp(
             detail::finiteSample(static_cast<double>(input.right)), -256.0, 256.0));
 
-        const double measuredPeak = static_cast<double>(detector.process(left, right));
+        const double measuredPeak = static_cast<double>(detector.process(left, right, !bypass));
         const double requestedCeiling = std::clamp(
             std::isfinite(ceilingLinear) ? ceilingLinear : detail::dbToLinear(-1.0),
             1.0e-5, 1.0);
