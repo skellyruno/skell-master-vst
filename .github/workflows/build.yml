@@ -121,6 +121,12 @@ jobs:
           This is a JUCE-hosted VST3 render, not an FL Studio session render.
           No owner audio or preset files are included in this package.
           "@ | Set-Content -Encoding UTF8 (Join-Path $package 'README.txt')
+      - name: Validate exact staged VST3 with pluginval
+        uses: Tracktion/pluginval/validate@v2.0.0-beta3
+        with:
+          plugins: Skell-Master-Windows-VST3/Skelly Master.vst3
+          strictness-level: 5
+          pluginval-version: v2.0.0-beta3
       - uses: actions/upload-artifact@v6
         with:
           retention-days: 14
