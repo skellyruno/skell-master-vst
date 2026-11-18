@@ -103,19 +103,21 @@ static void setParameterByName(juce::AudioPluginInstance& instance,
 
 static void setBoolParameterByName(juce::AudioPluginInstance& instance,
                                    const juce::String& name, bool enabled) {
+    const auto requested = name.trim();
+    // Hosts may expose the dedicated bypass parameter separately from the
+    // ordinary parameter list. Use JUCE's explicit bypass contract first.
+    if (requested.equalsIgnoreCase("Bypass")) {
+        if (auto* bypass = instance.getBypassParameter()) {
+            bypass->beginChangeGesture();
+            bypass->setValueNotifyingHost(enabled ? 1.0f : 0.0f);
+            bypass->endChangeGesture();
+            return;
+        }
+    }
     int matches = 0;
     for (auto* param : instance.getParameters()) {
-        if (param->getName(128).equalsIgnoreCase(name)) {
-            if (!isBooleanParameter(*param)) {
-                const auto values = param->getAllValueStrings();
-                std::cerr << "VST3 boolean metadata diagnostic: name="
-                          << param->getName(128).toStdString()
-                          << " isBoolean=" << param->isBoolean()
-                          << " steps=" << param->getNumSteps()
-                          << " text0=" << param->getText(0.0f, 128).toStdString()
-                          << " text1=" << param->getText(1.0f, 128).toStdString()
-                          << " valueStrings=" << values.size() << std::endl;
-            }
+        const auto publicName = param->getName(128).trim();
+        if (publicName.equalsIgnoreCase(requested)) {
             require(isBooleanParameter(*param),
                     "Boolean override must target a boolean VST3 parameter");
             param->beginChangeGesture();
@@ -123,6 +125,21 @@ static void setBoolParameterByName(juce::AudioPluginInstance& instance,
             param->endChangeGesture();
             ++matches;
         }
+    }
+    if (matches != 1) {
+        std::cerr << "VST3 boolean parameter lookup failed: requested=["
+                  << requested.toStdString() << "] available=[";
+        for (int i = 0; i < instance.getParameters().size(); ++i) {
+            if (i) std::cerr << ", ";
+            std::cerr << "[" << instance.getParameters()[i]->getName(128).toStdString()
+                      << "; steps=" << instance.getParameters()[i]->getNumSteps()
+                      << "; bool=" << instance.getParameters()[i]->isBoolean() << "]";
+        }
+        if (auto* bypass = instance.getBypassParameter())
+            std::cerr << "] dedicated-bypass=[" << bypass->getName(128).toStdString()
+                      << "; steps=" << bypass->getNumSteps()
+                      << "; bool=" << bypass->isBoolean();
+        std::cerr << "]" << std::endl;
     }
     require(matches == 1,
             "Expected exactly one boolean VST3 parameter with the requested public name");
