@@ -72,7 +72,7 @@ jobs:
           '@ | python - $inputWavPath
           & $runner.FullName $plugin.FullName $inputWavPath $outputWavPath
           if ($LASTEXITCODE -ne 0) { throw "VST3 WAV render smoke test failed with exit code $LASTEXITCODE" }
-          & $runner.FullName $plugin.FullName $inputWavPath $overrideWavPath --set 'Input=5' --set 'Glue=18'
+          & $runner.FullName $plugin.FullName $inputWavPath $overrideWavPath --set 'Input=5' --set 'Glue=18' --bool 'Deuce Match=1'
           if ($LASTEXITCODE -ne 0) { throw "VST3 parameter-override render failed with exit code $LASTEXITCODE" }
           @'
           import sys, wave
@@ -91,6 +91,28 @@ jobs:
           assert hashes[0] != hashes[1], "parameter overrides did not change the rendered audio"
           print("PASS: default and --set override renders are valid, distinct 24-bit stereo WAVs")
           '@ | python - $outputWavPath $overrideWavPath
+          $boundaryWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-boundary.wav'
+          $invalidRangeWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-invalid-range.wav'
+          $invalidStepWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-invalid-step.wav'
+          $wrongTypeWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-wrong-type.wav'
+          $numericBooleanWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-numeric-boolean.wav'
+          & $runner.FullName $plugin.FullName $inputWavPath $boundaryWavPath --set 'Input=18'
+          if ($LASTEXITCODE -ne 0) { throw "Legal upper-bound override was rejected" }
+          & $runner.FullName $plugin.FullName $inputWavPath $invalidRangeWavPath --set 'Input=1000'
+          if ($LASTEXITCODE -eq 0) { throw "Out-of-range numeric override was silently accepted" }
+          if (Test-Path $invalidRangeWavPath) { throw "Rejected range override wrote an output file" }
+          & $runner.FullName $plugin.FullName $inputWavPath $invalidStepWavPath --set 'Input=5.5'
+          if ($LASTEXITCODE -eq 0) { throw "Illegal stepped value was silently accepted" }
+          if (Test-Path $invalidStepWavPath) { throw "Rejected step override wrote an output file" }
+          & $runner.FullName $plugin.FullName $inputWavPath $wrongTypeWavPath --bool 'Input=1'
+          if ($LASTEXITCODE -eq 0) { throw "Boolean override on a numeric parameter was silently accepted" }
+          if (Test-Path $wrongTypeWavPath) { throw "Rejected type override wrote an output file" }
+          & $runner.FullName $plugin.FullName $inputWavPath $numericBooleanWavPath --set 'Deuce Match=1'
+          if ($LASTEXITCODE -eq 0) { throw "Numeric override on a boolean parameter was silently accepted" }
+          if (Test-Path $numericBooleanWavPath) { throw "Rejected boolean-as-numeric override wrote an output file" }
+          # The final negative case intentionally leaves a non-zero native exit code.
+          # All rejection assertions passed, so do not leak that expected status to pwsh.
+          exit 0
       - name: Package
         shell: pwsh
         run: |
@@ -146,7 +168,7 @@ jobs:
           path: Skell-Master-Windows-VST3
           if-no-files-found: error
   reference-audio-linux-renderer:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.event.pull_request.head.ref == 'test/deuce-vst3-state-roundtrip-20261117' || github.event.pull_request.head.ref == 'test/deuce-master-param-sweep-linux-20261118')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.event.pull_request.head.ref == 'test/deuce-vst3-state-roundtrip-20261117' || github.event.pull_request.head.ref == 'test/deuce-master-param-sweep-linux-20261118' || github.event.pull_request.head.ref == 'fix/deuce-override-range-validation-20261118')) }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -170,6 +192,71 @@ jobs:
           python tools/normalize_vst3_moduleinfo.py "$metadata"
       - name: Run portable DSP and hosted Linux VST3 tests
         run: xvfb-run -a ctest --test-dir build-linux --output-on-failure --verbose
+      - name: Smoke-test Linux VST3 parameter override validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin="$(find build-linux -type d -name '*.vst3' -print -quit)"
+          runner="$(find build-linux -type f -name 'SkellyVST3HostAudioTestsLinux' -perm -111 -print -quit)"
+          test -n "$plugin"
+          test -n "$runner"
+          input="$RUNNER_TEMP/skell-master-range-validation-input.wav"
+          default="$RUNNER_TEMP/skell-master-range-validation-default.wav"
+          override="$RUNNER_TEMP/skell-master-range-validation-override.wav"
+          boundary="$RUNNER_TEMP/skell-master-range-validation-boundary.wav"
+          invalid_range="$RUNNER_TEMP/skell-master-range-validation-invalid-range.wav"
+          invalid_step="$RUNNER_TEMP/skell-master-range-validation-invalid-step.wav"
+          wrong_type="$RUNNER_TEMP/skell-master-range-validation-wrong-type.wav"
+          numeric_boolean="$RUNNER_TEMP/skell-master-range-validation-numeric-boolean.wav"
+          python - "$input" <<'PY'
+          import math, struct, sys, wave
+          rate = 44100
+          with wave.open(sys.argv[1], "wb") as w:
+              w.setnchannels(2)
+              w.setsampwidth(2)
+              w.setframerate(rate)
+              frames = bytearray()
+              for n in range(rate):
+                  t = n / rate
+                  left = 0.35 * math.sin(2 * math.pi * 61 * t) + 0.12 * math.sin(2 * math.pi * 7200 * t)
+                  right = 0.31 * math.sin(2 * math.pi * 61 * t + 0.07) - 0.09 * math.sin(2 * math.pi * 7200 * t)
+                  frames.extend(struct.pack("<hh", round(left * 26000), round(right * 26000)))
+              w.writeframes(frames)
+          PY
+          "$runner" "$plugin" "$input" "$default"
+          "$runner" "$plugin" "$input" "$override" --set 'Input=5' --set 'Glue=18' --bool 'Deuce Match=1'
+          "$runner" "$plugin" "$input" "$boundary" --set 'Input=18'
+          if "$runner" "$plugin" "$input" "$invalid_range" --set 'Input=1000'; then
+            echo "Out-of-range numeric override was silently accepted" >&2
+            exit 1
+          fi
+          test ! -e "$invalid_range"
+          if "$runner" "$plugin" "$input" "$invalid_step" --set 'Input=5.5'; then
+            echo "Illegal stepped value was silently accepted" >&2
+            exit 1
+          fi
+          test ! -e "$invalid_step"
+          if "$runner" "$plugin" "$input" "$wrong_type" --bool 'Input=1'; then
+            echo "Boolean override on a numeric parameter was silently accepted" >&2
+            exit 1
+          fi
+          test ! -e "$wrong_type"
+          if "$runner" "$plugin" "$input" "$numeric_boolean" --set 'Deuce Match=1'; then
+            echo "Numeric override on a boolean parameter was silently accepted" >&2
+            exit 1
+          fi
+          test ! -e "$numeric_boolean"
+          python - "$default" "$override" "$boundary" <<'PY'
+          import hashlib, sys, wave
+          hashes = []
+          for path in sys.argv[1:]:
+              with wave.open(path, "rb") as w:
+                  assert w.getnchannels() == 2 and w.getframerate() == 44100 and w.getsampwidth() == 3
+                  assert w.getnframes() > 44100
+              hashes.append(hashlib.sha256(open(path, "rb").read()).hexdigest())
+          assert len(set(hashes)) == 3, "legal overrides must produce distinct rendered audio"
+          print("PASS: Linux VST3 valid, boundary, range, step and boolean override checks")
+          PY
       - name: Package local-reference renderer
         shell: bash
         run: |
