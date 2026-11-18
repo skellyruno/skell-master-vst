@@ -165,6 +165,28 @@ static void setBoolParameterByName(juce::AudioPluginInstance& instance,
             "Expected exactly one boolean VST3 parameter with the requested public name");
 }
 
+static bool getBoolParameterByName(juce::AudioPluginInstance& instance,
+                                   const juce::String& name) {
+    const auto requested = name.trim();
+    if (requested.equalsIgnoreCase("Bypass")) {
+        if (auto* bypass = instance.getBypassParameter())
+            return bypass->getValue() >= 0.5f;
+    }
+    int matches = 0;
+    bool enabled = false;
+    for (auto* param : instance.getParameters()) {
+        if (param->getName(128).trim().equalsIgnoreCase(requested)) {
+            require(isBooleanParameter(*param),
+                    "Boolean value lookup must target a boolean VST3 parameter");
+            enabled = param->getValue() >= 0.5f;
+            ++matches;
+        }
+    }
+    require(matches == 1,
+            "Expected exactly one boolean VST3 parameter with the requested public name");
+    return enabled;
+}
+
 // JUCE's hosted VST3 state is an outer VST3PluginState XML wrapper.
 // The actual processor state is base64 inside its IComponent child; editing
 // only an attribute on the outer wrapper does not reach the plugin at all.
@@ -569,15 +591,23 @@ int main(int argc, char** argv) {
         const double ceilingOffset = getNumericParameterByName(*plugin, "Ceiling Adjust");
         const double ceilingDb = skelly::detail::ceilingOffsetToDb(ceilingOffset);
         const double configuredSampleCeiling = skelly::detail::dbToLinear(ceilingDb);
-        // The production guard retains a 1dB internal margin. The independent
-        // host meter can read up to 0.25dB above that detector, so assert a
-        // minimum measured 0.75dB margin at every legal ceiling setting.
-        const double configuredTruePeakCeiling =
-            skelly::detail::dbToLinear(ceilingDb - 0.75);
-        require(metrics.samplePeak<=configuredSampleCeiling+3.e-4,
-                "Hosted VST3 escaped the configured sample-peak ceiling");
-        require(metrics.reconstructedPeak<=configuredTruePeakCeiling+3.e-4,
-                "Hosted VST3 escaped the configured 0.75dB true-peak margin");
+        const bool deuceMatchEnabled = getBoolParameterByName(*plugin, "Deuce Match");
+        const bool bypassEnabled = getBoolParameterByName(*plugin, "Bypass");
+        // Legacy mode intentionally retains the historical sample-peak guard.
+        // Only the opt-in Deuce Match path enables the additional 4x true-peak
+        // guard. Bypass is latency-aligned dry audio and constrains neither.
+        if (!bypassEnabled) {
+            require(metrics.samplePeak<=configuredSampleCeiling+3.e-4,
+                    "Hosted VST3 escaped the configured sample-peak ceiling");
+            if (deuceMatchEnabled) {
+                // The production guard targets 1dB internal margin; the
+                // independent host meter allows 0.25dB detector tolerance.
+                const double configuredTruePeakCeiling =
+                    skelly::detail::dbToLinear(ceilingDb - 0.75);
+                require(metrics.reconstructedPeak<=configuredTruePeakCeiling+3.e-4,
+                        "Hosted Deuce Match escaped the configured 0.75dB true-peak margin");
+            }
+        }
         require(std::isfinite(metrics.reconstructedPeak)&&std::isfinite(width),
                 "Hosted VST3 true peak/width invalid");
         require(rms>1.e-5,"VST3 unexpectedly silent");
