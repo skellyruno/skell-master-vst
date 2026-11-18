@@ -126,7 +126,7 @@ static double independentPolyphasePeak4x(const std::vector<skelly::StereoFrame>&
 int main() {
     using namespace skelly;
     constexpr double pi=3.1415926535897932384626433832795;
-    const double target=detail::dbToLinear(-1.0);
+    const double target=detail::dbToLinear(-1.1);
 
     // High-frequency sine waves produce reconstructed inter-sample peaks
     // materially higher than their host-rate sample peaks.
@@ -152,7 +152,7 @@ int main() {
                 static_cast<double>(outputMeter.process(out.left,out.right)));
         }
         require(maxTruePeak<=target+3.0e-4,
-                "high-frequency intersample peak exceeded -1.0 dBTP");
+                "high-frequency intersample peak exceeded -1.1 dBTP");
         require(maxSample<=detail::dbToLinear(-1.0)+3.0e-4,
                 "true-peak guard failed the sample-peak ceiling as well");
         std::cout<<"PASS: "<<rate<<" Hz high-frequency true-peak ceiling "
@@ -187,7 +187,7 @@ int main() {
                 "independent 16x sinc reference must recover the 20kHz sine peak");
         const double independentPeak = independentSincPeak(rendered);
         require(independentPeak <= target + 3.0e-4,
-                "independent 16x sinc reconstruction exceeded -1.25 dBTP at 20kHz");
+                "independent 16x sinc reconstruction exceeded -1.1 dBTP at 20kHz");
         std::cout << "PASS: independent 16x sinc 20kHz true peak at "
                   << rate << " Hz = "
                   << 20.0 * std::log10(std::max(1.0e-12, independentPeak))
