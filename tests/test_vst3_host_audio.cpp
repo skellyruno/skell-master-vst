@@ -155,6 +155,83 @@ static void requireHostStateRoundTrip(juce::AudioPluginInstance& source,
     }
 }
 
+// Compare the real hosted audio path after a host-state restore. Parameter equality
+// alone can miss hidden mode/state drift that only appears once DSP starts running.
+static void requireHostRenderedStateMatch(juce::AudioPluginInstance& source,
+                                          juce::AudioPluginInstance& restored,
+                                          double sampleRate,
+                                          int blockSize,
+                                          const char* context) {
+    require(source.getLatencySamples() == restored.getLatencySamples(),
+            "VST3 host-state restore changed reported latency");
+    source.reset();
+    restored.reset();
+
+    juce::AudioBuffer<float> sourceBuffer(2, blockSize);
+    juce::AudioBuffer<float> restoredBuffer(2, blockSize);
+    juce::MidiBuffer sourceMidi, restoredMidi;
+    const juce::int64 totalFrames = static_cast<juce::int64>(sampleRate * 1.25);
+    const juce::int64 pulsePeriod = static_cast<juce::int64>(sampleRate * 0.5);
+    double maximumDifference = 0.0;
+    double maximumOutputPeak = 0.0;
+
+    for (juce::int64 position = 0; position < totalFrames; position += blockSize) {
+        const int count = static_cast<int>(std::min<juce::int64>(
+            blockSize, totalFrames - position));
+        sourceBuffer.clear();
+        restoredBuffer.clear();
+
+        for (int i = 0; i < count; ++i) {
+            const juce::int64 frame = position + i;
+            const juce::int64 local = frame % pulsePeriod;
+            const double t = static_cast<double>(frame) / sampleRate;
+            const double transient = local < 120
+                ? 0.85 * std::exp(-static_cast<double>(local) / 24.0) : 0.0;
+            const double bass = 0.22 * std::sin(
+                2.0 * juce::MathConstants<double>::pi * 61.0 * t);
+            const double body = 0.11 * std::sin(
+                2.0 * juce::MathConstants<double>::pi * 550.0 * t);
+            const double air = 0.04 * std::sin(
+                2.0 * juce::MathConstants<double>::pi * 9500.0 * t);
+            const float left = static_cast<float>(transient + bass + body + air);
+            const float right = static_cast<float>(
+                0.82 * transient + 0.87 * bass + 0.67 * body - 0.75 * air);
+            sourceBuffer.setSample(0, i, left);
+            sourceBuffer.setSample(1, i, right);
+            restoredBuffer.setSample(0, i, left);
+            restoredBuffer.setSample(1, i, right);
+        }
+
+        sourceMidi.clear();
+        restoredMidi.clear();
+        source.processBlock(sourceBuffer, sourceMidi);
+        restored.processBlock(restoredBuffer, restoredMidi);
+
+        for (int i = 0; i < count; ++i) {
+            const float sourceLeft = sourceBuffer.getSample(0, i);
+            const float sourceRight = sourceBuffer.getSample(1, i);
+            const float restoredLeft = restoredBuffer.getSample(0, i);
+            const float restoredRight = restoredBuffer.getSample(1, i);
+            require(std::isfinite(sourceLeft) && std::isfinite(sourceRight)
+                    && std::isfinite(restoredLeft) && std::isfinite(restoredRight),
+                    "VST3 state roundtrip produced non-finite audio");
+            maximumDifference = std::max(maximumDifference,
+                std::max(std::abs(static_cast<double>(sourceLeft) - restoredLeft),
+                         std::abs(static_cast<double>(sourceRight) - restoredRight)));
+            maximumOutputPeak = std::max(maximumOutputPeak,
+                std::max(std::abs(static_cast<double>(sourceLeft)),
+                         std::abs(static_cast<double>(sourceRight))));
+        }
+    }
+
+    require(maximumDifference <= 2.0e-6, context);
+    require(maximumOutputPeak <= 1.0,
+            "VST3 state roundtrip produced an out-of-range sample");
+    std::cout << "PASS: hosted VST3 state audio equivalence at " << sampleRate
+              << " Hz; max difference " << maximumDifference
+              << ", peak " << maximumOutputPeak << '\\n';
+}
+
 static juce::File locateVST3(const juce::String& userArg) {
     if (userArg.isNotEmpty()) return juce::File(userArg);
     const auto root=juce::File::getCurrentWorkingDirectory();
@@ -251,15 +328,23 @@ int main(int argc, char** argv) {
             *descriptions.getFirst(), sampleRate, blockSize, error);
         require(restoredPlugin != nullptr,
                 "Cannot instantiate second VST3 for host-state roundtrip: " + error.toStdString());
+        restoredPlugin->setPlayConfigDetails(2, 2, sampleRate, blockSize);
+        restoredPlugin->prepareToPlay(sampleRate, blockSize);
         requireHostStateRoundTrip(*plugin, *restoredPlugin,
             "VST3 host state did not preserve all factory parameter values");
+        requireHostRenderedStateMatch(*plugin, *restoredPlugin, sampleRate, blockSize,
+            "Deuce Match host-state reload changed the rendered audio");
 
-        // Bypass is independently serialized and must not silently clear or
-        // activate Deuce Match when the host reopens a project.
+        // Bypass is independently serialized and must preserve the same
+        // latency-aligned dry output after a fresh hosted-state restore.
         setBoolParameterByName(*plugin,"Bypass",true);
         requireHostStateRoundTrip(*plugin, *restoredPlugin,
             "VST3 host state did not preserve bypass alongside Deuce Match");
+        requireHostRenderedStateMatch(*plugin, *restoredPlugin, sampleRate, blockSize,
+            "Bypass host-state reload changed the rendered audio");
         setBoolParameterByName(*plugin,"Bypass",false);
+        plugin->reset();
+        restoredPlugin->releaseResources();
 
         const juce::int64 inputFrames=reader ? reader->lengthInSamples
                                            : static_cast<juce::int64>(sampleRate*9);
