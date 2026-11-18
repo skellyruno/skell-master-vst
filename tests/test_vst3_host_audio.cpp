@@ -44,34 +44,58 @@ struct Measurements {
     }
 };
 
+static float parseDisplayedNumericParameterValue(const juce::String& text) {
+    const auto utf8 = text.toStdString();
+    char* end = nullptr;
+    const float value = std::strtof(utf8.c_str(), &end);
+    require(end != utf8.c_str() && std::isfinite(value),
+            "VST3 host did not return a numeric parameter value");
+    return value;
+}
+
 static void setParameterByName(juce::AudioPluginInstance& instance,
                                const juce::String& name, float actual) {
-    bool found=false;
+    int matches = 0;
     for (auto* param : instance.getParameters()) {
         if (param->getName(128).equalsIgnoreCase(name)) {
-            const auto value=param->getValueForText(juce::String(actual,2));
-            require(std::isfinite(value),"host param conversion nonfinite");
+            require(!param->isBoolean(),
+                    "Numeric override cannot target a boolean parameter; use --bool");
+            const auto normalized = param->getValueForText(juce::String(actual, 6));
+            require(std::isfinite(normalized) && normalized >= 0.0f && normalized <= 1.0f,
+                    "host parameter conversion produced an invalid normalized value");
+            // Hosted VST3 parameters expose normalized values. Round-trip the
+            // displayed value before setting it so an out-of-range request or
+            // an illegal step cannot silently clamp to a different control.
+            const float applied = parseDisplayedNumericParameterValue(
+                param->getText(normalized, 128));
+            require(std::abs(applied - actual) <= 0.01f,
+                    "Numeric override is outside the legal parameter range or step: "
+                    + name.toStdString());
             param->beginChangeGesture();
-            param->setValueNotifyingHost(value);
+            param->setValueNotifyingHost(normalized);
             param->endChangeGesture();
-            found=true;
+            ++matches;
         }
     }
-    require(found,"Cannot find VST3 parameter by expected public name");
+    require(matches == 1,
+            "Expected exactly one non-boolean VST3 parameter with the requested public name");
 }
 
 static void setBoolParameterByName(juce::AudioPluginInstance& instance,
                                    const juce::String& name, bool enabled) {
-    bool found=false;
+    int matches = 0;
     for (auto* param : instance.getParameters()) {
         if (param->getName(128).equalsIgnoreCase(name)) {
+            require(param->isBoolean(),
+                    "Boolean override must target a boolean VST3 parameter");
             param->beginChangeGesture();
             param->setValueNotifyingHost(enabled ? 1.0f : 0.0f);
             param->endChangeGesture();
-            found=true;
+            ++matches;
         }
     }
-    require(found,"Cannot find VST3 boolean parameter by expected public name");
+    require(matches == 1,
+            "Expected exactly one boolean VST3 parameter with the requested public name");
 }
 
 // JUCE's hosted VST3 state is an outer VST3PluginState XML wrapper.
