@@ -101,3 +101,22 @@ A fresh full-length cross-correlation of the beat-containing master pair measure
 The new local audition package `SkellMaster_Deuce_MasterBus_Aligned_AB_2026-11-17` trims the measured 297-sample target delay and uses the same 15-second input-time interval. The shared safety attenuation is -3.512 dB; level-matched mode attenuates the louder mastered reference by a further 2.439 dB. No track is boosted. All previews are stereo 24-bit FLAC at 44.1 kHz. This remains reference-to-reference only; no Skell Master VST3 render or user listening approval is claimed.
 
 Do not conflate the separate approved vocal-only `Deuce_v25_Repro_Audit_15s.flac` (SHA-256 `812cbbf758a2f378278e6a613fbe82f0068e34144fa7f2a6a737865d28b0273c`) with the beat-containing master-bus pair. The v2.5 vocal champion is a separate vocal-chain reference and is not the SKELL MASTER master-bus target.
+
+
+## 2026-11-18 current-pass reference recheck and alignment correction
+
+This pass re-opened the Library's self-contained 15-second pages, not the full-length 18.75-second WAV/FST sources.
+
+- Four Library copies of SkellMaster_Reference_AB_15s.html are byte-identical: 8,281,675 bytes; SHA-256 469335809a874d5f0... (the complete hash is recorded in the local audit package).
+- The embedded A/B excerpts are 44.1 kHz stereo PCM_24, exactly 15.000 seconds. Extracted FLAC SHA-256 values: no-master cddad67334ff8f1fcf1009c0d093a664ddc57e95668bde4a0e8e9fc0874ace55; user-master a36e6af0f2f93fe9e32f36e99180ea685713bf85c3f829808cdbbb65c1164625.
+- Re-measured 15-second excerpt loudness is -10.03894 LUFS (no master) and -7.59986 LUFS (user master), +2.43908 LU. Both sample peaks reach 0 dBFS. Independent 16x Kaiser resample_poly estimates are +2.256 and +2.509 dBTP; these are diagnostics, not certified true-peak readings.
+- The corrected local package SkellMaster_Deuce_Reference_AB_Corrected_2026-11-17.zip has SHA-256 92de1f79ee2e88a0857993ad0cd8526e55eb8c69471fc320c1608d781523b6bd. Its player starts both excerpts at the same relative 0:00 and applies no sample-delay compensation or phase/null alignment. It applies a shared -3.60 dB safety attenuation; level-matched mode applies a further -2.434748 dB attenuation to the louder master track. No track is boosted.
+- The superseded page's text claimed a 294-sample shift while its JSON reported 31 samples; inspection of the playback code showed that no offset was applied. The separate 297-sample full-length cross-correlation estimate above is diagnostic only and is not used for playback. The earlier 263-sample residual-alignment claim is withdrawn.
+- SkellMaster_FiveBand_Reference_AB_15s.html is also available (SHA-256 27b044eea9220580434522c28b99c37a3e41b9970e4d03ac248720b6497d5b77). It labels B as an experimental candidate and explicitly warns that B is an isolated offline five-band/EQ/width/linked-gain prototype, not the compiled Skell Master VST3 and not perceptual approval.
+- The full-length WAV/FST files were not re-materialized or reparsed in this pass. Their hashes and chain analysis above remain evidence from the previous read-only audit; this pass re-verified only the embedded 15-second excerpts. No private WAV/FST bytes were uploaded to GitHub.
+
+## 2026-11-18 hosted-state regression
+
+PR #17 commit e9c24cd9e846376b241ffb2c4e1021e510c07757 passed Windows workflow run #238: Release VST3 build, strict moduleinfo JSON, CTest 9/9, UI interaction test and hosted synthetic VST3 renders at 44.1/48/96 kHz. The new state test renders the same 1.25-second stereo transient/bass/body/air signal through the source instance and a fresh instance after factory-state restore, then repeats with bypass restored. Maximum output difference was exactly 0 at all three rates; output remained finite and below full scale. Reported host latency was 105 / 110 / 182 samples at 44.1 / 48 / 96 kHz. The 9-second synthetic hosted renders measured 6.15% / 6.74% / 13.28% one-core realtime CPU. The separate 1-second external-WAV CI smoke uses a generated fixture, not owner audio.
+
+This validates host-state audio equivalence and the Windows VST3 synthetic path. It does not constitute a native owner-reference render, FL Studio save/reload, real-device CPU measurement or user listening acceptance. A Linux-hosted VST3 renderer is being added for local private-reference rendering; its first CI build is pending.

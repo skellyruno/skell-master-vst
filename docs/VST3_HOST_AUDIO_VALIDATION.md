@@ -13,3 +13,11 @@ Compare the output to the user-provided mastered WAV after alignment and equal i
 Do not confuse a green synthetic VST3-host test with an approved musical A/B, and do not enable experimental coloration or post-limit tone in old projects by default. The previous presets, APVTS IDs and approved UI are unchanged.
 
 Routine GitHub screenshot workflows stay manual-only; no screenshot build is necessary for sound work.
+
+## Host-state audio equivalence
+
+The hosted VST3 regression creates a fresh plugin instance, restores the saved SKELL MASTER factory state, prepares both instances at the same rate, then renders the same 1.25-second deterministic stereo transient/bass/body/air signal through both. It compares finite output, sample peak and maximum absolute difference. The test repeats after restoring bypass state. This catches hidden mode/state drift that a parameter-value-only comparison can miss. It is a JUCE-hosted VST3 test, not an FL Studio session test.
+
+## Linux local-reference renderer
+
+PR #17 adds a Linux VST3 host target and a CI artifact containing the Linux VST3 bundle plus render_deuce_master_reference.sh. After its first CI build passes, use the packaged script to render a local stereo WAV through the compiled VST3. The input WAV is never uploaded to GitHub; the workflow only builds and tests with generated synthetic audio. The output is 24-bit PCM and includes the plugin's reported latency and safety tail. This is a Linux JUCE-hosted VST3 render, not a Windows or FL Studio render. The Windows build remains the Windows packaging gate.
