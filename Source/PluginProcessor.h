@@ -26,7 +26,11 @@ public:
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
+    const juce::String getProgramName(int index) override {
+        // VST3 requires a non-empty name for every exposed program.
+        // The five factory mastering choices remain in the dedicated UI selector.
+        return index == 0 ? juce::String("Default") : juce::String();
+    }
     void changeProgramName(int, const juce::String&) override {}
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*, int) override;
