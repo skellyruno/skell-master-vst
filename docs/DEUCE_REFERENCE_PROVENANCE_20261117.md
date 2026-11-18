@@ -164,3 +164,34 @@ The VST3 candidate is 2.787 LU quieter than the user master target and 0.349 LU 
 - The Linux VST3 build and hosted tests passed **8/8**; the local owner-reference render used that compiled Linux VST3 artifact.
 - The Windows artifact from run #238 predates the program-name correction below and is preview-only. The PR #17 branch had a confirmed VST3 program-list defect: `getNumPrograms()` exposed one program while `getProgramName(0)` returned an empty string. The branch now returns `Default`, adds a hosted-VST3 program-name regression, and runs pluginval strictness 5 in the Windows workflow. Exact-head CI/pluginval for those follow-up commits is pending.
 - FL Studio scan, automation, session save/reopen and owner listening acceptance remain unverified. No factory values, DSP coefficients, APVTS IDs, saved-state schema, PDC, or SkellCore shared controls were changed in this pass.
+
+
+## 2026-11-18 exact-head VST3 program/state verification and fresh owner render
+
+The exact PR #17 head `45a81e66cad3ee468c376965f538dc39d63d7aec` was verified in workflow run #244 (`44243110592`). The two follow-up test commits are `30c6e1eecffffaedae3cdcac1d5f9cf5ea4c5341` and `45a81e66cad3ee468c376965f538dc39d63d7aec`.
+
+- The hosted JUCE VST3 wrapper reports zero legacy `AudioProcessor` programs on both Linux and Windows; the underlying processor exposes one `Default` program. The hosted test now accepts the wrapper's 0-or-1 legacy-list behavior, while the direct JUCE processor/UI test asserts `getNumPrograms()==1`, `getProgramName(0)=="Default"`, and an empty out-of-range name.
+- Windows run #244 passed Release x64 VST3, strict moduleinfo JSON, CTest **9/9**, hosted state/audio equivalence at 44.1 / 48 / 96 kHz (maximum source/restored output difference 0), external-WAV render smoke, and pluginval strictness 5 (**1 passed, 0 failed**). Windows artifact ID: `14401135616`; ZIP SHA-256: `64f24a77bc2dac4a9ee2aba8d057d9e4734a93c3c385fcaa51bdf6b209674d62`. The staged binary is PE32+ AMD64, 4,252,160 bytes, SHA-256 `544c1f53f80e6c743cf729f5b4d9d0d8093fb1709ef2d8bd72efabd820185625`; moduleinfo lists two unique VST3 classes.
+- Linux run #244 passed CTest **8/8**, including hosted state/audio equivalence at 44.1 / 48 / 96 kHz. Linux renderer artifact ID: `14400044438`; artifact ZIP digest `2a98a6c0ee133a275dce25f90f9e6aa7244ade884aa7e80df74704ce7e249f1e`.
+
+A fresh 15-second same-relative-start render was run locally through the exact-head Linux VST3 artifact. The 15-second PCM_24 excerpts were extracted from the owner's corrected Library A/B archive; the full 18.75-second source WAVs and raw FSTs were not re-materialized/reparsed in this pass. Their source hashes and chain settings above remain from the previous read-only audit. The private audio was not uploaded to GitHub.
+
+- Rendered input: `deuce w beat.wav` (no master). Target: `deuce my master preset.wav` (user master). B: actual JUCE-hosted SKELL MASTER VST3 with factory identity 5 / Deuce Match enabled. The Deuce v2.5 vocal-only champion remains separate and is not included.
+- Render settings: Input +4 dB, Drive 8%, Glue 17%, Dynamics 11%, Lows -1 dB, Highs +3 dB, Sauce 20%, Transients 0%, Output Trim 0 dB, Ceiling Adjust 0, Clip 14%. No parameter values were changed by this verification pass.
+- Output WAV SHA-256: `0f825b99342f8cd2ad2dffc38b21557417c0ffdb148ef05274f3e05408f0ba58`. 44.1 kHz stereo PCM_24; 105 reported PDC samples (2.381 ms) removed only from the 15-second B preview. Candidate sample peak -2.00 dBFS; independent 16× Kaiser estimate -1.790 dBTP; all samples finite. ProcessBlock CPU was 4.79% of one core on the render container at 44.1 kHz / 257-sample blocks; this is not the user's laptop.
+- The exact-head Linux VST3 binary SHA-256 is `2806e21b3f40e1c326e853937f1efb5e53b2d959ded703b514edd3869aab8c7f`.
+
+First-15-second metrics (same relative 0:00; no extra delay or phase/null alignment):
+
+| Metric | No-master input | User master target | SKELL MASTER VST3 |
+|---|---:|---:|---:|
+| Integrated loudness | -10.039 LUFS | -7.600 LUFS | -10.388 LUFS |
+| Sample peak | 0.00 dBFS | 0.00 dBFS | -2.00 dBFS |
+| 16× Kaiser peak estimate | +2.26 dBTP | +2.51 dBTP | -1.79 dBTP |
+| Side / mid | -17.67 dB | -16.64 dB | -15.91 dB |
+
+The candidate is 2.788 LU quieter than the target. Attenuation-only level matching reduces the target by 2.788 dB and input by 0.349 dB; no track is boosted. Candidate-minus-target band-power deltas after matching are -0.103 / +0.568 / -0.345 / +0.070 / +0.690 dB across 20–90 / 90–500 / 500–2,594 / 2,594–9,310 / 9,310–19,000 Hz. Non-overlapping RMS-envelope MAE is 0.688 / 0.578 / 0.420 / 0.337 dB at 20 / 50 / 200 / 400 ms. The original target's reconstructed peaks exceed 0 dBTP; the plugin intentionally retains safe headroom rather than reproducing those overs. These diagnostics do not establish an exact Waves-chain match or owner listening approval.
+
+The local self-contained package `SkellMaster-Deuce-VST3-AB-run244.zip` has SHA-256 `39b1c6306b347175d9d6fa611a3e51e7b2561a3fca084e948bcc73245ae29c93`. It contains A/B/C 15-second stereo PCM_24 FLACs, metrics, the untrimmed 24-bit VST3 output WAV, and an HTML player. Chromium verification decoded all three tracks; play/pause/stop worked and track switching stayed within approximately 17 ms after synchronization, with no page errors.
+
+No DSP coefficients, factory values, APVTS IDs, state schema, PDC, or SkellCore shared controls changed in this pass. FL Studio scan/session save-reopen/automation, target-laptop CPU and owner listening acceptance remain open. Keep the PR draft; no sound champion is promoted.
