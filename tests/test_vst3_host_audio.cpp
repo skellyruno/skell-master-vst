@@ -267,7 +267,10 @@ static void applyCommandLineOverrides(juce::AudioPluginInstance& instance,
         } else {
             require(value == "0" || value == "1",
                     "Boolean parameter override must be 0 or 1");
-            setBoolParameterByName(instance, name, value == "1");
+            const bool requested = value == "1";
+            setBoolParameterByName(instance, name, requested);
+            require(getBoolParameterByName(instance, name) == requested,
+                    "Boolean VST3 parameter override did not stick: " + name);
         }
     }
 }
