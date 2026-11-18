@@ -168,7 +168,7 @@ jobs:
           path: Skell-Master-Windows-VST3
           if-no-files-found: error
   reference-audio-linux-renderer:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.event.pull_request.head.ref == 'test/deuce-vst3-state-roundtrip-20261117' || github.event.pull_request.head.ref == 'test/deuce-master-param-sweep-linux-20261118' || github.event.pull_request.head.ref == 'fix/deuce-override-range-validation-20261118')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.event.pull_request.head.ref == 'test/deuce-vst3-state-roundtrip-20261117' || github.event.pull_request.head.ref == 'test/deuce-master-param-sweep-linux-20261118' || github.event.pull_request.head.ref == 'fix/deuce-override-range-validation-20261118' || github.event.pull_request.head.ref == 'fix/deuce-renderer-ceiling-boundary-20261118')) }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
