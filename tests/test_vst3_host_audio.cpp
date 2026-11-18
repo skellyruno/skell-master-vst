@@ -267,7 +267,10 @@ static void applyCommandLineOverrides(juce::AudioPluginInstance& instance,
         } else {
             require(value == "0" || value == "1",
                     "Boolean parameter override must be 0 or 1");
-            setBoolParameterByName(instance, name, value == "1");
+            const bool requested = value == "1";
+            setBoolParameterByName(instance, name, requested);
+            require(getBoolParameterByName(instance, name) == requested,
+                    "Boolean VST3 parameter override did not stick: " + name);
         }
     }
 }
@@ -600,7 +603,7 @@ int main(int argc, char** argv) {
             require(metrics.samplePeak<=configuredSampleCeiling+3.e-4,
                     "Hosted VST3 escaped the configured sample-peak ceiling");
             if (deuceMatchEnabled) {
-                // The production guard targets 1dB internal margin; the
+                // The production guard targets 1.2dB internal margin; the
                 // independent host meter allows 0.25dB detector tolerance.
                 const double configuredTruePeakCeiling =
                     skelly::detail::dbToLinear(ceilingDb - 0.75);
