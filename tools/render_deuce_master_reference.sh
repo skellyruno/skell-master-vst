@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-  echo 'Usage: ./render_deuce_master_reference.sh <Skelly Master.vst3> <input.wav> <output.wav>' >&2
+if [[ $# -lt 3 ]]; then
+  echo 'Usage: ./render_deuce_master_reference.sh <Skelly Master.vst3> <input.wav> <output.wav> [--set "Parameter=VALUE"] [--bool "Parameter=0|1"]' >&2
   exit 2
 fi
 
 plugin=$1
 input=$2
 output=$3
+shift 3
 runner="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/SkellyVST3HostAudioTestsLinux"
 
 if [[ ! -d "$plugin" ]]; then
@@ -30,4 +31,4 @@ fi
 
 echo 'Rendering local audio through the compiled Skell Master Linux VST3.'
 echo 'This is not an FL Studio render; output includes reported plugin latency and tail.'
-"$runner" "$plugin" "$input" "$output"
+"$runner" "$plugin" "$input" "$output" "$@"
