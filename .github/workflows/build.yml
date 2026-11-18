@@ -100,7 +100,7 @@ jobs:
           $numericBooleanWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-numeric-boolean.wav'
           & $runner.FullName $plugin.FullName $inputWavPath $boundaryWavPath --set 'Input=18' --set 'Ceiling Adjust=3'
           if ($LASTEXITCODE -ne 0) { throw "Legal upper-bound override was rejected" }
-          & $runner.FullName $plugin.FullName $inputWavPath $extremeWavPath --set 'Output Trim=12' --set 'Clip=100' --set 'Ceiling Adjust=3'
+          & $runner.FullName $plugin.FullName $inputWavPath $extremeWavPath --set 'Output Trim=12' --set 'Clip=100' --set 'Ceiling Adjust=3' --bool 'Deuce Match=1'
           if ($LASTEXITCODE -ne 0) { throw "Maximum Output Trim/Clip Deuce Match render failed its true-peak margin" }
           if (-not (Test-Path $extremeWavPath)) { throw "Maximum Output Trim/Clip render did not create its WAV" }
           # Legacy mode has sample-peak safety, but no Deuce Match true-peak guarantee.
@@ -243,7 +243,7 @@ jobs:
           "$runner" "$plugin" "$input" "$default"
           "$runner" "$plugin" "$input" "$override" --set 'Input=5' --set 'Glue=18' --bool 'Deuce Match=1'
           "$runner" "$plugin" "$input" "$boundary" --set 'Input=18' --set 'Ceiling Adjust=3'
-          "$runner" "$plugin" "$input" "$extreme" --set 'Output Trim=12' --set 'Clip=100' --set 'Ceiling Adjust=3'
+          "$runner" "$plugin" "$input" "$extreme" --set 'Output Trim=12' --set 'Clip=100' --set 'Ceiling Adjust=3' --bool 'Deuce Match=1'
           # Legacy mode retains sample-peak safety; true-peak margin is Deuce Match-only.
           "$runner" "$plugin" "$input" "$legacy" --bool 'Deuce Match=0'
           if "$runner" "$plugin" "$input" "$invalid_range" --set 'Input=1000'; then
