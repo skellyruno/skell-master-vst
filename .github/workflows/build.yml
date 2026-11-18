@@ -110,6 +110,9 @@ jobs:
           & $runner.FullName $plugin.FullName $inputWavPath $numericBooleanWavPath --set 'Deuce Match=1'
           if ($LASTEXITCODE -eq 0) { throw "Numeric override on a boolean parameter was silently accepted" }
           if (Test-Path $numericBooleanWavPath) { throw "Rejected boolean-as-numeric override wrote an output file" }
+          # The final negative case intentionally leaves a non-zero native exit code.
+          # All rejection assertions passed, so do not leak that expected status to pwsh.
+          exit 0
       - name: Package
         shell: pwsh
         run: |
