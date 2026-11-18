@@ -11,6 +11,8 @@ on:
       - 'Source/**'
       - 'tests/**'
       - 'tools/normalize_vst3_moduleinfo.py'
+      - 'tools/render_deuce_master_reference.ps1'
+      - 'tools/render_deuce_master_reference.sh'
 
 # During rapid UI/DSP iterations, do not waste Windows runners compiling
 # superseded snapshots. Always compile and publish the most recent commit.
@@ -41,15 +43,169 @@ jobs:
       # Preserve DSP and JUCE interaction tests; no screenshot artifact uploads.
       - name: Test mastering DSP
         run: ctest --test-dir build -C Release --output-on-failure --verbose
+      - name: Smoke-test external WAV render path
+        shell: pwsh
+        run: |
+          $plugin = Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Select-Object -First 1
+          $runner = Get-ChildItem -Path build -File -Recurse -Filter 'SkellyVST3HostAudioTests.exe' | Select-Object -First 1
+          if (-not $plugin) { throw 'VST3 bundle missing for WAV render smoke test' }
+          if (-not $runner) { throw 'VST3 host render executable missing' }
+          $inputWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture.wav'
+          $outputWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-output.wav'
+          @'
+          import math, struct, sys, wave
+          path = sys.argv[1]
+          rate = 44100
+          with wave.open(path, "wb") as w:
+              w.setnchannels(2)
+              w.setsampwidth(2)
+              w.setframerate(rate)
+              frames = bytearray()
+              for n in range(rate):
+                  t = n / rate
+                  transient = 0.85 * math.exp(-n / 24.0) if n < 240 else 0.0
+                  left = transient + 0.22 * math.sin(2 * math.pi * 63 * t) + 0.08 * math.sin(2 * math.pi * 7200 * t)
+                  right = transient * 0.8 + 0.19 * math.sin(2 * math.pi * 63 * t + 0.07) - 0.06 * math.sin(2 * math.pi * 7200 * t)
+                  frames.extend(struct.pack("<hh", max(-32768, min(32767, round(left * 22000))), max(-32768, min(32767, round(right * 22000)))))
+              w.writeframes(frames)
+          '@ | python - $inputWavPath
+          & $runner.FullName $plugin.FullName $inputWavPath $outputWavPath
+          if ($LASTEXITCODE -ne 0) { throw "VST3 WAV render smoke test failed with exit code $LASTEXITCODE" }
+          @'
+          import sys, wave
+          with wave.open(sys.argv[1], "rb") as w:
+              assert w.getnchannels() == 2, "render must be stereo"
+              assert w.getframerate() == 44100, "render sample rate changed"
+              assert w.getsampwidth() == 3, "render must be 24-bit PCM"
+              assert w.getnframes() > 44100, "render should include the plugin latency/tail"
+              print(f"PASS: external WAV VST3 render {w.getframerate()} Hz, {w.getnframes()} frames, {w.getsampwidth()*8}-bit PCM")
+          '@ | python - $outputWavPath
       - name: Package
         shell: pwsh
         run: |
           $plugin = Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Select-Object -First 1
+          $runner = Get-ChildItem -Path build -File -Recurse -Filter 'SkellyVST3HostAudioTests.exe' | Select-Object -First 1
           if (-not $plugin) { throw 'VST3 bundle missing' }
-          Compress-Archive -Path $plugin.FullName -DestinationPath SkellPlugin-Windows-VST3.zip
+          if (-not $runner) { throw 'VST3 host render executable missing' }
+          $package = Join-Path $PWD 'Skell-Master-Windows-VST3'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item -Path $plugin.FullName -Destination $package -Recurse
+          Copy-Item -Path $runner.FullName -Destination $package
+          Copy-Item -Path 'tools/render_deuce_master_reference.ps1' -Destination $package
+          $checkedOutCommit = (git rev-parse HEAD).Trim()
+          $prHead = "${{ github.event.pull_request.head.sha || github.sha }}"
+          $branchName = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
+          @"
+          Product: Skell Master
+          Version: 1.0.0
+          Checked-out commit: $checkedOutCommit
+          Workflow SHA: $env:GITHUB_SHA
+          PR head SHA: $prHead
+          Branch: $branchName
+          Workflow run: $env:GITHUB_RUN_ID
+          VST3 host runner: SkellyVST3HostAudioTests.exe
+          Audio render: 24-bit PCM WAV; stereo input; 44.1/48/96 kHz
+          Preset: SKELL MASTER (factory identity 5; Deuce Match enabled)
+          "@ | Set-Content -Encoding UTF8 (Join-Path $package 'BUILD-INFO.txt')
+          @"
+          Skell Master — Windows VST3 + offline WAV render helper
+
+          This is a draft verification build, not a production release.
+
+          Render a local stereo WAV through the compiled VST3:
+            .\render_deuce_master_reference.ps1 -InputWav "C:\path\deuce w beat.wav" -OutputWav "C:\path\SkellMaster_Deuce_Render.wav"
+
+          Input must be stereo WAV at 44.1, 48 or 96 kHz. Output is 24-bit PCM WAV.
+          The runner applies the SKELL MASTER reference parameters and enables Deuce Match.
+          It includes plugin latency and a short safety tail; align the result before A/B.
+          This is a JUCE-hosted VST3 render, not an FL Studio session render.
+          No owner audio or preset files are included in this package.
+          "@ | Set-Content -Encoding UTF8 (Join-Path $package 'README.txt')
+      - name: Validate exact staged VST3 with pluginval
+        uses: Tracktion/pluginval/validate@v2.0.0-beta3
+        with:
+          plugins: Skell-Master-Windows-VST3/Skelly Master.vst3
+          strictness-level: 5
+          pluginval-version: v2.0.0-beta3
       - uses: actions/upload-artifact@v6
         with:
           retention-days: 14
           name: SkellPlugin-Windows-VST3
-          path: SkellPlugin-Windows-VST3.zip
+          path: Skell-Master-Windows-VST3
+          if-no-files-found: error
+  reference-audio-linux-renderer:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'test/deuce-vst3-state-roundtrip-20261117') }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install JUCE Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config xvfb libasound2-dev libjack-jackd2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxext-dev libxinerama-dev libxrandr-dev libxcursor-dev libxcomposite-dev libxrender-dev libxfixes-dev libxss-dev libgl1-mesa-dev libgtk-3-dev
+      - name: Configure Linux VST3 and host renderer
+        run: cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build Linux VST3 and host renderer
+        run: cmake --build build-linux --parallel 4
+      - name: Validate Linux VST3 metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/normalize_vst3_moduleinfo.py --self-test
+          plugin="$(find build-linux -type d -name '*.vst3' -print -quit)"
+          test -n "$plugin"
+          metadata="$plugin/Contents/Resources/moduleinfo.json"
+          test -f "$metadata"
+          python tools/normalize_vst3_moduleinfo.py "$metadata"
+      - name: Run portable DSP and hosted Linux VST3 tests
+        run: xvfb-run -a ctest --test-dir build-linux --output-on-failure --verbose
+      - name: Package local-reference renderer
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin="$(find build-linux -type d -name '*.vst3' -print -quit)"
+          runner="$(find build-linux -type f -name 'SkellyVST3HostAudioTestsLinux' -perm -111 -print -quit)"
+          test -n "$plugin"
+          test -n "$runner"
+          package=Skell-Master-Linux-VST3
+          mkdir -p "$package"
+          cp -a "$plugin" "$package/"
+          cp "$runner" "$package/"
+          cp tools/render_deuce_master_reference.sh "$package/"
+          chmod +x "$package/render_deuce_master_reference.sh"
+          plugin_binary="$(find "$plugin" -type f -name '*.so' -print -quit)"
+          test -n "$plugin_binary"
+          ldd "$runner" | tee "$package/ldd-runner.txt"
+          ldd "$plugin_binary" | tee "$package/ldd-plugin.txt"
+          if grep -q 'not found' "$package/ldd-runner.txt" "$package/ldd-plugin.txt"; then
+            echo 'Missing Linux runtime dependency' >&2
+            exit 1
+          fi
+          {
+            echo "Product: Skell Master"
+            echo "Checked-out commit: $(git rev-parse HEAD)"
+            echo "Workflow run: $GITHUB_RUN_ID"
+            echo "Host runner: SkellyVST3HostAudioTestsLinux"
+            echo "Preset: SKELL MASTER (factory identity 5; Deuce Match enabled)"
+            echo "Output: 24-bit PCM WAV; includes reported latency and safety tail"
+            echo "Private owner WAV/FST files: not included or uploaded"
+          } > "$package/BUILD-INFO.txt"
+          cat > "$package/README.txt" <<'EOF'
+          Skell Master — Linux VST3 reference renderer
+
+          This is a render/analysis helper, not a Windows release or FL Studio session.
+
+          Render a local stereo WAV through the compiled VST3:
+            ./render_deuce_master_reference.sh "./Skelly Master.vst3" "/path/input.wav" "/path/output.wav"
+
+          Input must be stereo WAV at 44.1, 48 or 96 kHz. Output is 24-bit PCM WAV.
+          The runner applies the SKELL MASTER factory parameters and enables Deuce Match.
+          The output includes reported plugin latency and a short tail; align before A/B.
+          The script refuses to overwrite an existing output file.
+          Owner audio and FST files are never included in this package.
+          EOF
+      - uses: actions/upload-artifact@v6
+        with:
+          retention-days: 14
+          name: SkellMaster-Linux-VST3-ReferenceRenderer
+          path: Skell-Master-Linux-VST3
           if-no-files-found: error

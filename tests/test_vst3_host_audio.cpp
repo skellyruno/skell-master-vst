@@ -20,6 +20,10 @@ static void require(bool condition, const char* why) {
     if (!condition) throw std::runtime_error(why);
 }
 
+static void require(bool condition, const std::string& why) {
+    if (!condition) throw std::runtime_error(why);
+}
+
 struct Measurements {
     double samplePeak=0.0, reconstructedPeak=0.0, sumSquares=0.0;
     double midEnergy=0.0, sideEnergy=0.0, firstInputImpulse=-1.0, firstOutputImpulse=-1.0;
@@ -69,6 +73,165 @@ static void setBoolParameterByName(juce::AudioPluginInstance& instance,
     require(found,"Cannot find VST3 boolean parameter by expected public name");
 }
 
+// JUCE's hosted VST3 state is an outer VST3PluginState XML wrapper.
+// The actual processor state is base64 inside its IComponent child; editing
+// only an attribute on the outer wrapper does not reach the plugin at all.
+static std::unique_ptr<juce::XmlElement> getComponentStateXml(
+    juce::AudioPluginInstance& instance,
+    std::unique_ptr<juce::XmlElement>& wrapper) {
+    juce::MemoryBlock hostState;
+    instance.getStateInformation(hostState);
+    require(hostState.getSize() > 0, "VST3 host state snapshot is empty");
+    wrapper = juce::AudioProcessor::getXmlFromBinary(
+        hostState.getData(), static_cast<int>(hostState.getSize()));
+    require(wrapper != nullptr, "VST3 host state XML is missing");
+    require(wrapper->hasTagName("VST3PluginState"),
+            "Unexpected JUCE hosted VST3 state wrapper");
+    auto* component = wrapper->getChildByName("IComponent");
+    require(component != nullptr, "VST3 IComponent state is missing");
+    juce::MemoryBlock componentState;
+    require(componentState.fromBase64Encoding(component->getAllSubText()),
+            "VST3 IComponent state base64 is invalid");
+    auto componentXml = juce::AudioProcessor::getXmlFromBinary(
+        componentState.getData(), static_cast<int>(componentState.getSize()));
+    require(componentXml != nullptr, "VST3 processor component state XML is missing");
+    require(componentXml->hasTagName("SKELLY_MASTER_PARAMETERS"),
+            "VST3 IComponent did not contain the Skell Master processor state");
+    return componentXml;
+}
+
+static int getFactoryIdentityFromHostState(juce::AudioPluginInstance& instance) {
+    std::unique_ptr<juce::XmlElement> wrapper;
+    const auto componentXml = getComponentStateXml(instance, wrapper);
+    return componentXml->getIntAttribute("skellMasterFactoryPreset", -1);
+}
+
+static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, int presetId) {
+    std::unique_ptr<juce::XmlElement> wrapper;
+    auto componentXml = getComponentStateXml(instance, wrapper);
+    componentXml->setAttribute("skellMasterFactoryPreset", presetId);
+
+    juce::MemoryBlock updatedComponentState;
+    juce::AudioProcessor::copyXmlToBinary(*componentXml, updatedComponentState);
+    auto* component = wrapper->getChildByName("IComponent");
+    require(component != nullptr, "VST3 IComponent state disappeared");
+    // IComponent is a container element. JUCE serializes the stream as a
+    // child text node (appendStateFrom uses addTextElement); XmlElement::setText
+    // only works on text nodes and is a no-op/assertion on this container.
+    component->deleteAllChildElements();
+    component->addTextElement(updatedComponentState.toBase64Encoding());
+
+    juce::MemoryBlock updatedHostState;
+    juce::AudioProcessor::copyXmlToBinary(*wrapper, updatedHostState);
+    instance.setStateInformation(updatedHostState.getData(),
+                                  static_cast<int>(updatedHostState.getSize()));
+    require(getFactoryIdentityFromHostState(instance) == presetId,
+            "VST3 host could not restore the non-automatable factory identity");
+}
+
+static void requireHostStateRoundTrip(juce::AudioPluginInstance& source,
+                                       juce::AudioPluginInstance& restored,
+                                       const char* context) {
+    const int sourceFactoryIdentity = getFactoryIdentityFromHostState(source);
+    juce::MemoryBlock state;
+    source.getStateInformation(state);
+    require(state.getSize() > 0, "VST3 host state snapshot is empty");
+    restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    require(getFactoryIdentityFromHostState(restored) == sourceFactoryIdentity,
+            "VST3 host state did not preserve non-automatable factory identity");
+
+    const auto sourceParameters = source.getParameters();
+    const auto restoredParameters = restored.getParameters();
+    require(sourceParameters.size() == restoredParameters.size(),
+            "VST3 host state changed the parameter count");
+    for (int i = 0; i < sourceParameters.size(); ++i) {
+        const auto sourceName = sourceParameters[i]->getName(128);
+        const auto restoredName = restoredParameters[i]->getName(128);
+        require(sourceName == restoredName,
+                "VST3 host state changed parameter ordering or identity");
+        require(std::abs(sourceParameters[i]->getValue()
+                         - restoredParameters[i]->getValue()) <= 1.0e-5f,
+                context);
+    }
+}
+
+// Compare the real hosted audio path after a host-state restore. Parameter equality
+// alone can miss hidden mode/state drift that only appears once DSP starts running.
+static void requireHostRenderedStateMatch(juce::AudioPluginInstance& source,
+                                          juce::AudioPluginInstance& restored,
+                                          double sampleRate,
+                                          int blockSize,
+                                          const char* context) {
+    require(source.getLatencySamples() == restored.getLatencySamples(),
+            "VST3 host-state restore changed reported latency");
+    source.reset();
+    restored.reset();
+
+    juce::AudioBuffer<float> sourceBuffer(2, blockSize);
+    juce::AudioBuffer<float> restoredBuffer(2, blockSize);
+    juce::MidiBuffer sourceMidi, restoredMidi;
+    const juce::int64 totalFrames = static_cast<juce::int64>(sampleRate * 1.25);
+    const juce::int64 pulsePeriod = static_cast<juce::int64>(sampleRate * 0.5);
+    double maximumDifference = 0.0;
+    double maximumOutputPeak = 0.0;
+
+    for (juce::int64 position = 0; position < totalFrames; position += blockSize) {
+        const int count = static_cast<int>(std::min<juce::int64>(
+            blockSize, totalFrames - position));
+        sourceBuffer.clear();
+        restoredBuffer.clear();
+
+        for (int i = 0; i < count; ++i) {
+            const juce::int64 frame = position + i;
+            const juce::int64 local = frame % pulsePeriod;
+            const double t = static_cast<double>(frame) / sampleRate;
+            const double transient = local < 120
+                ? 0.85 * std::exp(-static_cast<double>(local) / 24.0) : 0.0;
+            const double bass = 0.22 * std::sin(
+                2.0 * juce::MathConstants<double>::pi * 61.0 * t);
+            const double body = 0.11 * std::sin(
+                2.0 * juce::MathConstants<double>::pi * 550.0 * t);
+            const double air = 0.04 * std::sin(
+                2.0 * juce::MathConstants<double>::pi * 9500.0 * t);
+            const float left = static_cast<float>(transient + bass + body + air);
+            const float right = static_cast<float>(
+                0.82 * transient + 0.87 * bass + 0.67 * body - 0.75 * air);
+            sourceBuffer.setSample(0, i, left);
+            sourceBuffer.setSample(1, i, right);
+            restoredBuffer.setSample(0, i, left);
+            restoredBuffer.setSample(1, i, right);
+        }
+
+        sourceMidi.clear();
+        restoredMidi.clear();
+        source.processBlock(sourceBuffer, sourceMidi);
+        restored.processBlock(restoredBuffer, restoredMidi);
+
+        for (int i = 0; i < count; ++i) {
+            const float sourceLeft = sourceBuffer.getSample(0, i);
+            const float sourceRight = sourceBuffer.getSample(1, i);
+            const float restoredLeft = restoredBuffer.getSample(0, i);
+            const float restoredRight = restoredBuffer.getSample(1, i);
+            require(std::isfinite(sourceLeft) && std::isfinite(sourceRight)
+                    && std::isfinite(restoredLeft) && std::isfinite(restoredRight),
+                    "VST3 state roundtrip produced non-finite audio");
+            maximumDifference = std::max(maximumDifference,
+                std::max(std::abs(static_cast<double>(sourceLeft) - restoredLeft),
+                         std::abs(static_cast<double>(sourceRight) - restoredRight)));
+            maximumOutputPeak = std::max(maximumOutputPeak,
+                std::max(std::abs(static_cast<double>(sourceLeft)),
+                         std::abs(static_cast<double>(sourceRight))));
+        }
+    }
+
+    require(maximumDifference <= 2.0e-6, context);
+    require(maximumOutputPeak <= 1.0,
+            "VST3 state roundtrip produced an out-of-range sample");
+    std::cout << "PASS: hosted VST3 state audio equivalence at " << sampleRate
+              << " Hz; max difference " << maximumDifference
+              << ", peak " << maximumOutputPeak << '\n';
+}
+
 static juce::File locateVST3(const juce::String& userArg) {
     if (userArg.isNotEmpty()) return juce::File(userArg);
     const auto root=juce::File::getCurrentWorkingDirectory();
@@ -88,8 +251,9 @@ int main(int argc, char** argv) {
     try {
         juce::ScopedJuceInitialiser_GUI gui;
         // --rate N exercises the compiled VST3 at each supported host rate
-        // using deterministic generated programme. WAV input is optional and
-        // kept strictly on the local machine, never sent to CI.
+        // using deterministic generated programme. Owner reference WAVs stay local
+        // and are never sent to CI; CI separately smoke-tests file I/O with a
+        // generated synthetic WAV fixture.
         const bool rateMode=argc>=3 && std::string(argv[1])=="--rate";
         const juce::File bundle=locateVST3(
             (!rateMode && argc>=2) ? juce::String::fromUTF8(argv[1]) : juce::String());
@@ -131,6 +295,23 @@ int main(int argc, char** argv) {
         auto plugin=formats.createPluginInstance(*descriptions.getFirst(),sampleRate,
                                                  blockSize,error);
         if (!plugin) throw std::runtime_error("Cannot instantiate built VST3: " + error.toStdString());
+        const int hostProgramCount = plugin->getNumPrograms();
+        // VST3 hosts are not required to expose JUCE's legacy AudioProcessor
+        // program list. Some JUCE VST3 host instances report zero programs even
+        // when the wrapped processor implements one named Default program.
+        // The direct processor contract is tested by SkellyUITests, while
+        // pluginval validates the staged VST3 bundle independently.
+        require(hostProgramCount == 0 || hostProgramCount == 1,
+                "VST3 host exposed an unexpected number of legacy programs");
+        if (hostProgramCount == 1) {
+            require(plugin->getProgramName(0) == "Default",
+                    "VST3 program 0 must have a non-empty Default name");
+            require(plugin->getProgramName(1).isEmpty(),
+                    "out-of-range VST3 program index must remain empty");
+        } else {
+            std::cout << "INFO: VST3 host does not expose the legacy program list; "
+                         "processor contract is checked separately\\n";
+        }
         plugin->setPlayConfigDetails(2,2,sampleRate,blockSize);
         plugin->prepareToPlay(sampleRate,blockSize);
         require(plugin->getLatencySamples()>=32,"VST3 latency omitted the 32-sample true-peak lookahead");
@@ -151,6 +332,36 @@ int main(int argc, char** argv) {
         setParameterByName(*plugin,"Ceiling Adjust",0.0f);
         setParameterByName(*plugin,"Clip",14.0f);
         setBoolParameterByName(*plugin,"Deuce Match",true);
+        // Factory identity is deliberately non-automatable and is not present
+        // in getParameters(). Seed the named SKELL MASTER identity through the
+        // real serialized host-state path so the following VST3 roundtrip
+        // verifies it separately from the exposed APVTS parameters.
+        setFactoryIdentityForHostTest(*plugin, 5);
+
+        // Exercise the actual hosted VST3 component-state path, not only the
+        // processor/UI fixture. Every public parameter must survive a fresh
+        // plugin instance restoring the saved binary state.
+        auto restoredPlugin = formats.createPluginInstance(
+            *descriptions.getFirst(), sampleRate, blockSize, error);
+        require(restoredPlugin != nullptr,
+                "Cannot instantiate second VST3 for host-state roundtrip: " + error.toStdString());
+        restoredPlugin->setPlayConfigDetails(2, 2, sampleRate, blockSize);
+        restoredPlugin->prepareToPlay(sampleRate, blockSize);
+        requireHostStateRoundTrip(*plugin, *restoredPlugin,
+            "VST3 host state did not preserve all factory parameter values");
+        requireHostRenderedStateMatch(*plugin, *restoredPlugin, sampleRate, blockSize,
+            "Deuce Match host-state reload changed the rendered audio");
+
+        // Bypass is independently serialized and must preserve the same
+        // latency-aligned dry output after a fresh hosted-state restore.
+        setBoolParameterByName(*plugin,"Bypass",true);
+        requireHostStateRoundTrip(*plugin, *restoredPlugin,
+            "VST3 host state did not preserve bypass alongside Deuce Match");
+        requireHostRenderedStateMatch(*plugin, *restoredPlugin, sampleRate, blockSize,
+            "Bypass host-state reload changed the rendered audio");
+        setBoolParameterByName(*plugin,"Bypass",false);
+        plugin->reset();
+        restoredPlugin->releaseResources();
 
         const juce::int64 inputFrames=reader ? reader->lengthInSamples
                                            : static_cast<juce::int64>(sampleRate*9);
@@ -162,9 +373,25 @@ int main(int argc, char** argv) {
         metrics.meter.reset();
         juce::AudioBuffer<float> buffer(2,blockSize);
         juce::MidiBuffer midi;
-        std::vector<float> output;
-        if(argc>=4) output.reserve(static_cast<size_t>(totalFrames)*2);
+        // Stream rendered blocks directly to disk. The previous whole-file
+        // vector plus a second full AudioBuffer doubled peak memory usage and
+        // could approach 1 GiB for the documented 10-minute / 96 kHz limit.
+        std::unique_ptr<juce::AudioFormatWriter> outputWriter;
+        if(argc>=4) {
+            const juce::File outputPath(juce::String::fromUTF8(argv[3]));
+            std::unique_ptr<juce::OutputStream> stream=outputPath.createOutputStream();
+            require(stream!=nullptr,"Could not create WAV output");
+            auto* wav=audioFormats.findFormatForFileExtension("wav");
+            require(wav!=nullptr,"JUCE WAV writer unavailable");
+            outputWriter=wav->createWriterFor(stream,
+                juce::AudioFormatWriterOptions{}
+                    .withSampleRate(sampleRate)
+                    .withNumChannels(2)
+                    .withBitsPerSample(24));
+            require(outputWriter!=nullptr,"Could not create output WAV encoder");
+        }
 
+        double dspSeconds=0.0;
         const auto started=std::chrono::steady_clock::now();
         for (juce::int64 pos=0; pos<totalFrames;pos+=blockSize) {
             const int count=static_cast<int>(std::min<juce::int64>(blockSize,totalFrames-pos));
@@ -189,37 +416,23 @@ int main(int argc, char** argv) {
             // JUCE VST3 processBlock may be called with a smaller final block.
             if(count<blockSize) buffer.clear(count,blockSize-count);
             midi.clear();
+            const auto dspStarted=std::chrono::steady_clock::now();
             plugin->processBlock(buffer,midi);
+            dspSeconds+=std::chrono::duration<double>(
+                std::chrono::steady_clock::now()-dspStarted).count();
             for(int i=0;i<count;++i) {
                 const float l=buffer.getSample(0,i),r=buffer.getSample(1,i);
                 metrics.add(l,r);
-                if(argc>=4) {output.push_back(l);output.push_back(r);}
             }
+            if(outputWriter)
+                require(outputWriter->writeFromAudioSampleBuffer(buffer,0,count),
+                        "Failed to stream rendered WAV block");
         }
         const double renderSeconds=std::chrono::duration<double>(
             std::chrono::steady_clock::now()-started).count();
-
-        if(argc>=4) {
-            const juce::File outputPath(juce::String::fromUTF8(argv[3]));
-            std::unique_ptr<juce::OutputStream> stream=outputPath.createOutputStream();
-            require(stream!=nullptr,"Could not create WAV output");
-            auto* wav=audioFormats.findFormatForFileExtension("wav");
-            require(wav!=nullptr,"JUCE WAV writer unavailable");
-            auto writer=wav->createWriterFor(stream,
-                juce::AudioFormatWriterOptions{}
-                    .withSampleRate(sampleRate)
-                    .withNumChannels(2)
-                    .withBitsPerSample(24));
-            require(writer!=nullptr,"Could not create output WAV encoder");
-            // JUCE 8 writer now owns the stream on success.
-            juce::AudioBuffer<float> audio(2,static_cast<int>(totalFrames));
-            for(int i=0;i<audio.getNumSamples();++i) {
-                audio.setSample(0,i,output[static_cast<size_t>(2*i)]);
-                audio.setSample(1,i,output[static_cast<size_t>(2*i+1)]);
-            }
-            require(writer->writeFromAudioSampleBuffer(audio,0,audio.getNumSamples()),
-                    "Failed to write rendered WAV");
-        }
+        // Close the writer before returning so the WAV header/frame count is
+        // finalized even when the caller immediately inspects the output.
+        outputWriter.reset();
         plugin->releaseResources();
         const auto dB=[](double linear) {
             return 20.0*std::log10(std::max(1.e-14,linear));
@@ -246,7 +459,7 @@ int main(int argc, char** argv) {
                  <<" side_mid_db="<<width
                  <<" wall_seconds="<<renderSeconds
                  <<" audio_seconds="<<totalFrames/sampleRate
-                 <<" cpu_percent_one_core="<<100.0*renderSeconds/(totalFrames/sampleRate)
+                 <<" cpu_percent_one_core="<<100.0*dspSeconds/(totalFrames/sampleRate)
                  <<'\n';
         return EXIT_SUCCESS;
     } catch(const std::exception& e) {

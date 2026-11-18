@@ -20,7 +20,7 @@ Recomputed measurements from the embedded FLACs:
 | 4x polyphase true-peak estimate | +2.234 dBTP | +2.467 dBTP |
 | Crest (sample peak / RMS) | 9.284 dB | 7.659 dB |
 
-The master is +2.439 LU louder. After loudness matching, its relative energy change is about -1.18 dB at 20–60 Hz, -1.49 dB at 60–120 Hz, +1.53 dB at 4–8 kHz, and +1.48 dB at 8–16 kHz. The old A/B page's 294-sample pre-shift leaves a measured residual alignment of about 263 samples (5.96 ms) in this excerpt.
+The master is +2.439 LU louder. After loudness matching, its relative energy change is about -1.18 dB at 20–60 Hz, -1.49 dB at 60–120 Hz, +1.53 dB at 4–8 kHz, and +1.48 dB at 8–16 kHz. The previous A/B page's text claimed a 294-sample shift while its JSON reported 31 samples; inspection of its playback code showed that no offset was applied. The corrected 2026-11-17 reference-to-reference package uses the same relative 0:00 for both tracks, no sample-delay compensation and no phase/null alignment. A separate 297-sample full-length cross-correlation estimate is diagnostic only and is not used for playback; the earlier 263-sample residual-alignment claim is withdrawn.
 
 The prior offline five-band candidate, measured at -14 LUFS, had a 0.36 dB mean six-band spectral error and about 0.52 dB 200 ms envelope error against its reference excerpt. It is an offline prototype render, not a native VST3 render and not perceptual approval.
 
@@ -56,3 +56,10 @@ The Deuce Match guard now uses a 257-tap / 4-phase Kaiser reconstruction detecto
 A standalone C++ prototype of the new detector/guard was checked against the independent 16x windowed-sinc oracle. With the 1.0 dB margin, deterministic full-band bursts measured approximately -1.19 dBTP at 44.1 / 48 / 96 kHz; a 20 kHz tone measured -1.75 / -1.50 / -1.87 dBTP. The guard-only prototype took about 3.8–8.6 ms to process 250 ms of stereo audio across 44.1–96 kHz on this container. These are isolated prototype measurements, not a full plugin CPU benchmark or a Windows VST3 result.
 
 The repository regression now checks both the independent 257-tap Kaiser reconstruction and an independent 16x windowed-sinc reconstruction on deterministic full-band bursts at 44.1 / 48 / 96 kHz, in addition to the 20 kHz cases, stereo linking, bypass alignment, reset and finite recovery. A separate regression confirms legacy factories retain sample-peak-only behavior while Deuce Match protects the same inter-sample stress signal. Exact-head Windows CI must pass before this DSP change is considered verified. The private reference WAV/FST bytes remain outside GitHub; native music A/B, FL Studio session save/reload, real-device CPU/latency profiling and user listening acceptance remain open.
+
+
+## 2026-11-18 hosted VST3 state-audio regression
+
+The hosted VST3 test now verifies rendered output after host-state restoration, not only serialized parameter values. A fresh VST3 instance is restored from the SKELL MASTER factory state and compared sample-for-sample against the source instance on the same deterministic stereo signal. The test repeats with latency-aligned bypass restored. Windows run #238 on commit e9c24cd9e846376b241ffb2c4e1021e510c07757 passed CTest 9/9; maximum rendered difference was 0 at 44.1 / 48 / 96 kHz, with finite output and reported latency 105 / 110 / 182 samples. This remains synthetic host validation, not owner-audio A/B or FL Studio.
+
+A Linux VST3 host-render target and private local-reference workflow are being added in PR #17. The first Linux build is pending; no owner WAV/FST is sent to CI.

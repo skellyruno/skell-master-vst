@@ -156,6 +156,34 @@ if(WIN32)
 endif()
 
 
+# Linux-only hosted VST3 target used for private offline reference renders.
+# The corresponding workflow uploads only the plugin and host executable;
+# owner WAV/FST assets remain local and are never sent to CI.
+if(UNIX AND NOT APPLE)
+    juce_add_console_app(SkellyVST3HostAudioTestsLinux
+        PRODUCT_NAME "Skell Master Linux VST3 Audio Test")
+    target_sources(SkellyVST3HostAudioTestsLinux PRIVATE
+        tests/test_vst3_host_audio.cpp)
+    target_compile_features(SkellyVST3HostAudioTestsLinux PRIVATE cxx_std_17)
+    target_compile_definitions(SkellyVST3HostAudioTestsLinux PRIVATE
+        JUCE_PLUGINHOST_VST3=1 JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0)
+    target_link_libraries(SkellyVST3HostAudioTestsLinux PRIVATE
+        juce::juce_audio_utils juce::juce_audio_processors
+        juce::juce_audio_formats juce::juce_dsp)
+    juce_generate_juce_header(SkellyVST3HostAudioTestsLinux)
+    add_test(NAME SkellyVST3HostAudioTestsLinux
+        COMMAND SkellyVST3HostAudioTestsLinux)
+    add_test(NAME SkellyVST3HostAudio48kLinux
+        COMMAND SkellyVST3HostAudioTestsLinux --rate 48000)
+    add_test(NAME SkellyVST3HostAudio96kLinux
+        COMMAND SkellyVST3HostAudioTestsLinux --rate 96000)
+    set_tests_properties(SkellyVST3HostAudioTestsLinux
+        SkellyVST3HostAudio48kLinux SkellyVST3HostAudio96kLinux
+        PROPERTIES TIMEOUT 180)
+endif()
+
+
 # Permanent optional SkellCore headless renderer. The executable links the
 # actual plugin shared-code target and is never included in the shipped VST3.
 option(SKELLY_MASTER_BUILD_UI_RENDERER "Build real editor with pinned SkellCore renderer" OFF)

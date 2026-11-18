@@ -118,6 +118,12 @@ int main() {
        #endif
         std::cout << "PASS: reference-derived hardware images decoded\n";
         SkellyMasterAudioProcessor processor;
+        check(processor.getNumPrograms()==1,
+              "processor must expose its single legacy Default program");
+        check(processor.getProgramName(0)=="Default",
+              "processor legacy program zero must be named Default");
+        check(processor.getProgramName(1).isEmpty(),
+              "processor out-of-range legacy program name must be empty");
         processor.prepareToPlay(48000.0, 512);
         SkellyMasterAudioProcessorEditor editor(processor);
         // Every *fresh* control starts at displayed zero. Old projects still
