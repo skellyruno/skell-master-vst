@@ -92,6 +92,7 @@ jobs:
           print("PASS: default and --set override renders are valid, distinct 24-bit stereo WAVs")
           '@ | python - $outputWavPath $overrideWavPath
           $boundaryWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-boundary.wav'
+          $extremeWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-extreme-output-clip.wav'
           $legacyWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-legacy-mode.wav'
           $invalidRangeWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-invalid-range.wav'
           $invalidStepWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-invalid-step.wav'
@@ -99,6 +100,9 @@ jobs:
           $numericBooleanWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-numeric-boolean.wav'
           & $runner.FullName $plugin.FullName $inputWavPath $boundaryWavPath --set 'Input=18' --set 'Ceiling Adjust=3'
           if ($LASTEXITCODE -ne 0) { throw "Legal upper-bound override was rejected" }
+          & $runner.FullName $plugin.FullName $inputWavPath $extremeWavPath --set 'Output Trim=12' --set 'Clip=100' --set 'Ceiling Adjust=3'
+          if ($LASTEXITCODE -ne 0) { throw "Maximum Output Trim/Clip Deuce Match render failed its true-peak margin" }
+          if (-not (Test-Path $extremeWavPath)) { throw "Maximum Output Trim/Clip render did not create its WAV" }
           # Legacy mode has sample-peak safety, but no Deuce Match true-peak guarantee.
           & $runner.FullName $plugin.FullName $inputWavPath $legacyWavPath --bool 'Deuce Match=0'
           if ($LASTEXITCODE -ne 0) { throw "Legacy sample-peak mode render was rejected" }
@@ -179,7 +183,7 @@ jobs:
           path: Skell-Master-Windows-VST3
           if-no-files-found: error
   reference-audio-linux-renderer:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.event.pull_request.head.ref == 'test/deuce-vst3-state-roundtrip-20261117' || github.event.pull_request.head.ref == 'test/deuce-master-param-sweep-linux-20261118' || github.event.pull_request.head.ref == 'fix/deuce-override-range-validation-20261118' || github.event.pull_request.head.ref == 'fix/deuce-renderer-ceiling-boundary-20261118')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.event.pull_request.head.ref == 'test/deuce-vst3-state-roundtrip-20261117' || github.event.pull_request.head.ref == 'test/deuce-master-param-sweep-linux-20261118' || github.event.pull_request.head.ref == 'fix/deuce-override-range-validation-20261118' || github.event.pull_request.head.ref == 'fix/deuce-renderer-ceiling-boundary-20261118' || github.event.pull_request.head.ref == 'fix/deuce-truepeak-margin-extreme-20261118')) }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -215,6 +219,7 @@ jobs:
           default="$RUNNER_TEMP/skell-master-range-validation-default.wav"
           override="$RUNNER_TEMP/skell-master-range-validation-override.wav"
           boundary="$RUNNER_TEMP/skell-master-range-validation-boundary.wav"
+          extreme="$RUNNER_TEMP/skell-master-range-validation-extreme-output-clip.wav"
           legacy="$RUNNER_TEMP/skell-master-range-validation-legacy-mode.wav"
           invalid_range="$RUNNER_TEMP/skell-master-range-validation-invalid-range.wav"
           invalid_step="$RUNNER_TEMP/skell-master-range-validation-invalid-step.wav"
@@ -238,6 +243,7 @@ jobs:
           "$runner" "$plugin" "$input" "$default"
           "$runner" "$plugin" "$input" "$override" --set 'Input=5' --set 'Glue=18' --bool 'Deuce Match=1'
           "$runner" "$plugin" "$input" "$boundary" --set 'Input=18' --set 'Ceiling Adjust=3'
+          "$runner" "$plugin" "$input" "$extreme" --set 'Output Trim=12' --set 'Clip=100' --set 'Ceiling Adjust=3'
           # Legacy mode retains sample-peak safety; true-peak margin is Deuce Match-only.
           "$runner" "$plugin" "$input" "$legacy" --bool 'Deuce Match=0'
           if "$runner" "$plugin" "$input" "$invalid_range" --set 'Input=1000'; then
@@ -260,7 +266,7 @@ jobs:
             exit 1
           fi
           test ! -e "$numeric_boolean"
-          python - "$default" "$override" "$boundary" "$legacy" <<'PY'
+          python - "$default" "$override" "$boundary" "$extreme" "$legacy" <<'PY'
           import hashlib, sys, wave
           hashes = []
           for path in sys.argv[1:]:
@@ -268,8 +274,8 @@ jobs:
                   assert w.getnchannels() == 2 and w.getframerate() == 44100 and w.getsampwidth() == 3
                   assert w.getnframes() > 44100
               hashes.append(hashlib.sha256(open(path, "rb").read()).hexdigest())
-          assert len(set(hashes)) == 4, "legal mode/parameter overrides must produce distinct rendered audio"
-          print("PASS: Linux VST3 valid, boundary, legacy-mode, range, step and boolean override checks")
+          assert len(set(hashes)) == 5, "legal mode/parameter overrides must produce distinct rendered audio"
+          print("PASS: Linux VST3 valid, boundary, maximum-output/clip, legacy-mode, range, step and boolean override checks")
           PY
       - name: Package local-reference renderer
         shell: bash
