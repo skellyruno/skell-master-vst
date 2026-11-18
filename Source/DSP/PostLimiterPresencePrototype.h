@@ -1,9 +1,10 @@
 #pragma once
 // SKELL MASTER | opt-in post-downsample 5 kHz presence stage.
 // Deuce Match invokes this after the 4x oversampled MasteringEngine output
-// and before the final true-peak guard. The reference API-550A also sits after
-// L2, but the preceding five-band stage currently follows MasteringEngine's
-// internal limiter, so the overall chain topology remains an approximation.
+// and its internal clipper/lookahead limiter, then before the final true-peak
+// guard. The five-band colour stage is inside MasteringEngine BEFORE that
+// limiter. The reference API-550A also sits after L2; this fixed 5 kHz bell
+// and native five-band colour remain an approximation, not a Waves/Pultec port.
 // No Waves code, coefficients or proprietary preset state are copied.
 #include <algorithm>
 #include <array>

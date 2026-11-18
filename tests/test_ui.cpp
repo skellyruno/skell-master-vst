@@ -322,7 +322,7 @@ int main() {
               "reference preset label must be visible in the real selector");
         const struct {const char* id; float expected;} matched[]={
             {"input",4.0f},{"drive",8.0f},{"glue",17.0f},
-            {"dynamics",11.0f},{"lows",-1.0f},{"highs",3.0f},
+            {"dynamics",11.0f},{"lows",-1.0f},{"highs",2.0f},
             {"sauce",20.0f},{"transients",0.0f},{"output",0.0f},
             {"ceiling",0.0f},{"clipper",14.0f}
         };

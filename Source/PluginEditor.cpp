@@ -646,7 +646,7 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
         {0,15,18,10,0,0,12,0,0,0,0},
         {0,8,12,7,0,0,0,22,0,0,0},
         {0,10,24,18,0,0,8,8,0,0,12},
-        {4,8,17,11,-1,3,20,0,0,0,14}
+        {4,8,17,11,-1,2,20,0,0,0,14}
     };
     for(int i=0;i<knobCount;++i) {
         if(auto* p=processor.parameters.getParameter(ids[i])) {

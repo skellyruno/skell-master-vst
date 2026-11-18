@@ -471,7 +471,7 @@ int main(int argc, char** argv) {
         setParameterByName(*plugin,"Glue",17.0f);
         setParameterByName(*plugin,"Dynamics",11.0f);
         setParameterByName(*plugin,"Lows",-1.0f);
-        setParameterByName(*plugin,"Highs",3.0f);
+        setParameterByName(*plugin,"Highs",2.0f); // Keep host render seed in sync with factory preset 5.
         setParameterByName(*plugin,"Sauce",20.0f);
         setParameterByName(*plugin,"Transients",0.0f);
         setParameterByName(*plugin,"Output Trim",0.0f);

@@ -520,7 +520,7 @@ int main() {
     MasterParameters skellPreset;
     skellPreset.inputDb=4.0; skellPreset.drive=.08;
     skellPreset.glue=.17; skellPreset.dynamics=.11;
-    skellPreset.lowsDb=-1.0; skellPreset.highsDb=3.0;
+    skellPreset.lowsDb=-1.0; skellPreset.highsDb=2.0; // Matches SKELL MASTER factory preset 5.
     skellPreset.sauce=.20; skellPreset.transients=0.0;
     skellPreset.outputDb=0.0; skellPreset.clipper=.14;
     skellPreset.ceilingDb=-1.0;
