@@ -229,7 +229,7 @@ static void requireHostRenderedStateMatch(juce::AudioPluginInstance& source,
             "VST3 state roundtrip produced an out-of-range sample");
     std::cout << "PASS: hosted VST3 state audio equivalence at " << sampleRate
               << " Hz; max difference " << maximumDifference
-              << ", peak " << maximumOutputPeak << '\\n';
+              << ", peak " << maximumOutputPeak << '\n';
 }
 
 static juce::File locateVST3(const juce::String& userArg) {
