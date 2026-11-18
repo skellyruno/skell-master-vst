@@ -459,7 +459,7 @@ public:
         const double requestedCeiling = std::clamp(
             std::isfinite(ceilingLinear) ? ceilingLinear : detail::dbToLinear(-1.0),
             1.0e-5, 1.0);
-        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-1.0);
+        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-1.2);
         const double wantedGain = (!bypass && measuredPeak > truePeakLimit)
             ? truePeakLimit / std::max(measuredPeak, 1.0e-12) : 1.0;
 
