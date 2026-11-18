@@ -120,3 +120,47 @@ This pass re-opened the Library's self-contained 15-second pages, not the full-l
 PR #17 commit e9c24cd9e846376b241ffb2c4e1021e510c07757 passed Windows workflow run #238: Release VST3 build, strict moduleinfo JSON, CTest 9/9, UI interaction test and hosted synthetic VST3 renders at 44.1/48/96 kHz. The new state test renders the same 1.25-second stereo transient/bass/body/air signal through the source instance and a fresh instance after factory-state restore, then repeats with bypass restored. Maximum output difference was exactly 0 at all three rates; output remained finite and below full scale. Reported host latency was 105 / 110 / 182 samples at 44.1 / 48 / 96 kHz. The 9-second synthetic hosted renders measured 6.15% / 6.74% / 13.28% one-core realtime CPU. The separate 1-second external-WAV CI smoke uses a generated fixture, not owner audio.
 
 This validates host-state audio equivalence and the Windows VST3 synthetic path. It does not constitute a native owner-reference render, FL Studio save/reload, real-device CPU measurement or user listening acceptance. A Linux-hosted VST3 renderer is being added for local private-reference rendering; its first CI build is pending.
+
+## 2026-11-17 actual compiled VST3 reference render (run #238)
+
+This section supersedes the earlier statements that no native owner-reference render had been completed. The owner files were materialized read-only and rendered locally; no private WAV/FST bytes were uploaded to GitHub.
+
+### Source identity and chain separation
+
+- `deuce w beat.wav`: SHA-256 `38d3a4c82c640b5ed24ee5b61ec04ab33c80717618e1b97fe845a590e85da484`; 44.1 kHz, stereo, PCM_24, 18.750 s. This is the no-master input for the master-bus comparison.
+- `deuce my master preset.wav`: SHA-256 `cfad397db8807f68b1b513653487721bdcb0daa7f3d5d204b9370f26c0b8b429`; same format and duration; this is the user master-bus target.
+- `master.fst`: SHA-256 `dcdb0f487b612e61c293bda574168188117c3b42b907428133f1e048c39d9e11`; embedded plugin order verified as Waves API-2500 → Vitamin → L2 → API-550A. The API-2500 uses Mastering 1 / MED knee / NORM thrust / OLD type; Vitamin crossovers are 90 / 500 / 2,594 / 9,310 Hz, with stored fader values 33.6 / 29.9 / 28.1 / 26.2 / 24.0 (not dB), widths 1.00, Punch 3.0, Direct 0.0, Trim -8.5; L2 threshold -2.8 dB / ceiling -1.1 dB / ARC on; API-550A is post-L2 with screenshot-derived +2 dB at 5 kHz. Proprietary raw-token mappings remain partly approximate.
+- `rec deuce.fst`: SHA-256 `068911190350164db40955c0f111711fecd9cc7e194d3edb35fba861fa013168`; Fruity Parametric EQ 2 → Fruity Limiter → Soundgoodizer (mode A, raw amount 43) → Fruity Limiter.
+- `main deuce.fst`: SHA-256 `989b263f5b720a70b0d3cc24b1a4a6be914f6b80c599d0621f15232ff0999f17`; REQ 6 Stereo → SSLChannel Stereo → Fruity Compressor → DeEsser Stereo → Soundgoodizer (mode C, raw amount 503) → Fresh Air → C6 Stereo → PuigTec EQP1A. These REC/MAIN track chains are separate from the master-bus FST.
+- The owner-preferred `Deuce_v25_Repro_Audit_15s.flac` remains a separate vocal-only champion (SHA-256 `812cbbf758a2f378278e6a613fbe82f0068e34144fa7f2a6a737865d28b0273c)); it was not used in this beat-containing master-bus comparison.
+
+### Actual hosted VST3 render
+
+- Compiled plugin: Skell Master Linux VST3, PR #17 head `8ecb75846c839b756c37591ca2241d6c71e8cd2e`, CI merge commit `12789f4b78eed72031332746f736c960833ea311`, workflow run `44238858598`. The render is a real JUCE-hosted VST3 output, not a Python DSP approximation and not an FL Studio render.
+- Factory: `SKELL MASTER`, identity 5, Deuce Match enabled; Input +4 dB, Drive 8%, Glue 17%, Dynamics 11%, Lows -1 dB, Highs +3 dB, Sauce 20%, Transients 0%, Output Trim 0 dB, Ceiling Adjust 0, Clip 14%.
+- Input rendered locally: `deuce w beat.wav`. Output: 44.1 kHz stereo PCM_24, 828,004 frames including 105 samples reported PDC and the safety tail. Render output SHA-256 `5afef12c0c21e3bcab08edd2a7b8ba6e4103b8977a3acadd148a0040d4cc85c4`.
+- Hosted VST3 reported 105 samples / 2.381 ms latency and 4.97% of one core for processBlock on this container at 44.1 kHz / 257-sample blocks. This is not a target-laptop CPU measurement.
+- Candidate output remained finite, had no sample-full-scale samples, sample peak -2.00 dBFS, host 48-tap reconstructed-peak readout -1.763 dBTP, and independent 16× Kaiser diagnostic -1.794 dBTP. The source and user-master target both contain samples at 0 dBFS and their independent 16× estimates are +2.251 and +2.511 dBTP; those unsafe overs are intentionally not copied.
+
+### 15-second same-take comparison
+
+A local self-contained package `SkellMaster-Deuce-VST3-AB-run238.zip` (SHA-256 `67495660d84d01630d5e6194f5f1659b17fd5bbe5af146c247e320551091f5c0`) contains synchronized 15-second stereo PCM_24 FLAC previews for A: user master target, B: actual hosted VST3 output, and C: no-master input, plus `index.html` and `metrics.json`. The preview removes the exact 105-sample VST3 PDC from B. No target offset or phase/null alignment is applied: the full-band raw target/input correlation peak is 294 samples, but local one-second peaks vary, so a single target offset is not treated as verified. A shared -3.60 dB safety trim is applied; level-match mode only attenuates louder tracks (A by 2.787 dB, C by 0.349 dB; B is never boosted).
+
+Measured first-15-second results:
+
+| Metric | No-master input | User master target | Skell Master VST3 |
+|---|---:|---:|---:|
+| Integrated loudness | -10.039 LUFS | -7.601 LUFS | -10.388 LUFS |
+| Sample peak | 0.00 dBFS | 0.00 dBFS | -2.00 dBFS |
+| 16× reconstructed-peak estimate | +2.251 dBTP | +2.511 dBTP | -1.794 dBTP |
+| Crest | 9.284 dB | 7.660 dB | 8.514 dB |
+| Side/mid | -17.673 dB | -16.625 dB | -15.907 dB |
+
+The VST3 candidate is 2.787 LU quieter than the user master target and 0.349 LU quieter than the no-master input. After attenuating the target to the candidate's loudness, candidate-minus-target broad-band power differences are -0.108 dB (20–90 Hz), +0.541 dB (90–500 Hz), -0.410 dB (500–2,594 Hz), +0.041 dB (2,594–9,310 Hz), and +0.674 dB (9,310–19,000 Hz). Same-relative-start envelope MAE is 0.987 / 0.654 / 0.435 / 0.341 dB at 20 / 50 / 200 / 400 ms. These are objective diagnostics, not perceptual approval or an exact Waves-chain match.
+
+### Exact-head CI and remaining gates
+
+- Workflow run #238 Windows Release VST3 build passed; Windows CTest **9/9**, including true-peak, five-band topology, post-limit presence, UI geometry/contrast and hosted VST3 state-audio equivalence. The restored VST3 instance matched the source instance sample-for-sample (maximum difference 0) at 44.1 / 48 / 96 kHz; reported PDC was 105 / 110 / 182 samples. Strict moduleinfo JSON and two unique VST3 CIDs passed.
+- The Linux VST3 build and hosted tests passed **8/8**; the local owner-reference render used that compiled Linux VST3 artifact.
+- The Windows artifact from run #238 predates the program-name correction below and is preview-only. The PR #17 branch had a confirmed VST3 program-list defect: `getNumPrograms()` exposed one program while `getProgramName(0)` returned an empty string. The branch now returns `Default`, adds a hosted-VST3 program-name regression, and runs pluginval strictness 5 in the Windows workflow. Exact-head CI/pluginval for those follow-up commits is pending.
+- FL Studio scan, automation, session save/reopen and owner listening acceptance remain unverified. No factory values, DSP coefficients, APVTS IDs, saved-state schema, PDC, or SkellCore shared controls were changed in this pass.
