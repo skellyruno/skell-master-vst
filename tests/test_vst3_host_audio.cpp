@@ -295,6 +295,12 @@ int main(int argc, char** argv) {
         auto plugin=formats.createPluginInstance(*descriptions.getFirst(),sampleRate,
                                                  blockSize,error);
         if (!plugin) throw std::runtime_error("Cannot instantiate built VST3: " + error.toStdString());
+        require(plugin->getNumPrograms() == 1,
+                "VST3 must expose exactly one default program");
+        require(plugin->getProgramName(0) == "Default",
+                "VST3 program 0 must have a non-empty Default name");
+        require(plugin->getProgramName(1).isEmpty(),
+                "out-of-range VST3 program index must remain empty");
         plugin->setPlayConfigDetails(2,2,sampleRate,blockSize);
         plugin->prepareToPlay(sampleRate,blockSize);
         require(plugin->getLatencySamples()>=32,"VST3 latency omitted the 32-sample true-peak lookahead");
