@@ -101,6 +101,26 @@ static void setParameterByName(juce::AudioPluginInstance& instance,
             "Expected exactly one non-boolean VST3 parameter with the requested public name");
 }
 
+static double getNumericParameterByName(juce::AudioPluginInstance& instance,
+                                            const juce::String& name) {
+    int matches = 0;
+    double actual = 0.0;
+    for (auto* param : instance.getParameters()) {
+        if (param->getName(128).equalsIgnoreCase(name)) {
+            require(!isBooleanParameter(*param),
+                    "Numeric value lookup cannot target a boolean parameter");
+            const auto display = param->getText(param->getValue(), 128);
+            actual = display.getDoubleValue();
+            require(std::isfinite(actual),
+                    "Host parameter display value is not finite");
+            ++matches;
+        }
+    }
+    require(matches == 1,
+            "Expected exactly one numeric VST3 parameter with the requested public name");
+    return actual;
+}
+
 static void setBoolParameterByName(juce::AudioPluginInstance& instance,
                                    const juce::String& name, bool enabled) {
     const auto requested = name.trim();
@@ -546,10 +566,18 @@ int main(int argc, char** argv) {
         const double rms=std::sqrt(metrics.sumSquares/std::max<size_t>(1,metrics.count));
         const double width=10.0*std::log10(
             std::max(1.e-14,metrics.sideEnergy) / std::max(1.e-14,metrics.midEnergy));
-        require(metrics.samplePeak<=std::pow(10.0,-1.0/20.0)+3.e-4,
-                "Hosted VST3 escaped -1dBFS sample-peak safety boundary");
-        require(metrics.reconstructedPeak<=std::pow(10.0,-1.25/20.0)+3.e-4,
-                "Hosted VST3 escaped -1.25dBTP true-peak guard");
+        const double ceilingOffset = getNumericParameterByName(*plugin, "Ceiling Adjust");
+        const double ceilingDb = skelly::detail::ceilingOffsetToDb(ceilingOffset);
+        const double configuredSampleCeiling = skelly::detail::dbToLinear(ceilingDb);
+        // The production guard retains a 1dB internal margin. The independent
+        // host meter can read up to 0.25dB above that detector, so assert a
+        // minimum measured 0.75dB margin at every legal ceiling setting.
+        const double configuredTruePeakCeiling =
+            skelly::detail::dbToLinear(ceilingDb - 0.75);
+        require(metrics.samplePeak<=configuredSampleCeiling+3.e-4,
+                "Hosted VST3 escaped the configured sample-peak ceiling");
+        require(metrics.reconstructedPeak<=configuredTruePeakCeiling+3.e-4,
+                "Hosted VST3 escaped the configured 0.75dB true-peak margin");
         require(std::isfinite(metrics.reconstructedPeak)&&std::isfinite(width),
                 "Hosted VST3 true peak/width invalid");
         require(rms>1.e-5,"VST3 unexpectedly silent");
