@@ -6,6 +6,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$OutputWav,
 
+    [string[]]$SetParameter = @(),
+
+    [string[]]$SetBoolean = @(),
+
     [switch]$Force
 )
 
@@ -53,7 +57,13 @@ if (-not (Test-Path -LiteralPath $outputDirectory)) {
 Write-Host 'Rendering through the compiled Skell Master VST3 with the SKELL MASTER reference parameter set.'
 Write-Host "Input:  $inputPath"
 Write-Host "Output: $outputPath"
-& $runner $plugin $inputPath $outputPath 2>&1 | Tee-Object -FilePath $logPath
+$runnerArgs = @($plugin, $inputPath, $outputPath)
+foreach ($assignment in $SetParameter) { $runnerArgs += @('--set', $assignment) }
+foreach ($assignment in $SetBoolean) { $runnerArgs += @('--bool', $assignment) }
+if ($SetParameter.Count -gt 0 -or $SetBoolean.Count -gt 0) {
+    Write-Host "Parameter overrides: $($SetParameter -join '; ') $($SetBoolean -join '; ')"
+}
+& $runner @runnerArgs 2>&1 | Tee-Object -FilePath $logPath
 $exitCode = $LASTEXITCODE
 if ($exitCode -ne 0) {
     throw "VST3 host render failed with exit code $exitCode. See $logPath"

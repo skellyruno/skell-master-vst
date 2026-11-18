@@ -1,6 +1,6 @@
 // Windows VST3 host audio regression. Loads the INSTALLED/BUNDLE VST3 through
 // JUCE's standard VST3 format instead of linking a processor directly.
-// Optional command: SkellyVST3HostAudioTests <bundle.vst3> <input.wav> <output.wav>
+// Optional command: SkellyVST3HostAudioTests <bundle.vst3> <input.wav> <output.wav> [--set "Parameter=VALUE"] [--bool "Parameter=0|1"]
 // With no WAV, a deterministic synthetic transient/bass stereo program is used.
 // Never commit private user's recordings; local WAV comparisons stay local.
 #include <JuceHeader.h>
@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -127,6 +128,35 @@ static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, i
                                   static_cast<int>(updatedHostState.getSize()));
     require(getFactoryIdentityFromHostState(instance) == presetId,
             "VST3 host could not restore the non-automatable factory identity");
+}
+
+static void applyCommandLineOverrides(juce::AudioPluginInstance& instance,
+                                       int argc, char** argv, int firstOption) {
+    for (int i = firstOption; i < argc;) {
+        const std::string option = argv[i++];
+        require((option == "--set" || option == "--bool") && i < argc,
+                "Expected --set NAME=VALUE or --bool NAME=0|1 after the WAV output path");
+        const std::string assignment = argv[i++];
+        const auto separator = assignment.find('=');
+        require(separator != std::string::npos && separator > 0
+                && separator + 1 < assignment.size(),
+                "Parameter override must use NAME=VALUE syntax");
+        const std::string name = assignment.substr(0, separator);
+        const std::string value = assignment.substr(separator + 1);
+        if (option == "--set") {
+            char* end = nullptr;
+            const double parsed = std::strtod(value.c_str(), &end);
+            require(end != value.c_str() && end != nullptr && *end == '\0'
+                    && std::isfinite(parsed)
+                    && std::isfinite(static_cast<float>(parsed)),
+                    "Numeric parameter override must be a finite number");
+            setParameterByName(instance, name, static_cast<float>(parsed));
+        } else {
+            require(value == "0" || value == "1",
+                    "Boolean parameter override must be 0 or 1");
+            setBoolParameterByName(instance, name, value == "1");
+        }
+    }
 }
 
 static void requireHostStateRoundTrip(juce::AudioPluginInstance& source,
@@ -332,6 +362,11 @@ int main(int argc, char** argv) {
         setParameterByName(*plugin,"Ceiling Adjust",0.0f);
         setParameterByName(*plugin,"Clip",14.0f);
         setBoolParameterByName(*plugin,"Deuce Match",true);
+        // Optional offline-render overrides are applied after the documented
+        // SKELL MASTER factory values. With no flags, the reference render is
+        // unchanged. This enables reproducible, non-destructive parameter sweeps.
+        if (externalWav)
+            applyCommandLineOverrides(*plugin, argc, argv, 4);
         // Factory identity is deliberately non-automatable and is not present
         // in getParameters(). Seed the named SKELL MASTER identity through the
         // real serialized host-state path so the following VST3 roundtrip
