@@ -424,7 +424,7 @@ private:
 // Stereo-linked host-rate true-peak safety stage. A 257-tap / 4-phase Kaiser
 // reconstruction detector sees the interval 32 host samples ahead of the
 // delayed output. Gain attacks immediately and releases over 85ms. A fixed
-// 1.0dB margin covers the remaining difference to an independent 16x
+// 1.2dB margin covers the remaining difference to an independent 16x
 // windowed-sinc oracle on high-crest full-band stress signals. Bypass preserves
 // the same 32-sample latency but never attenuates. No audio-thread allocation.
 class StereoTruePeakGuard {
