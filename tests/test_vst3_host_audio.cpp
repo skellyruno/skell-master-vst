@@ -59,6 +59,14 @@ static float parseDisplayedNumericParameterValue(const juce::String& text) {
 // Numeric stepped parameters still format as numbers and cannot pass this test.
 static bool isBooleanParameter(const juce::AudioProcessorParameter& parameter) {
     if (parameter.isBoolean()) return true;
+    // JUCE's hosted VST3 adapter may expose a boolean as a two-step parameter
+    // while dropping the original AudioParameterBool flag and text labels.
+    if (parameter.getNumSteps() == 2) return true;
+    const auto values = parameter.getAllValueStrings();
+    if (values.size() == 2
+        && ((values[0].equalsIgnoreCase("Off") && values[1].equalsIgnoreCase("On"))
+            || (values[0].equalsIgnoreCase("False") && values[1].equalsIgnoreCase("True"))))
+        return true;
     const auto zeroText = parameter.getText(0.0f, 128).trim();
     const auto oneText = parameter.getText(1.0f, 128).trim();
     return (zeroText.equalsIgnoreCase("Off") && oneText.equalsIgnoreCase("On"))
@@ -98,6 +106,16 @@ static void setBoolParameterByName(juce::AudioPluginInstance& instance,
     int matches = 0;
     for (auto* param : instance.getParameters()) {
         if (param->getName(128).equalsIgnoreCase(name)) {
+            if (!isBooleanParameter(*param)) {
+                const auto values = param->getAllValueStrings();
+                std::cerr << "VST3 boolean metadata diagnostic: name="
+                          << param->getName(128).toStdString()
+                          << " isBoolean=" << param->isBoolean()
+                          << " steps=" << param->getNumSteps()
+                          << " text0=" << param->getText(0.0f, 128).toStdString()
+                          << " text1=" << param->getText(1.0f, 128).toStdString()
+                          << " valueStrings=" << values.size() << std::endl;
+            }
             require(isBooleanParameter(*param),
                     "Boolean override must target a boolean VST3 parameter");
             param->beginChangeGesture();
