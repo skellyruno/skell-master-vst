@@ -600,7 +600,7 @@ int main(int argc, char** argv) {
             require(metrics.samplePeak<=configuredSampleCeiling+3.e-4,
                     "Hosted VST3 escaped the configured sample-peak ceiling");
             if (deuceMatchEnabled) {
-                // The production guard targets 1dB internal margin; the
+                // The production guard targets 1.2dB internal margin; the
                 // independent host meter allows 0.25dB detector tolerance.
                 const double configuredTruePeakCeiling =
                     skelly::detail::dbToLinear(ceilingDb - 0.75);
