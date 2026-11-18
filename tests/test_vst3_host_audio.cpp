@@ -53,12 +53,24 @@ static float parseDisplayedNumericParameterValue(const juce::String& text) {
     return value;
 }
 
+// A hosted VST3 wrapper may not preserve AudioProcessorParameter::isBoolean()
+// even when the underlying JUCE AudioParameterBool is correctly exported.
+// Prefer the explicit flag, then recognize JUCE's stable Off/On text contract.
+// Numeric stepped parameters still format as numbers and cannot pass this test.
+static bool isBooleanParameter(const juce::AudioProcessorParameter& parameter) {
+    if (parameter.isBoolean()) return true;
+    const auto zeroText = parameter.getText(0.0f, 128).trim();
+    const auto oneText = parameter.getText(1.0f, 128).trim();
+    return (zeroText.equalsIgnoreCase("Off") && oneText.equalsIgnoreCase("On"))
+        || (zeroText.equalsIgnoreCase("False") && oneText.equalsIgnoreCase("True"));
+}
+
 static void setParameterByName(juce::AudioPluginInstance& instance,
                                const juce::String& name, float actual) {
     int matches = 0;
     for (auto* param : instance.getParameters()) {
         if (param->getName(128).equalsIgnoreCase(name)) {
-            require(!param->isBoolean(),
+            require(!isBooleanParameter(*param),
                     "Numeric override cannot target a boolean parameter; use --bool");
             const auto normalized = param->getValueForText(juce::String(actual, 6));
             require(std::isfinite(normalized) && normalized >= 0.0f && normalized <= 1.0f,
@@ -86,7 +98,7 @@ static void setBoolParameterByName(juce::AudioPluginInstance& instance,
     int matches = 0;
     for (auto* param : instance.getParameters()) {
         if (param->getName(128).equalsIgnoreCase(name)) {
-            require(param->isBoolean(),
+            require(isBooleanParameter(*param),
                     "Boolean override must target a boolean VST3 parameter");
             param->beginChangeGesture();
             param->setValueNotifyingHost(enabled ? 1.0f : 0.0f);
