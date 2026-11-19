@@ -603,12 +603,13 @@ int main(int argc, char** argv) {
             require(metrics.samplePeak<=configuredSampleCeiling+3.e-4,
                     "Hosted VST3 escaped the configured sample-peak ceiling");
             if (deuceMatchEnabled) {
-                // The production guard targets 1.2dB internal margin; the
-                // independent host meter allows 0.25dB detector tolerance.
+                // The production guard uses a 2.55dB nominal margin. The hosted
+                // 4x meter enforces 2.45dB, allowing 0.1dB for interpolation
+                // differences while still checking the configured safety margin.
                 const double configuredTruePeakCeiling =
-                    skelly::detail::dbToLinear(ceilingDb - 0.75);
+                    skelly::detail::dbToLinear(ceilingDb - 2.45);
                 require(metrics.reconstructedPeak<=configuredTruePeakCeiling+3.e-4,
-                        "Hosted Deuce Match escaped the configured 0.75dB true-peak margin");
+                        "Hosted Deuce Match escaped the configured 2.45dB true-peak margin");
             }
         }
         require(std::isfinite(metrics.reconstructedPeak)&&std::isfinite(width),
