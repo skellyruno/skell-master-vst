@@ -67,9 +67,11 @@ private:
     std::atomic<int> factoryPresetId { 0 };
     int activeChannels = 2;
     int lookaheadSamples = 0;
-    // Five-band Deuce coloration now lives before the internal limiter in
-    // MasteringEngine. The +2dB / 5kHz reference bell remains post-limiter.
+    // Five-band Deuce coloration lives before the internal limiter. The
+    // 5kHz reference bell and measured 2.5kHz contour correction are both
+    // Deuce-Match-only and remain ahead of the final true-peak guard.
     skelly::experimental::PostLimiterPresencePrototype postLimiterPresence;
+    skelly::experimental::PostLimiterMidPresencePrototype postLimiterMidPresence;
     // Legacy sample guard plus Deuce-only fixed-size true-peak lookahead.
     skelly::StereoPeakGuard legacySafetyGuard;
     skelly::StereoTruePeakGuard safetyGuard;

@@ -72,4 +72,71 @@ private:
     double wet=0.0,smoothStep=1.0;
 };
 
+
+// Fixed +0.65dB / 2.5kHz contour correction measured against the owner's
+// 15-second Deuce master preview. This is a narrow, Deuce-Match-only trim
+// of the 1–4kHz deficit; it is not a claim to clone API-2500/Vitamin/L2.
+// Coefficients are calculated in prepare(); the audio callback only filters
+// and smooths wet. The final reconstructed true-peak guard remains downstream.
+class PostLimiterMidPresencePrototype {
+public:
+    void prepare(double sampleRate) noexcept {
+        const double rate = std::isfinite(sampleRate)
+            ? std::max(8000.0, sampleRate) : 44100.0;
+        constexpr double frequency = 2500.0;
+        constexpr double gainDb = 0.65;
+        constexpr double q = 1.0;
+        const double f = std::min(frequency, rate * 0.40);
+        const double A = std::pow(10.0, gainDb / 40.0);
+        const double omega = 6.283185307179586476925286766559 * f / rate;
+        const double alpha = std::sin(omega) / (2.0 * q);
+        const double cosw = std::cos(omega);
+        const double scale = 1.0 / (1.0 + alpha / A);
+        b0 = (1.0 + alpha * A) * scale;
+        b1 = (-2.0 * cosw) * scale;
+        b2 = (1.0 - alpha * A) * scale;
+        a1 = (-2.0 * cosw) * scale;
+        a2 = (1.0 - alpha / A) * scale;
+        smoothStep = 1.0 - std::exp(-1.0 / (rate * 0.012));
+        reset();
+    }
+
+    void reset() noexcept {
+        for (auto& channel : state) channel.fill(0.0);
+        wet = 0.0;
+    }
+
+    void process(double& left, double& right, double requestedWet) noexcept {
+        const double dryL = sanitize(left), dryR = sanitize(right);
+        const double coloredL = filter(0, dryL);
+        const double coloredR = filter(1, dryR);
+        const double target = std::isfinite(requestedWet)
+            ? std::clamp(requestedWet, 0.0, 1.0) : 0.0;
+        wet += (target - wet) * smoothStep;
+        if (target == 0.0 && wet < 1.0e-12) wet = 0.0;
+        if (wet == 0.0) { left = dryL; right = dryR; return; }
+        left = dryL + wet * (coloredL - dryL);
+        right = dryR + wet * (coloredR - dryR);
+    }
+
+private:
+    static double sanitize(double x) noexcept {
+        return std::isfinite(x) ? std::clamp(x, -256.0, 256.0) : 0.0;
+    }
+
+    double filter(std::size_t channel, double input) noexcept {
+        auto& z = state[channel];
+        const double output = b0 * input + z[0];
+        z[0] = b1 * input - a1 * output + z[1];
+        z[1] = b2 * input - a2 * output;
+        if (std::abs(z[0]) < 1.0e-28) z[0] = 0.0;
+        if (std::abs(z[1]) < 1.0e-28) z[1] = 0.0;
+        return output;
+    }
+
+    std::array<std::array<double,2>,2> state{};
+    double b0=1.0,b1=0.0,b2=0.0,a1=0.0,a2=0.0;
+    double wet=0.0,smoothStep=1.0;
+};
+
 } // namespace skelly::experimental
