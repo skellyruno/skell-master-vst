@@ -99,7 +99,7 @@ target_compile_features(SkellyTruePeakGapTests PRIVATE cxx_std_17)
 add_test(NAME SkellyTruePeakGapTests COMMAND SkellyTruePeakGapTests)
 
 # Production final true-peak guard: 257-tap / 4-phase Kaiser reconstruction,
-# 32-sample lookahead, linked stereo gain, 1 dB internal margin, bypass alignment,
+# 32-sample lookahead, linked stereo gain, 2.3 dB internal margin, bypass alignment,
 # and finite recovery. Legacy factories retain the original sample-peak limiter.
 add_executable(SkellyTruePeakGuardTests tests/test_true_peak_guard.cpp)
 target_compile_features(SkellyTruePeakGuardTests PRIVATE cxx_std_17)
