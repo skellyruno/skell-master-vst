@@ -57,6 +57,7 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     lookaheadSamples = juce::jmax(4, static_cast<int>(std::ceil(sampleRate * 0.0015)) * oversamplingFactor);
     engine.prepare(highRate, activeChannels, lookaheadSamples);
     postLimiterPresence.prepare(sampleRate);
+    postLimiterMidPresence.prepare(sampleRate);
     legacySafetyGuard.prepare(sampleRate);
     safetyGuard.prepare(sampleRate);
     setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
@@ -70,6 +71,7 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
 
 void SkellyMasterAudioProcessor::releaseResources() {
     postLimiterPresence.reset();
+    postLimiterMidPresence.reset();
     legacySafetyGuard.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
@@ -82,6 +84,7 @@ void SkellyMasterAudioProcessor::reset() {
     if (oversampler) oversampler->reset();
     engine.reset();
     postLimiterPresence.reset();
+    postLimiterMidPresence.reset();
     legacySafetyGuard.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
@@ -165,6 +168,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         double postL = outL[i];
         double postR = outR ? outR[i] : postL;
         postLimiterPresence.process(postL, postR, presenceWet);
+        postLimiterMidPresence.process(postL, postR, presenceWet);
         const skelly::StereoFrame postFrame {
             static_cast<float>(postL), static_cast<float>(postR)
         };
