@@ -1,7 +1,7 @@
 // Windows VST3 host audio regression. Loads the INSTALLED/BUNDLE VST3 through
 // JUCE's standard VST3 format instead of linking a processor directly.
 // Optional command: SkellyVST3HostAudioTests <bundle.vst3> <input.wav> <output.wav> [--set "Parameter=VALUE"] [--bool "Parameter=0|1"]
-// With no WAV, a deterministic synthetic transient/bass stereo program is used.
+// With no WAV, deterministic independent stereo noise and a transient/bass program are used.
 // Never commit private user's recordings; local WAV comparisons stay local.
 #include <JuceHeader.h>
 #include "../Source/DSP/MasteringEngine.h"
@@ -14,6 +14,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -542,6 +543,8 @@ int main(int argc, char** argv) {
             require(outputWriter!=nullptr,"Could not create output WAV encoder");
         }
 
+        std::mt19937 syntheticNoiseRng(0x51e11u);
+        std::uniform_real_distribution<float> syntheticNoise(-0.95f, 0.95f);
         double dspSeconds=0.0;
         const auto started=std::chrono::steady_clock::now();
         for (juce::int64 pos=0; pos<totalFrames;pos+=blockSize) {
@@ -554,6 +557,13 @@ int main(int argc, char** argv) {
                 for(int i=0;i<count;++i) {
                     const juce::int64 n=pos+i;
                     if(n>=inputFrames) continue;
+                    if(n < static_cast<juce::int64>(sampleRate * 0.25)) {
+                        // Exercise independent L/R broadband peaks through the real
+                        // hosted VST3 path before the musical transient fixture.
+                        buffer.setSample(0, i, syntheticNoise(syntheticNoiseRng));
+                        buffer.setSample(1, i, syntheticNoise(syntheticNoiseRng));
+                        continue;
+                    }
                     const double t=static_cast<double>(n)/sampleRate;
                     const double kick=(n%22050<160)
                         ? 1.15*std::exp(-static_cast<double>(n%22050)/37.0):0.0;
@@ -603,8 +613,8 @@ int main(int argc, char** argv) {
             require(metrics.samplePeak<=configuredSampleCeiling+3.e-4,
                     "Hosted VST3 escaped the configured sample-peak ceiling");
             if (deuceMatchEnabled) {
-                // The production guard uses a 2.9dB internal margin. The hosted
-                // 4x monitor enforces 2.6dB, leaving 0.3dB for interpolation
+                // The production guard uses a 3.2dB internal margin. The hosted
+                // 4x monitor enforces 2.6dB, leaving 0.6dB for interpolation
                 // differences while still checking the stronger safety setting.
                 const double configuredTruePeakCeiling =
                     skelly::detail::dbToLinear(ceilingDb - 2.6);

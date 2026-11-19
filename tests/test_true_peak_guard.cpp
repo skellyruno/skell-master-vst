@@ -301,6 +301,45 @@ int main() {
         }
     }
 
+    // Independent left/right broadband noise catches stereo combinations that
+    // the earlier linked anti-phase noise fixture does not exercise. Match the
+    // hosted VST3 acceptance margin, then cross-check with the independent 16x
+    // sinc oracle rather than relying only on the production detector.
+    for (const double rate : {44100.0, 48000.0, 96000.0}) {
+        StereoTruePeakGuard guard;
+        StereoTruePeakMonitor meter;
+        guard.prepare(rate);
+        meter.reset();
+        std::mt19937 rng(0x51e11u);
+        std::uniform_real_distribution<float> noise(-0.95f, 0.95f);
+        const int frames = static_cast<int>(rate * 0.25);
+        std::vector<StereoFrame> rendered;
+        rendered.reserve(static_cast<std::size_t>(frames));
+        double maxMonitorPeak = 0.0;
+        for (int i = 0; i < frames; ++i) {
+            const float left = noise(rng);
+            const float right = noise(rng);
+            const auto out = guard.process({left, right}, detail::dbToLinear(-1.0), false);
+            require(std::isfinite(out.left) && std::isfinite(out.right),
+                    "independent stereo noise produced nonfinite true-peak output");
+            rendered.push_back(out);
+            maxMonitorPeak = std::max(maxMonitorPeak,
+                static_cast<double>(meter.process(out.left, out.right)));
+        }
+        const double independentPeak16x = independentSincPeak(rendered);
+        const double hostedMarginTarget = detail::dbToLinear(-3.6);
+        std::cout << "INFO: independent stereo noise " << rate
+                  << " Hz: 48-tap monitor "
+                  << 20.0 * std::log10(std::max(1.0e-12, maxMonitorPeak))
+                  << " dBTP, independent 16x sinc "
+                  << 20.0 * std::log10(std::max(1.0e-12, independentPeak16x))
+                  << " dBTP; hosted acceptance -3.6 dBTP\\n";
+        require(maxMonitorPeak <= hostedMarginTarget + 3.0e-4,
+                "independent stereo noise exceeded the hosted 2.6dB true-peak margin");
+        require(independentPeak16x <= hostedMarginTarget + 3.0e-4,
+                "independent stereo noise exceeded the independent 16x -3.6dBTP margin");
+    }
+
     // Bypass remains bit-exact except for the fixed, reported delay.
     {
         StereoTruePeakGuard guard;
