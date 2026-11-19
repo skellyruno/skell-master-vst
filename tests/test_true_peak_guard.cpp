@@ -187,6 +187,10 @@ int main() {
         require(std::abs(referencePeak - 0.95) < 0.002,
                 "independent 16x sinc reference must recover the 20kHz sine peak");
         const double independentPeak = independentSincPeak(rendered);
+        std::cout << "INFO: independent 16x sinc 20kHz true peak at " << rate
+                  << " Hz = "
+                  << 20.0 * std::log10(std::max(1.0e-12, independentPeak))
+                  << " dBTP; production target -3.3 dBTP (+0.1 dB measurement tolerance)\\n";
         require(independentPeak <= targetTolerance,
                 "independent 16x sinc reconstruction exceeded -3.3 dBTP target (+0.1 dB measurement tolerance) at 20kHz");
         std::cout << "PASS: independent 16x sinc 20kHz true peak at "
