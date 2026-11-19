@@ -126,7 +126,7 @@ static double independentPolyphasePeak4x(const std::vector<skelly::StereoFrame>&
 int main() {
     using namespace skelly;
     constexpr double pi=3.1415926535897932384626433832795;
-    const double target=detail::dbToLinear(-1.1);
+    const double target=detail::dbToLinear(-2.3);
 
     // High-frequency sine waves produce reconstructed inter-sample peaks
     // materially higher than their host-rate sample peaks.
@@ -152,7 +152,7 @@ int main() {
                 static_cast<double>(outputMeter.process(out.left,out.right)));
         }
         require(maxTruePeak<=target+3.0e-4,
-                "high-frequency intersample peak exceeded -1.1 dBTP");
+                "high-frequency intersample peak exceeded -2.3 dBTP");
         require(maxSample<=detail::dbToLinear(-1.0)+3.0e-4,
                 "true-peak guard failed the sample-peak ceiling as well");
         std::cout<<"PASS: "<<rate<<" Hz high-frequency true-peak ceiling "
@@ -187,7 +187,7 @@ int main() {
                 "independent 16x sinc reference must recover the 20kHz sine peak");
         const double independentPeak = independentSincPeak(rendered);
         require(independentPeak <= target + 3.0e-4,
-                "independent 16x sinc reconstruction exceeded -1.1 dBTP at 20kHz");
+                "independent 16x sinc reconstruction exceeded -2.3 dBTP at 20kHz");
         std::cout << "PASS: independent 16x sinc 20kHz true peak at "
                   << rate << " Hz = "
                   << 20.0 * std::log10(std::max(1.0e-12, independentPeak))
@@ -239,7 +239,7 @@ int main() {
                 "legacy sample-peak guard must pass through samples below its ceiling");
         require(legacyTruePeak > detail::dbToLinear(-1.0) + 1.0e-3,
                 "legacy path unexpectedly enabled the new true-peak limiter");
-        require(deuceTruePeak <= detail::dbToLinear(-1.0) + 3.0e-4,
+        require(deuceTruePeak <= target + 3.0e-4,
                 "Deuce Match true-peak path failed the same inter-sample stress signal");
         std::cout<<"PASS: legacy sample guard preserved; Deuce Match true-peak peak "
                  <<20.0*std::log10(std::max(1.0e-12,deuceTruePeak))<<" dBTP\\n";
@@ -348,8 +348,8 @@ int main() {
         require(maxSamplePeak > 0.1 && maxSamplePeak < 0.90,
                 "re-enabled Deuce guard did not resume finite peak control");
         const double resumedTruePeak = independentSincPeak(resumedOutput);
-        require(resumedTruePeak <= ceiling + 3.0e-4,
-                "reactivated Deuce guard exceeded the requested -1 dBTP ceiling");
+        require(resumedTruePeak <= target + 3.0e-4,
+                "reactivated Deuce guard exceeded the -2.3 dBTP margin");
         std::cout << "PASS: bypass skips FIR measurement, retains history, and re-enables cleanly; "
                   << "reactivated true peak "
                   << 20.0 * std::log10(std::max(1.0e-12, resumedTruePeak)) << " dBTP\n";
