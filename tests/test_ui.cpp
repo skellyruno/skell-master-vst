@@ -324,6 +324,33 @@ int main() {
             check(std::abs(processor.parameters.getRawParameterValue(value.id)->load()
                            -value.expected)<.12f,
                   "SKELL MASTER factory parameter snapshot is incorrect");
+
+        // Verify the selected factory identity and its real APVTS values survive
+        // the same binary state path used by host session save/reload.
+        juce::MemoryBlock factoryState;
+        processor.getStateInformation(factoryState);
+        {
+            SkellyMasterAudioProcessor restoredProcessor;
+            restoredProcessor.setStateInformation(factoryState.getData(),
+                                                   static_cast<int>(factoryState.getSize()));
+            SkellyMasterAudioProcessorEditor restoredEditor(restoredProcessor);
+            juce::ComboBox* restoredPreset = nullptr;
+            for (int childIndex = 0; childIndex < restoredEditor.getNumChildComponents(); ++childIndex) {
+                if (auto* combo = dynamic_cast<juce::ComboBox*>(
+                        restoredEditor.getChildComponent(childIndex))) {
+                    if (combo->getComponentID() == "skell-master-preset")
+                        restoredPreset = combo;
+                }
+            }
+            check(restoredPreset != nullptr, "restored factory preset selector missing");
+            check(restoredPreset->getSelectedId() == 5
+                  && restoredPreset->getText() == "SKELL MASTER",
+                  "SKELL MASTER factory label was not restored from host state");
+            check(std::abs(restoredProcessor.parameters.getRawParameterValue("input")->load()-4.0f)<.12f,
+                  "host state roundtrip lost SKELL MASTER input value");
+            check(std::abs(restoredProcessor.parameters.getRawParameterValue("clipper")->load()-14.0f)<.12f,
+                  "host state roundtrip lost SKELL MASTER clip value");
+        }
         preset->setSelectedId(1,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("input")->load())<.12f &&
               std::abs(processor.parameters.getRawParameterValue("highs")->load())<.12f &&
