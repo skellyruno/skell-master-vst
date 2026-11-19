@@ -547,7 +547,12 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     presetSelector.addItem("PUNCH MASTER",3);
     presetSelector.addItem("LOUD MASTER",4);
     presetSelector.addItem("SKELL MASTER",5);
-    presetSelector.setSelectedId(0,juce::dontSendNotification);
+    // The APVTS values are already restored by the host; restore the matching
+    // factory label as state metadata without reapplying or changing audio.
+    const int storedPresetId = static_cast<int>(
+        processor.parameters.state.getProperty("skellMasterFactoryPresetId", 0));
+    presetSelector.setSelectedId(juce::jlimit(0, 5, storedPresetId),
+                                 juce::dontSendNotification);
     // Empty label is intentional: a quiet SELECT hint is drawn in the glass.
     presetSelector.setTextWhenNothingSelected({});
     presetSelector.setJustificationType(juce::Justification::centred);
@@ -613,6 +618,7 @@ void SkellyMasterAudioProcessorEditor::switchSkin() {
 void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     // Reset removes the selection label without activating any factory preset.
     presetSelector.setSelectedId(0,juce::dontSendNotification);
+    processor.parameters.state.setProperty("skellMasterFactoryPresetId", 0, nullptr);
     for (const char* id : ids)
         if (auto* param = processor.parameters.getParameter(id)) {
             param->beginChangeGesture();
@@ -651,6 +657,9 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
             p->endChangeGesture();
         }
     }
+    // Preserve the selected factory identity across host session save/reload.
+    // This is ValueTree metadata only; no APVTS parameter or automation ID changes.
+    processor.parameters.state.setProperty("skellMasterFactoryPresetId", presetId, nullptr);
 }
 
 void SkellyMasterAudioProcessorEditor::clearMeterHolds() {
