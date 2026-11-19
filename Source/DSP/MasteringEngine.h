@@ -483,8 +483,8 @@ private:
 
 // Stereo-linked host-rate true-peak safety stage. The 257-tap / 4-phase Kaiser
 // detector uses parabolic peak refinement; a separate 32-sample sample-peak
-// window pre-attacks upcoming transients. A 2.55dB nominal margin plus a brief
-// 0.3dB startup-edge margin covers the independent 16x windowed-sinc stress oracle.
+// window pre-attacks upcoming transients. A fixed 2.9dB internal margin covers
+// the independent 16x windowed-sinc full-band stress oracle at 44.1/48/96k.
 // Bypass preserves the same 32-sample latency but never attenuates. No audio-thread allocation.
 class StereoTruePeakGuard {
 public:
@@ -505,7 +505,6 @@ public:
             channel.fill(0.0f);
         writeIndex = 0;
         gain = 1.0;
-        startupFramesRemaining = lookaheadSamples;
     }
 
     StereoFrame process(StereoFrame input, double ceilingLinear,
@@ -522,11 +521,7 @@ public:
         const double requestedCeiling = std::clamp(
             std::isfinite(ceilingLinear) ? ceilingLinear : detail::dbToLinear(-1.0),
             1.0e-5, 1.0);
-        const double startupMarginDb = startupFramesRemaining > 0 ? 0.3 : 0.0;
-        if (startupFramesRemaining > 0)
-            --startupFramesRemaining;
-        const double truePeakLimit = requestedCeiling
-            * detail::dbToLinear(-2.55 - startupMarginDb);
+        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-2.9);
         const double wantedGain = (!bypass && measuredPeak > truePeakLimit)
             ? truePeakLimit / std::max(measuredPeak, 1.0e-12) : 1.0;
 
@@ -559,7 +554,6 @@ private:
     std::size_t writeIndex = 0;
     double gain = 1.0;
     double release = 0.0;
-    int startupFramesRemaining = 0;
 };
 
 // Gentle mastering width enhancement with two safeguards:
