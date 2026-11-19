@@ -126,7 +126,7 @@ static double independentPolyphasePeak4x(const std::vector<skelly::StereoFrame>&
 int main() {
     using namespace skelly;
     constexpr double pi=3.1415926535897932384626433832795;
-    const double target=detail::dbToLinear(-1.0 - 2.3); // Minimum accepted peak floor; production adds 0.25dB nominal headroom plus a startup edge margin.
+    const double target=detail::dbToLinear(-1.0 - 2.3); // Acceptance floor: -1.0 dBFS ceiling minus 2.3 dB reconstructed-peak margin.
     const double targetTolerance=target*detail::dbToLinear(0.1); // Independent reconstruction tolerance: 0.1 dB.
 
     // High-frequency sine waves produce reconstructed inter-sample peaks
@@ -279,6 +279,11 @@ int main() {
                 "full-band burst exceeded the true-peak target");
         const double independentPeak=independentPolyphasePeak4x(rendered);
         const double independentPeak16x=independentSincPeak(rendered);
+        std::cout << "INFO: full-band " << rate << " Hz independent peaks: Kaiser4x "
+                  << 20.0 * std::log10(std::max(1.0e-12, independentPeak))
+                  << " dBTP, sinc16x "
+                  << 20.0 * std::log10(std::max(1.0e-12, independentPeak16x))
+                  << " dBTP; acceptance floor -3.2 dBTP\\n";
         require(independentPeak<=targetTolerance,
                 "independent 257-tap Kaiser reconstruction exceeded -3.3 dBTP target (+0.1 dB measurement tolerance) on full-band bursts");
         require(independentPeak16x<=targetTolerance,
