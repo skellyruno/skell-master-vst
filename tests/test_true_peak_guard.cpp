@@ -275,9 +275,9 @@ int main() {
         const double independentPeak=independentPolyphasePeak4x(rendered);
         const double independentPeak16x=independentSincPeak(rendered);
         require(independentPeak<=target+3.0e-4,
-                "independent 257-tap Kaiser reconstruction exceeded -1.0 dBTP on full-band bursts");
+                "independent 257-tap Kaiser reconstruction exceeded -2.3 dBTP on full-band bursts");
         require(independentPeak16x<=target+3.0e-4,
-                "independent 16x sinc reconstruction exceeded -1.0 dBTP on full-band bursts");
+                "independent 16x sinc reconstruction exceeded -2.3 dBTP on full-band bursts");
         std::cout<<"PASS: full-band true peak at "<<rate<<" Hz; Kaiser "
                  <<20.0*std::log10(std::max(1.0e-12,independentPeak))
                  <<" dBTP, independent 16x sinc "
