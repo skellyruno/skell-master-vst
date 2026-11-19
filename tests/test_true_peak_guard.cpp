@@ -126,7 +126,7 @@ static double independentPolyphasePeak4x(const std::vector<skelly::StereoFrame>&
 int main() {
     using namespace skelly;
     constexpr double pi=3.1415926535897932384626433832795;
-    const double target=detail::dbToLinear(-1.0 - 2.3); // -1 dB sample ceiling minus the production 2.3 dB margin.
+    const double target=detail::dbToLinear(-1.0 - 2.3); // Minimum accepted peak floor; production adds 0.25dB nominal headroom plus a startup edge margin.
     const double targetTolerance=target*detail::dbToLinear(0.1); // Independent reconstruction tolerance: 0.1 dB.
 
     // High-frequency sine waves produce reconstructed inter-sample peaks

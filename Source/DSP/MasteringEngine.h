@@ -319,8 +319,9 @@ private:
     int newest = 0;
 };
 
-// Four-times reconstructed true-peak detector with a longer, symmetric Kaiser FIR.
-// At each host frame it estimates the interval around the sample delayed by 32 frames.
+// Four-times reconstructed true-peak detector with a symmetric Kaiser FIR.
+// Parabolic refinement estimates local peaks between the four reconstructed phases;
+// a separate 32-sample sample-peak window gives the guard genuine lookahead for attack.
 // Coefficients are prepared off the audio thread; processing uses fixed arrays only.
 class StereoTruePeakDetector4x {
 public:
@@ -374,11 +375,15 @@ public:
             if (delayedIndex < 0)
                 delayedIndex += historyLength;
             const auto& delayed = history[static_cast<std::size_t>(delayedIndex)];
-            maximum = std::max(std::abs(static_cast<double>(delayed.left)),
-                               std::abs(static_cast<double>(delayed.right)));
+            int endpointIndex = static_cast<int>(writeIndex) - (lookaheadSamples - 1);
+            if (endpointIndex < 0)
+                endpointIndex += historyLength;
+            const auto& endpoint = history[static_cast<std::size_t>(endpointIndex)];
+            double reconstructed[2][oversampling] {};
 
             // Each phase is one reconstructed point between the delayed sample
-            // and its next host-rate neighbour. Stereo channels share one peak.
+            // and its next host-rate neighbour. Keep the points so a local
+            // three-point parabola can estimate the peak between 4x phases.
             for (int phase = 0; phase < oversampling; ++phase) {
                 double reconstructedLeft = 0.0;
                 double reconstructedRight = 0.0;
@@ -392,13 +397,68 @@ public:
                     reconstructedLeft += weight * sample.left;
                     reconstructedRight += weight * sample.right;
                 }
+                reconstructed[0][phase] = reconstructedLeft;
+                reconstructed[1][phase] = reconstructedRight;
                 maximum = std::max(maximum, std::max(std::abs(reconstructedLeft),
                                                      std::abs(reconstructedRight)));
+            }
+
+            const auto refineLocalPeak = [](double previous, double current,
+                                             double next) noexcept {
+                const double yMinus = std::abs(previous);
+                const double y0 = std::abs(current);
+                const double yPlus = std::abs(next);
+                if (y0 < yMinus || y0 < yPlus)
+                    return y0;
+                const double curvature = yMinus - 2.0 * y0 + yPlus;
+                if (curvature >= -1.0e-12)
+                    return y0;
+                const double difference = yPlus - yMinus;
+                const double estimate = y0
+                    - (difference * difference) / (8.0 * curvature);
+                return std::isfinite(estimate) ? std::max(y0, estimate) : y0;
+            };
+
+            maximum = std::max(maximum, std::max(
+                std::abs(static_cast<double>(endpoint.left)),
+                std::abs(static_cast<double>(endpoint.right))));
+            const double leftPoints[5] = {
+                static_cast<double>(delayed.left), reconstructed[0][1],
+                reconstructed[0][2], reconstructed[0][3],
+                static_cast<double>(endpoint.left)
+            };
+            const double rightPoints[5] = {
+                static_cast<double>(delayed.right), reconstructed[1][1],
+                reconstructed[1][2], reconstructed[1][3],
+                static_cast<double>(endpoint.right)
+            };
+            for (int point = 1; point < 4; ++point) {
+                maximum = std::max(maximum, refineLocalPeak(
+                    leftPoints[point - 1], leftPoints[point], leftPoints[point + 1]));
+                maximum = std::max(maximum, refineLocalPeak(
+                    rightPoints[point - 1], rightPoints[point], rightPoints[point + 1]));
             }
         }
 
         if (++writeIndex == static_cast<std::size_t>(historyLength))
             writeIndex = 0;
+        return static_cast<float>(maximum);
+    }
+
+    // After process(), writeIndex points to the next ring slot. Offsets 1..33
+    // therefore cover the current input sample through the delayed output sample,
+    // inclusive: a real 32-sample lookahead window for pre-attacking upcoming peaks.
+    float lookaheadSamplePeak() const noexcept {
+        double maximum = 0.0;
+        for (int offset = 1; offset <= lookaheadSamples + 1; ++offset) {
+            int index = static_cast<int>(writeIndex) - offset;
+            if (index < 0)
+                index += historyLength;
+            const auto& sample = history[static_cast<std::size_t>(index)];
+            maximum = std::max(maximum, std::max(
+                std::abs(static_cast<double>(sample.left)),
+                std::abs(static_cast<double>(sample.right))));
+        }
         return static_cast<float>(maximum);
     }
 
@@ -421,12 +481,11 @@ private:
     std::size_t writeIndex = 0;
 };
 
-// Stereo-linked host-rate true-peak safety stage. A 257-tap / 4-phase Kaiser
-// reconstruction detector sees the interval 32 host samples ahead of the
-// delayed output. Gain attacks immediately and releases over 85ms. A fixed
-// 2.3dB margin covers the remaining difference to an independent 16x
-// windowed-sinc oracle on high-crest full-band stress signals. Bypass preserves
-// the same 32-sample latency but never attenuates. No audio-thread allocation.
+// Stereo-linked host-rate true-peak safety stage. The 257-tap / 4-phase Kaiser
+// detector uses parabolic peak refinement; a separate 32-sample sample-peak
+// window pre-attacks upcoming transients. A 2.55dB nominal margin plus a brief
+// 0.3dB startup-edge margin covers the independent 16x windowed-sinc stress oracle.
+// Bypass preserves the same 32-sample latency but never attenuates. No audio-thread allocation.
 class StereoTruePeakGuard {
 public:
     static constexpr int delayLength = StereoTruePeakDetector4x::lookaheadSamples + 1;
@@ -446,6 +505,7 @@ public:
             channel.fill(0.0f);
         writeIndex = 0;
         gain = 1.0;
+        startupFramesRemaining = lookaheadSamples;
     }
 
     StereoFrame process(StereoFrame input, double ceilingLinear,
@@ -455,11 +515,18 @@ public:
         const float right = static_cast<float>(detail::clamp(
             detail::finiteSample(static_cast<double>(input.right)), -256.0, 256.0));
 
-        const double measuredPeak = static_cast<double>(detector.process(left, right, !bypass));
+        const double reconstructedPeak = static_cast<double>(
+            detector.process(left, right, !bypass));
+        const double lookaheadPeak = static_cast<double>(detector.lookaheadSamplePeak());
+        const double measuredPeak = std::max(reconstructedPeak, lookaheadPeak);
         const double requestedCeiling = std::clamp(
             std::isfinite(ceilingLinear) ? ceilingLinear : detail::dbToLinear(-1.0),
             1.0e-5, 1.0);
-        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-2.3);
+        const double startupMarginDb = startupFramesRemaining > 0 ? 0.3 : 0.0;
+        if (startupFramesRemaining > 0)
+            --startupFramesRemaining;
+        const double truePeakLimit = requestedCeiling
+            * detail::dbToLinear(-2.55 - startupMarginDb);
         const double wantedGain = (!bypass && measuredPeak > truePeakLimit)
             ? truePeakLimit / std::max(measuredPeak, 1.0e-12) : 1.0;
 
@@ -492,6 +559,7 @@ private:
     std::size_t writeIndex = 0;
     double gain = 1.0;
     double release = 0.0;
+    int startupFramesRemaining = 0;
 };
 
 // Gentle mastering width enhancement with two safeguards:
