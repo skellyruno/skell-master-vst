@@ -350,7 +350,7 @@ int main() {
                 "re-enabled Deuce guard did not resume finite peak control");
         const double resumedTruePeak = independentSincPeak(resumedOutput);
         require(resumedTruePeak <= targetTolerance,
-                "reactivated Deuce guard exceeded the -3.3 dBTP target (+0.1 dB measurement tolerance) (+0.1 dB measurement tolerance) margin");
+                "reactivated Deuce guard exceeded the -3.3 dBTP target plus 0.1 dB measurement tolerance");
         std::cout << "PASS: bypass skips FIR measurement, retains history, and re-enables cleanly; "
                   << "reactivated true peak "
                   << 20.0 * std::log10(std::max(1.0e-12, resumedTruePeak)) << " dBTP\n";
