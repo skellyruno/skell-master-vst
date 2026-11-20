@@ -1,9 +1,9 @@
 #pragma once
-// SKELL MASTER | optional post-limiter 5 kHz presence prototype.
-// This is NOT connected to the production plugin. The user's master chain
-// applies a +2 dB 5 kHz analog EQ *after* L2, unlike the current Skell Master
-// pre-limiter high shelf. No Waves code, coefficients or proprietary presets
-// are copied. A true-peak-safe final output stage is a separate release gate.
+// SKELL MASTER | opt-in post-limiter +2 dB / 5 kHz presence stage.
+// The production plugin activates this stage only when the saved/automatable
+// "deuceMatch" parameter is enabled. It runs after the main limiter and before
+// the final true-peak guard; default and migrated legacy sessions keep wet=0.
+// No Waves code, coefficients or proprietary presets are copied.
 #include <algorithm>
 #include <array>
 #include <cmath>

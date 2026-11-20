@@ -123,7 +123,7 @@ int main() {
         // Every *fresh* control starts at displayed zero. Old projects still
         // restore their saved user settings rather than resetting on open.
         for (const auto* id : {"input","drive","glue","dynamics","lows",
-                               "highs","sauce","transients","output","ceiling","clipper"}) {
+                               "highs","sauce","transients","output","ceiling","clipper","deuceMatch"}) {
             auto* param=processor.parameters.getParameter(id);
             check(param!=nullptr,"missing mastering parameter");
             if(juce::String(id)=="clipper")
@@ -133,7 +133,7 @@ int main() {
                   "mastering control default must be zero");
         }
         check(std::abs(skelly::detail::ceilingOffsetToDb(0.0)+1.0)<1e-9,
-              "zero ceiling adjustment must preserve safe -1 dBFS target");
+              "zero ceiling adjustment must preserve the -1 dBTP target before safety margin");
         juce::Button* skinButton=nullptr;
         for (int childIndex=0;childIndex<editor.getNumChildComponents();++childIndex) {
             auto* child=editor.getChildComponent(childIndex);
@@ -324,11 +324,14 @@ int main() {
             check(std::abs(processor.parameters.getRawParameterValue(value.id)->load()
                            -value.expected)<.12f,
                   "SKELL MASTER factory parameter snapshot is incorrect");
+        check(processor.parameters.getRawParameterValue("deuceMatch")->load()>=0.5f,
+              "SKELL MASTER must enable the real Deuce DSP stages");
         preset->setSelectedId(1,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("input")->load())<.12f &&
               std::abs(processor.parameters.getRawParameterValue("highs")->load())<.12f &&
-              std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f,
-              "SKELL MASTER must not alter original INIT/CLEAN preset");
+              std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f &&
+              processor.parameters.getRawParameterValue("deuceMatch")->load()<0.5f,
+              "SKELL MASTER must not alter original INIT/CLEAN preset or leave Deuce stages enabled");
         clipper->setValue(43.0,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-43.0f)<.12f,
               "clipper knob must automate real DSP parameter");
@@ -348,14 +351,42 @@ int main() {
               "reset did not restore bypass default");
         check(std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f,
               "reset did not restore clipper default");
-        std::cout << "PASS: passive peak monitoring, clipper, bypass, reset and automation bindings\n";
+        check(processor.parameters.getRawParameterValue("deuceMatch")->load()<.5f,
+              "reset did not disable Deuce Match mode");
+
+        // Host project state must preserve the selected factory's actual DSP mode.
+        processor.parameters.getParameter("deuceMatch")->setValueNotifyingHost(1.0f);
+        juce::MemoryBlock savedState;
+        processor.getStateInformation(savedState);
+        SkellyMasterAudioProcessor restoredState;
+        restoredState.setStateInformation(savedState.getData(),
+                                          static_cast<int>(savedState.getSize()));
+        check(restoredState.parameters.getRawParameterValue("deuceMatch")->load()>=0.5f,
+              "Deuce Match did not survive host state save/reload");
+
+        // A pre-v4 APVTS tree has no Deuce Match child; it must remain neutral.
+        auto legacyState=processor.parameters.copyState();
+        for(int index=legacyState.getNumChildren()-1;index>=0;--index)
+            if(legacyState.getChild(index).getProperty("id").toString()=="deuceMatch")
+                legacyState.removeChild(index,nullptr);
+        SkellyMasterAudioProcessor restoredLegacyState;
+        restoredLegacyState.parameters.replaceState(legacyState);
+        check(restoredLegacyState.parameters.getRawParameterValue("deuceMatch")->load()<0.5f,
+              "legacy project without Deuce Match must default to OFF");
+        processor.parameters.getParameter("deuceMatch")->setValueNotifyingHost(0.0f);
+        std::cout << "PASS: true-peak safety, Deuce Match state recall, clipper, bypass and automation bindings\n";
 
         // Host-like audio checks exercise the actual JUCE wrapper + 4x resampler.
+        // Activate the real SKELL MASTER DSP path, not just its 11 parameter values.
+        processor.parameters.getParameter("deuceMatch")->setValueNotifyingHost(1.0f);
         for (const int sampleRate : {44100, 48000, 96000}) {
             processor.prepareToPlay(static_cast<double>(sampleRate),512);
             const auto latency=processor.getLatencySamples();
-            check(latency>0 && latency<sampleRate/30,
+            check(latency>=11 && latency<sampleRate/30,
                   "reported plugin latency outside reasonable range");
+            skelly::StereoTruePeakMonitor outputTruePeak;
+            outputTruePeak.reset();
+            double maxOutputTruePeak=0.0;
             for (int blockSize : {1, 32, 256, 511, 512}) {
                 juce::AudioBuffer<float> buffer(2, blockSize);
                 juce::MidiBuffer midi;
@@ -377,8 +408,14 @@ int main() {
                             check(std::abs(out)<=ceiling+margin,
                                   "host processor violated sample peak ceiling");
                         }
+                    for (int i=0;i<blockSize;++i)
+                        maxOutputTruePeak=std::max(maxOutputTruePeak,
+                            static_cast<double>(outputTruePeak.process(
+                                buffer.getSample(0,i),buffer.getSample(1,i))));
                 }
             }
+            check(maxOutputTruePeak<=std::pow(10.0,-1.25/20.0)+3.0e-4,
+                  "host processor exceeded the -1.25 dBTP safety regression ceiling");
             // Stress input sanitization at the actual JUCE oversampler boundary.
             // An invalid host frame must not poison the persistent filter
             // state, and the following normal programme must recover.

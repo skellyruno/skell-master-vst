@@ -1,9 +1,10 @@
 #pragma once
 
-// SKELL MASTER | experimental, portable five-band coloration engine.
-// The *production* plugin does NOT activate this prototype. It is an
-// independently tested starting point for a future user-approved sound
-// engine, never a clone of any proprietary vendor algorithm.
+// SKELL MASTER | opt-in, portable five-band coloration stage.
+// The production plugin activates this stage only when the saved/automatable
+// "deuceMatch" parameter is enabled by the SKELL MASTER factory or host.
+// Default and migrated legacy sessions keep wet=0. This is not a clone of any
+// proprietary vendor algorithm.
 //
 // Designed for the existing 4x oversampled DSP domain; no allocations,
 // locks, I/O, or coefficient calculations on the audio thread. Zero mix

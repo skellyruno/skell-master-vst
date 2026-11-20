@@ -55,6 +55,20 @@ static void setParameterByName(juce::AudioPluginInstance& instance,
     require(found,"Cannot find VST3 parameter by expected public name");
 }
 
+static void setBoolParameterByName(juce::AudioPluginInstance& instance,
+                                   const juce::String& name, bool enabled) {
+    bool found=false;
+    for (auto* param : instance.getParameters()) {
+        if (param->getName(128).equalsIgnoreCase(name)) {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost(enabled ? 1.0f : 0.0f);
+            param->endChangeGesture();
+            found=true;
+        }
+    }
+    require(found,"Cannot find VST3 boolean parameter by expected public name");
+}
+
 static juce::File locateVST3(const juce::String& userArg) {
     if (userArg.isNotEmpty()) return juce::File(userArg);
     const auto root=juce::File::getCurrentWorkingDirectory();
@@ -119,7 +133,7 @@ int main(int argc, char** argv) {
         if (!plugin) throw std::runtime_error("Cannot instantiate built VST3: " + error.toStdString());
         plugin->setPlayConfigDetails(2,2,sampleRate,blockSize);
         plugin->prepareToPlay(sampleRate,blockSize);
-        require(plugin->getLatencySamples()>=0,"Negative VST3 latency");
+        require(plugin->getLatencySamples()>=11,"VST3 latency omitted the 11-sample true-peak lookahead");
         const int reportedLatency=plugin->getLatencySamples();
 
         // Real hosted VST3 automation, no private/mutable factory preset data.
@@ -136,6 +150,7 @@ int main(int argc, char** argv) {
         setParameterByName(*plugin,"Output Trim",0.0f);
         setParameterByName(*plugin,"Ceiling Adjust",0.0f);
         setParameterByName(*plugin,"Clip",14.0f);
+        setBoolParameterByName(*plugin,"Deuce Match",true);
 
         const juce::int64 inputFrames=reader ? reader->lengthInSamples
                                            : static_cast<juce::int64>(sampleRate*9);
@@ -213,7 +228,9 @@ int main(int argc, char** argv) {
         const double width=10.0*std::log10(
             std::max(1.e-14,metrics.sideEnergy) / std::max(1.e-14,metrics.midEnergy));
         require(metrics.samplePeak<=std::pow(10.0,-1.0/20.0)+3.e-4,
-                "Hosted VST3 escaped -1dBFS sample-peak guard");
+                "Hosted VST3 escaped -1dBFS sample-peak safety boundary");
+        require(metrics.reconstructedPeak<=std::pow(10.0,-1.25/20.0)+3.e-4,
+                "Hosted VST3 escaped -1.25dBTP true-peak guard");
         require(std::isfinite(metrics.reconstructedPeak)&&std::isfinite(width),
                 "Hosted VST3 true peak/width invalid");
         require(rms>1.e-5,"VST3 unexpectedly silent");

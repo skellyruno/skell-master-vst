@@ -200,9 +200,8 @@ struct MasterParameters {
 
 struct StereoFrame { float left = 0.0f, right = 0.0f; };
 
-// Host-rate safety limiter, shared by JUCE wrapper and portable regression tests.
-// Both channels receive identical attenuation. This enforces a *sample* ceiling;
-// reconstructed inter-sample peaks must still be evaluated externally.
+// Legacy host-rate sample-peak guard retained for the regression diagnostic.
+// Production Skell Master now uses StereoTruePeakGuard below.
 class StereoPeakGuard {
 public:
     void prepare(double sampleRate) noexcept {
@@ -315,6 +314,78 @@ private:
     }};
     std::array<std::array<double,12>,2> history {};
     int newest = 0;
+};
+
+// Stereo-linked, host-rate true-peak safety stage. The existing 48-tap / 4-phase
+// ITU Annex 2 monitor sees the next 12-sample window while the oldest sample is
+// delayed by 11 frames. Gain attacks immediately and releases over 85ms. A fixed
+// 0.8dB margin covers the measured under-read of the compact 48-tap FIR against an
+// independent 257-tap Kaiser 4x reconstruction on full-band stress audio. Bypass preserves
+// the same 11-sample latency but never attenuates. No allocations or locks.
+class StereoTruePeakGuard {
+public:
+    static constexpr int delayLength = 12;
+    static constexpr int lookaheadSamples = delayLength - 1;
+
+    void prepare(double sampleRate) noexcept {
+        const double rate = std::isfinite(sampleRate)
+            ? std::max(1.0, sampleRate) : 48000.0;
+        release = std::exp(-1.0 / (rate * 0.085));
+        reset();
+    }
+
+    void reset() noexcept {
+        detector.reset();
+        for (auto& channel : delay)
+            channel.fill(0.0f);
+        writeIndex = 0;
+        gain = 1.0;
+    }
+
+    StereoFrame process(StereoFrame input, double ceilingLinear,
+                        bool bypass = false) noexcept {
+        const float left = static_cast<float>(detail::clamp(
+            detail::finiteSample(static_cast<double>(input.left)), -256.0, 256.0));
+        const float right = static_cast<float>(detail::clamp(
+            detail::finiteSample(static_cast<double>(input.right)), -256.0, 256.0));
+
+        const double measuredPeak = static_cast<double>(detector.process(left, right));
+        const double requestedCeiling = std::clamp(
+            std::isfinite(ceilingLinear) ? ceilingLinear : detail::dbToLinear(-1.0),
+            1.0e-5, 1.0);
+        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-0.8);
+        const double wantedGain = (!bypass && measuredPeak > truePeakLimit)
+            ? truePeakLimit / std::max(measuredPeak, 1.0e-12) : 1.0;
+
+        if (bypass) {
+            gain = 1.0;
+        } else if (wantedGain < gain) {
+            gain = wantedGain;
+        } else {
+            gain = release * gain + (1.0 - release) * wantedGain;
+        }
+
+        delay[0][writeIndex] = left;
+        delay[1][writeIndex] = right;
+        const std::size_t readIndex =
+            (writeIndex + 1) % static_cast<std::size_t>(delayLength);
+        const StereoFrame output {
+            static_cast<float>(delay[0][readIndex] * gain),
+            static_cast<float>(delay[1][readIndex] * gain)
+        };
+        writeIndex = (writeIndex + 1) % static_cast<std::size_t>(delayLength);
+        return output;
+    }
+
+    double currentGain() const noexcept { return gain; }
+    int getLatencySamples() const noexcept { return lookaheadSamples; }
+
+private:
+    StereoTruePeakMonitor detector;
+    std::array<std::array<float, delayLength>, 2> delay {};
+    std::size_t writeIndex = 0;
+    double gain = 1.0;
+    double release = 0.0;
 };
 
 // Gentle mastering width enhancement with two safeguards:

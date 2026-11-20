@@ -521,7 +521,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         s.setTextValueSuffix(i==9 ? "" : db ? " dB" : " %");
         const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "SOFT CLIP AMOUNT");
          s.setTooltip(i==9
-            ? "CEILING ADJUST: 0 = -1 dBFS limiting; -3 = -3 dBFS, +3 = -0.1 dBFS. Drag, type, or double-click to reset."
+            ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Internal limiter keeps a 0.8 dB reconstruction margin. Drag, type, or double-click to reset."
             : i==10 ? "CLIP: 0% = transparent lookahead limiting; higher settings blend oversampled soft clipping before the limiter."
             : juce::String(labels[i]) + " - " + sub +
               " | drag to adjust, double-click to reset, right-click for menu");
@@ -551,7 +551,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     // Empty label is intentional: a quiet SELECT hint is drawn in the glass.
     presetSelector.setTextWhenNothingSelected({});
     presetSelector.setJustificationType(juce::Justification::centred);
-    presetSelector.setTooltip("Choose a factory mastering starting point. All values are editable and automatable.");
+    presetSelector.setTooltip("Choose a factory mastering starting point. SKELL MASTER also enables the saved, automatable Deuce Match DSP path and true-peak safety.");
     presetSelector.onChange=[this] { applyFactoryPreset(presetSelector.getSelectedId()); };
     addAndMakeVisible(presetSelector);
 
@@ -624,19 +624,22 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
         param->setValueNotifyingHost(param->getDefaultValue());
         param->endChangeGesture();
     }
+    if (auto* param = processor.parameters.getParameter("deuceMatch")) {
+        param->beginChangeGesture();
+        param->setValueNotifyingHost(param->getDefaultValue());
+        param->endChangeGesture();
+    }
 }
 
 void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     if(presetId<1 || presetId>5) return;
     // Ordered exactly as ids[]: Input, Drive, Glue, Dynamics, Lows, Highs,
-    // Sauce, Transients, Output, Ceiling offset, Clip. All conservative
-    // starting points; no hidden bypass, DSP mode or latency changes.
-    // SKELL MASTER is a measured *first-pass* target of the user's 2026-11-14
-    // 44.1 kHz reference audio: ~+2.43 LU louder, ~1.6 dB less crest,
-    // ~+1.5 dB relative upper treble, and subtle widening. This is a
-    // transparent APVTS snapshot, not a hidden DSP mode or an exact null match.
-    // Keep its ceiling at the default -1 dBFS sample-peak setting until
-    // independent true-peak protection and real FL Studio A/B are approved.
+    // Sauce, Transients, Output, Ceiling offset, Clip. The original four
+    // presets keep their exact values; only SKELL MASTER enables Deuce Match.
+    // That saved/automatable mode activates the tested 4x five-band color
+    // stage, +2dB/5kHz post-limiter bell, and final 4x true-peak safety guard.
+    // This is a measured first-pass sound hypothesis, not an exact null match;
+    // the private full-length master WAVs remain out of GitHub.
     static constexpr float values[5][11]={
         {0,0,0,0,0,0,0,0,0,0,0},
         {0,15,18,10,0,0,12,0,0,0,0},
@@ -650,6 +653,11 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
             p->setValueNotifyingHost(p->convertTo0to1(values[presetId-1][i]));
             p->endChangeGesture();
         }
+    }
+    if(auto* p=processor.parameters.getParameter("deuceMatch")) {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost(p->convertTo0to1(presetId==5 ? 1.0f : 0.0f));
+        p->endChangeGesture();
     }
 }
 
