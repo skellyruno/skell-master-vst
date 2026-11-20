@@ -223,6 +223,10 @@ int main() {
         require(maxTruePeak<=target+3.0e-4,
                 "full-band burst exceeded the true-peak target");
         const double independentPeak=independentPolyphasePeak4x(rendered);
+        const double internalPeakDb=20.0*std::log10(std::max(1.0e-12,maxTruePeak));
+        const double independentPeakDb=20.0*std::log10(std::max(1.0e-12,independentPeak));
+        std::cout<<"MEASURED: full-band burst 48k internal="<<internalPeakDb
+                 <<" dBTP, independent 257-tap Kaiser="<<independentPeakDb<<" dBTP\\n";
         require(independentPeak<=target+3.0e-4,
                 "independent 257-tap Kaiser reconstruction exceeded -1.0 dBTP on full-band bursts");
         std::cout<<"PASS: independent 257-tap Kaiser full-band peak "
