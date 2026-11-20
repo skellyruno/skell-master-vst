@@ -497,6 +497,7 @@ int main() {
             p.lowsDb=-6+12*k; p.highsDb=6-12*k;
             p.inputDb=8-12*k; p.outputDb=4-8*k;
             p.ceilingDb=-3+2.9*k; p.bypass=(i/4096)%7==0;
+            p.deuceMatch=(i/4096)%5==0;
             dsp.setParameters(p);
         }
         const float a = static_cast<float>(1.4*std::sin(i*2*3.14159265*240.0/rate));
@@ -547,6 +548,64 @@ int main() {
     require(referenceEnergy>10.0,"SKELL MASTER reference preset muted program");
     std::cout << "PASS: SKELL MASTER first-pass portable DSP stress and sample ceiling "
               << referencePeak << "\\n";
+
+    // Deuce Match makeup is deliberately after the engine's internal limiter.
+    // At low level it should add the measured reference loudness offset without
+    // changing the default/legacy path, and bypass must remain latency-aligned dry.
+    MasteringEngine deuceMatchOff, deuceMatchOn;
+    deuceMatchOff.prepare(rate, 2, lookahead);
+    deuceMatchOn.prepare(rate, 2, lookahead);
+    MasterParameters deuceOff, deuceOn;
+    deuceOn.deuceMatch = true;
+    deuceMatchOff.setParameters(deuceOff);
+    deuceMatchOn.setParameters(deuceOn);
+    double offEnergy = 0.0, onEnergy = 0.0;
+    for (int i = 0; i < static_cast<int>(rate * 0.5); ++i) {
+        const float x = static_cast<float>(0.01 * std::sin(
+            2.0 * detail::pi * 997.0 * i / rate));
+        const auto offFrame = deuceMatchOff.processFrame(x, x * 0.83f);
+        const auto onFrame = deuceMatchOn.processFrame(x, x * 0.83f);
+        if (i > static_cast<int>(rate * 0.1)) {
+            offEnergy += static_cast<double>(offFrame.left) * offFrame.left
+                       + static_cast<double>(offFrame.right) * offFrame.right;
+            onEnergy += static_cast<double>(onFrame.left) * onFrame.left
+                      + static_cast<double>(onFrame.right) * onFrame.right;
+        }
+        require(std::isfinite(onFrame.left) && std::isfinite(onFrame.right),
+                "Deuce Match makeup must remain finite");
+    }
+    // At this 997 Hz probe the enabled five-band color contributes about
+    // 1.15 dB; the new post-limiter makeup contributes another 2.4 dB.
+    // Compare the complete Deuce Match mode against neutral, not makeup alone.
+    const double deuceMatchGainDb = 10.0 * std::log10(onEnergy / offEnergy);
+    require(deuceMatchGainDb > 3.3 && deuceMatchGainDb < 3.8,
+            "Deuce Match must include five-band color plus 2.4 dB post-limiter makeup");
+    std::cout << "PASS: Deuce Match combined color + post-limiter makeup "
+              << deuceMatchGainDb << " dB\\n";
+
+    MasteringEngine bypassWithDeuce, bypassNeutral;
+    bypassWithDeuce.prepare(rate, 2, lookahead);
+    bypassNeutral.prepare(rate, 2, lookahead);
+    MasterParameters bypassDeuce, bypassPlain;
+    bypassDeuce.bypass = true;
+    bypassDeuce.deuceMatch = true;
+    bypassPlain.bypass = true;
+    bypassWithDeuce.setParameters(bypassDeuce);
+    bypassNeutral.setParameters(bypassPlain);
+    double bypassNull = 0.0;
+    for (int i = 0; i < 12000; ++i) {
+        const float x = static_cast<float>(0.02 * std::sin(
+            2.0 * detail::pi * 440.0 * i / rate));
+        const auto a = bypassWithDeuce.processFrame(x, x * 0.77f);
+        const auto b = bypassNeutral.processFrame(x, x * 0.77f);
+        bypassNull = std::max(bypassNull,
+            std::max(std::abs(static_cast<double>(a.left) - b.left),
+                     std::abs(static_cast<double>(a.right) - b.right)));
+    }
+    require(bypassNull < 1.0e-7,
+            "Deuce Match makeup must not change the latency-aligned bypass path");
+    std::cout << "PASS: Deuce Match makeup is absent in bypass (null "
+              << bypassNull << ")\\n";
 
     // Across the *entire* mastering chain, hostile NaN/Inf automation
     // should fall back to the old neutral settings, never unexpectedly

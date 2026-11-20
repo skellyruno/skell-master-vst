@@ -15,6 +15,8 @@ namespace detail {
 constexpr double pi = 3.1415926535897932384626433832795;
 inline double clamp(double v, double lo, double hi) noexcept { return std::max(lo, std::min(hi, v)); }
 inline double dbToLinear(double db) noexcept { return std::pow(10.0, db / 20.0); }
+// 2.4 dB Deuce Match makeup, precomputed so the audio callback does no pow().
+inline constexpr double deuceMatchMakeupGain = 1.318256738556407;
 inline double linearToDb(double v) noexcept {
     return 20.0 * std::log10(std::isfinite(v) ? std::max(v, 1.0e-12) : 1.0e-12);
 }
@@ -613,6 +615,7 @@ public:
         output.prepare(rate, 15, 1); ceiling.prepare(rate, 15, detail::dbToLinear(-1));
         clipperMix.prepare(rate, 18, 0);
         bypassMix.prepare(rate, 12, 0);
+        deuceMatchMakeup.prepare(rate, 12, 1.0);
         glueComp.prepare(rate, 27, 220);
         dynamicsComp.prepare(rate, 8, 110);
         hf[0].prepare(rate, 2400); hf[1].prepare(rate, 2400);
@@ -637,6 +640,7 @@ public:
         for (auto& f : hf) f.reset();
         stereoImager.reset();
         fiveBandColor.reset();
+        deuceMatchMakeup.snap(1.0);
         glueComp.reset(); dynamicsComp.reset();
         dcInput.fill(0.0); dcOutput.fill(0.0);
         fastEnv = slowEnv = 0.0; limiterGain = 1.0; limiterHold = 0; writeIndex = 0;
@@ -671,6 +675,11 @@ public:
         // Deuce color stage to neutral while bypassed; FiveBandColorPrototype
         // still tracks its crossover history at zero wet for click-free re-enable.
         deuceMatch = p.deuceMatch && !p.bypass;
+        // The reference master is about 2.4 LU louder than its input. Apply
+        // opt-in makeup AFTER the internal limiter so the final host-rate
+        // reconstructed true-peak guard controls the added level safely.
+        // The 12 ms smoother prevents an automation/state-toggle gain step.
+        deuceMatchMakeup.setTarget(deuceMatch ? detail::deuceMatchMakeupGain : 1.0);
     }
 
     void beginBlock() noexcept { gainReduction = 1.0; outputPeak = 0.0; }
@@ -826,6 +835,12 @@ public:
 
         double wetL = delayedL * limiterGain;
         double wetR = delayedR * limiterGain;
+        // Deuce Match makeup follows the internal lookahead limiter. Keep it
+        // ahead of this stereo-linked sample guard; the JUCE wrapper's
+        // reconstructed true-peak guard remains the final host-rate boundary.
+        const double deuceMakeup = deuceMatchMakeup.next();
+        wetL *= deuceMakeup;
+        wetR *= deuceMakeup;
         // Last-resort stereo-linked ceiling guard: do not independently
         // hard-clip L/R, which can alter the stereo ratio on unexpected
         // delayed transients or automation. This is still a sample-peak
@@ -853,7 +868,7 @@ private:
     double rate = 192000, dcR = 0.999;
     int channels = 2, lookahead = 288, writeIndex = 0, eqCounter = 0;
     std::array<std::vector<double>, 2> programDelay, dryDelay;
-    detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, bypassMix;
+    detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, bypassMix, deuceMatchMakeup;
     std::array<detail::Biquad, 2> lowShelf, highShelf;
     std::array<detail::OnePole, 2> hf;
     StereoImager stereoImager;
