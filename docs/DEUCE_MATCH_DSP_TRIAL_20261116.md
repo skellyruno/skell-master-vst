@@ -70,3 +70,22 @@ A Linux VST3 host-render target and private local-reference workflow are being a
 A local render through the exact PR #21 Linux hosted VST3 reproduced a safety-boundary failure using legal public parameter values on the same 15-second Deuce beat-containing input: `Output Trim=12`, `Clip=100`, `Ceiling Adjust=3`, with Deuce Match enabled. The configured sample ceiling was -0.1 dBFS and the hosted 48-tap meter reported -0.825 dBTP, just above the smoke-test minimum of -0.85 dBTP. An independent local 16x Kaiser estimate was -0.861 dBTP. The renderer correctly rejected the output rather than reporting a pass.
 
 The guard's internal margin is increased from 1.0 to 1.2 dB. The hosted CI smoke tests now exercise this maximum legal output/clip/ceiling combination on Windows and Linux, and the independent guard regression requires at least -1.1 dBTP at the -1 dBFS test ceiling. This is a safety-only change; factory parameter values, APVTS/automation IDs, preset state schema, fixed PDC, and the default Deuce Match-off behavior remain unchanged. Exact-head CI and a repeat local render are required before calling the correction verified.
+
+
+## 2026-11-20 — rebalance true-peak headroom for the Deuce match
+
+The exact PR28 hosted render held music around -4.1 dBTP because the production
+guard used a 3.2 dB internal offset below the configured -1 dBFS sample ceiling.
+That was substantially more conservative than the documented -1 dBTP safety
+target and cost usable loudness. The owner master reference itself measures
+above 0 dBTP, so its unsafe peak overs are not a replication target.
+
+This draft reduces the internal offset to 1.5 dB while keeping the 32-sample
+lookahead, stereo-linked gain, 85 ms release, fixed PDC, and opt-in Deuce Match
+mode. Portable guard acceptance is moved to an independent 16x reconstructed
+ceiling of -1.0 dBTP across 44.1/48/96 kHz, high-frequency tones, full-band
+bursts, independent stereo noise, bypass/re-enable, reset, and finite tails.
+The hosted VST3 check retains additional meter headroom. No factory preset
+values, APVTS IDs/order, state schema, legacy factory path, or default-off
+behavior are changed. Exact-head CI and a fresh owner-WAV render are required
+before this draft can be considered verified.
