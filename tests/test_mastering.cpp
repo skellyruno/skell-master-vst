@@ -574,10 +574,14 @@ int main() {
         require(std::isfinite(onFrame.left) && std::isfinite(onFrame.right),
                 "Deuce Match makeup must remain finite");
     }
-    const double deuceMakeupDb = 10.0 * std::log10(onEnergy / offEnergy);
-    require(deuceMakeupDb > 2.0 && deuceMakeupDb < 2.9,
-            "Deuce Match must apply the smoothed 2.4 dB post-limiter makeup");
-    std::cout << "PASS: Deuce Match post-limiter makeup " << deuceMakeupDb << " dB\\n";
+    // At this 997 Hz probe the enabled five-band color contributes about
+    // 1.15 dB; the new post-limiter makeup contributes another 2.4 dB.
+    // Compare the complete Deuce Match mode against neutral, not makeup alone.
+    const double deuceMatchGainDb = 10.0 * std::log10(onEnergy / offEnergy);
+    require(deuceMatchGainDb > 3.3 && deuceMatchGainDb < 3.8,
+            "Deuce Match must include five-band color plus 2.4 dB post-limiter makeup");
+    std::cout << "PASS: Deuce Match combined color + post-limiter makeup "
+              << deuceMatchGainDb << " dB\\n";
 
     MasteringEngine bypassWithDeuce, bypassNeutral;
     bypassWithDeuce.prepare(rate, 2, lookahead);
