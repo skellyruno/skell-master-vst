@@ -14,29 +14,37 @@ static void require(bool ok, const char* message) {
 
 static constexpr double independentPi = 3.1415926535897932384626433832795;
 
+namespace {
+constexpr int sincHalfTaps = 32;
+constexpr int sincPhases = 16;
+constexpr int sincTaps = 2 * sincHalfTaps + 1;
+constexpr int kaiserUpsample = 4;
+constexpr int kaiserTaps = 257;
+constexpr int kaiserCenter = 128;
+constexpr int kaiserPhases = 4;
+constexpr int kaiserHalfWindowFrames = kaiserCenter / kaiserUpsample;
+}
+
 // Test-only 16x windowed-sinc reconstruction. This deliberately does not use
 // StereoTruePeakMonitor, so the limiter is not checked by its own detector.
 static double independentSincPeak(const std::vector<skelly::StereoFrame>& samples) {
-    constexpr int halfTaps = 32;
-    constexpr int phases = 16;
-    constexpr int taps = 2 * halfTaps + 1;
     static const auto weights = [] {
-        std::array<std::array<double, taps>, phases> result {};
-        for (int phase = 0; phase < phases; ++phase) {
-            const double fraction = static_cast<double>(phase) / phases;
+        std::array<std::array<double, sincTaps>, sincPhases> result {};
+        for (int phase = 0; phase < sincPhases; ++phase) {
+            const double fraction = static_cast<double>(phase) / sincPhases;
             double sum = 0.0;
-            for (int tap = -halfTaps; tap <= halfTaps; ++tap) {
+            for (int tap = -sincHalfTaps; tap <= sincHalfTaps; ++tap) {
                 const double distance = fraction - static_cast<double>(tap);
                 const double sinc = std::abs(distance) < 1.0e-12
                     ? 1.0 : std::sin(independentPi * distance) / (independentPi * distance);
-                const double normalized = distance / halfTaps;
+                const double normalized = distance / sincHalfTaps;
                 const double window = std::abs(distance) <= halfTaps
                     ? 0.42 + 0.5 * std::cos(independentPi * normalized)
                           + 0.08 * std::cos(2.0 * independentPi * normalized)
                     : 0.0;
                 const double value = sinc * window;
                 result[static_cast<std::size_t>(phase)]
-                      [static_cast<std::size_t>(tap + halfTaps)] = value;
+                      [static_cast<std::size_t>(tap + sincHalfTaps)] = value;
                 sum += value;
             }
             for (auto& value : result[static_cast<std::size_t>(phase)])
@@ -46,12 +54,12 @@ static double independentSincPeak(const std::vector<skelly::StereoFrame>& sample
     }();
 
     double peak = 0.0;
-    for (int frame = halfTaps;
-         frame < static_cast<int>(samples.size()) - halfTaps - 1; ++frame) {
+    for (int frame = sincHalfTaps;
+         frame < static_cast<int>(samples.size()) - sincHalfTaps - 1; ++frame) {
         const auto& current = samples[static_cast<std::size_t>(frame)];
         peak = std::max(peak, std::max(std::abs(static_cast<double>(current.left)),
                                       std::abs(static_cast<double>(current.right))));
-        for (int phase = 1; phase < phases; ++phase) {
+        for (int phase = 1; phase < sincPhases; ++phase) {
             double left = 0.0, right = 0.0;
             for (int tap = -halfTaps; tap <= halfTaps; ++tap) {
                 const auto& sample = samples[static_cast<std::size_t>(frame + tap)];
@@ -80,14 +88,13 @@ static double besselI0(double x) {
 // Independent 4x Kaiser reference with a longer FIR than the production
 // 48-tap BS.1770 detector. This is a test oracle, not realtime code.
 static double independentPolyphasePeak4x(const std::vector<skelly::StereoFrame>& samples) {
-    constexpr int up=4, taps=257, center=128, phases=4;
     static const auto coefficients=[] {
-        std::array<double,taps> h {};
+        std::array<double,kaiserTaps> h {};
         double sum=0.0;
         constexpr double beta=12.0;
         const double i0beta=besselI0(beta);
-        for(int n=0;n<taps;++n) {
-            const double x=static_cast<double>(n-center);
+        for(int n=0;n<kaiserTaps;++n) {
+            const double x=static_cast<double>(n-kaiserCenter);
             const double normalized=x/center;
             const double sinc=std::abs(x)<1.0e-12 ? 0.25
                 : 0.25*std::sin(independentPi*0.25*x)/(independentPi*0.25*x);
@@ -101,15 +108,15 @@ static double independentPolyphasePeak4x(const std::vector<skelly::StereoFrame>&
     }();
 
     double peak=0.0;
-    for(int frame=32;frame<static_cast<int>(samples.size())-32;++frame) {
+    for(int frame=kaiserHalfWindowFrames;frame<static_cast<int>(samples.size())-kaiserHalfWindowFrames;++frame) {
         const auto& current=samples[static_cast<std::size_t>(frame)];
         peak=std::max(peak,std::max(std::abs(static_cast<double>(current.left)),
                                     std::abs(static_cast<double>(current.right))));
-        for(int phase=0;phase<phases;++phase) {
+        for(int phase=0;phase<kaiserPhases;++phase) {
             double left=0.0,right=0.0;
-            for(int q=0;up*q+phase<taps;++q) {
-                const auto& sample=samples[static_cast<std::size_t>(frame+32-q)];
-                const double weight=up*coefficients[static_cast<std::size_t>(up*q+phase)];
+            for(int q=0;kaiserUpsample*q+phase<kaiserTaps;++q) {
+                const auto& sample=samples[static_cast<std::size_t>(frame+kaiserHalfWindowFrames-q)];
+                const double weight=kaiserUpsample*coefficients[static_cast<std::size_t>(kaiserUpsample*q+phase)];
                 left+=weight*sample.left;
                 right+=weight*sample.right;
             }
@@ -183,7 +190,7 @@ int main() {
                 "independent 16x sinc reference must recover the 20kHz sine peak");
         const double independentPeak = independentSincPeak(rendered);
         require(independentPeak <= target + 3.0e-4,
-                "independent 16x sinc reconstruction exceeded -1.25 dBTP at 20kHz");
+                "independent 16x sinc reconstruction exceeded the -1.0 dBTP ceiling at 20kHz");
         std::cout << "PASS: independent 16x sinc 20kHz true peak at "
                   << rate << " Hz = "
                   << 20.0 * std::log10(std::max(1.0e-12, independentPeak))
