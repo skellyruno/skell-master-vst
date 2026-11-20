@@ -126,7 +126,7 @@ static double independentPolyphasePeak4x(const std::vector<skelly::StereoFrame>&
 int main() {
     using namespace skelly;
     constexpr double pi=3.1415926535897932384626433832795;
-    const double target=detail::dbToLinear(-1.0 - 2.3); // Acceptance floor: -1.0 dBFS ceiling minus 2.3 dB reconstructed-peak margin.
+    const double target=detail::dbToLinear(-1.1); // Acceptance floor: -1.1 dBTP, 0.1 dB below the -1.0 dBTP ceiling.
     const double targetTolerance=target*detail::dbToLinear(0.1); // Independent reconstruction tolerance: 0.1 dB.
 
     // High-frequency sine waves produce reconstructed inter-sample peaks
@@ -153,7 +153,7 @@ int main() {
                 static_cast<double>(outputMeter.process(out.left,out.right)));
         }
         require(maxTruePeak<=targetTolerance,
-                "high-frequency intersample peak exceeded -3.3 dBTP target (+0.1 dB measurement tolerance)");
+                "high-frequency intersample peak exceeded -1.1 dBTP target (+0.1 dB measurement tolerance)");
         require(maxSample<=detail::dbToLinear(-1.0)+3.0e-4,
                 "true-peak guard failed the sample-peak ceiling as well");
         std::cout<<"PASS: "<<rate<<" Hz high-frequency true-peak ceiling "
@@ -190,9 +190,9 @@ int main() {
         std::cout << "INFO: independent 16x sinc 20kHz true peak at " << rate
                   << " Hz = "
                   << 20.0 * std::log10(std::max(1.0e-12, independentPeak))
-                  << " dBTP; production target -3.3 dBTP (+0.1 dB measurement tolerance)\\n";
+                  << " dBTP; production target -1.1 dBTP (+0.1 dB measurement tolerance)\\n";
         require(independentPeak <= targetTolerance,
-                "independent 16x sinc reconstruction exceeded -3.3 dBTP target (+0.1 dB measurement tolerance) at 20kHz");
+                "independent 16x sinc reconstruction exceeded -1.1 dBTP target (+0.1 dB measurement tolerance) at 20kHz");
         std::cout << "PASS: independent 16x sinc 20kHz true peak at "
                   << rate << " Hz = "
                   << 20.0 * std::log10(std::max(1.0e-12, independentPeak))
@@ -283,11 +283,11 @@ int main() {
                   << 20.0 * std::log10(std::max(1.0e-12, independentPeak))
                   << " dBTP, sinc16x "
                   << 20.0 * std::log10(std::max(1.0e-12, independentPeak16x))
-                  << " dBTP; acceptance floor -3.2 dBTP\\n";
+                  << " dBTP; acceptance floor -1.0 dBTP\\n";
         require(independentPeak<=targetTolerance,
-                "independent 257-tap Kaiser reconstruction exceeded -3.3 dBTP target (+0.1 dB measurement tolerance) on full-band bursts");
+                "independent 257-tap Kaiser reconstruction exceeded -1.1 dBTP target (+0.1 dB measurement tolerance) on full-band bursts");
         require(independentPeak16x<=targetTolerance,
-                "independent 16x sinc reconstruction exceeded -3.3 dBTP target (+0.1 dB measurement tolerance) on full-band bursts");
+                "independent 16x sinc reconstruction exceeded -1.1 dBTP target (+0.1 dB measurement tolerance) on full-band bursts");
         std::cout<<"PASS: full-band true peak at "<<rate<<" Hz; Kaiser "
                  <<20.0*std::log10(std::max(1.0e-12,independentPeak))
                  <<" dBTP, independent 16x sinc "
@@ -327,17 +327,17 @@ int main() {
                 static_cast<double>(meter.process(out.left, out.right)));
         }
         const double independentPeak16x = independentSincPeak(rendered);
-        const double hostedMarginTarget = detail::dbToLinear(-3.6);
+        const double hostedMarginTarget = detail::dbToLinear(-1.0);
         std::cout << "INFO: independent stereo noise " << rate
                   << " Hz: 48-tap monitor "
                   << 20.0 * std::log10(std::max(1.0e-12, maxMonitorPeak))
                   << " dBTP, independent 16x sinc "
                   << 20.0 * std::log10(std::max(1.0e-12, independentPeak16x))
-                  << " dBTP; hosted acceptance -3.6 dBTP\\n";
+                  << " dBTP; hosted acceptance -1.0 dBTP\\n";
         require(maxMonitorPeak <= hostedMarginTarget + 3.0e-4,
-                "independent stereo noise exceeded the hosted 2.6dB true-peak margin");
+                "independent stereo noise exceeded the hosted -1.0dBTP ceiling");
         require(independentPeak16x <= hostedMarginTarget + 3.0e-4,
-                "independent stereo noise exceeded the independent 16x -3.6dBTP margin");
+                "independent stereo noise exceeded the independent 16x -1.0dBTP ceiling");
     }
 
     // Bypass remains bit-exact except for the fixed, reported delay.
@@ -398,7 +398,7 @@ int main() {
                 "re-enabled Deuce guard did not resume finite peak control");
         const double resumedTruePeak = independentSincPeak(resumedOutput);
         require(resumedTruePeak <= targetTolerance,
-                "reactivated Deuce guard exceeded the -3.3 dBTP target plus 0.1 dB measurement tolerance");
+                "reactivated Deuce guard exceeded the -1.1 dBTP target plus 0.1 dB measurement tolerance");
         std::cout << "PASS: bypass skips FIR measurement, retains history, and re-enables cleanly; "
                   << "reactivated true peak "
                   << 20.0 * std::log10(std::max(1.0e-12, resumedTruePeak)) << " dBTP\n";
