@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
         if (!plugin) throw std::runtime_error("Cannot instantiate built VST3: " + error.toStdString());
         plugin->setPlayConfigDetails(2,2,sampleRate,blockSize);
         plugin->prepareToPlay(sampleRate,blockSize);
-        require(plugin->getLatencySamples()>=11,"VST3 latency omitted the 11-sample true-peak lookahead");
+        require(plugin->getLatencySamples()>=32,"VST3 latency omitted the 32-sample true-peak lookahead");
         const int reportedLatency=plugin->getLatencySamples();
 
         // Real hosted VST3 automation, no private/mutable factory preset data.
