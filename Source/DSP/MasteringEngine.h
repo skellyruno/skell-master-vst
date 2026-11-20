@@ -833,6 +833,9 @@ public:
 
         double wetL = delayedL * limiterGain;
         double wetR = delayedR * limiterGain;
+        // Deuce Match makeup follows the internal lookahead limiter. Keep it
+        // ahead of this stereo-linked sample guard; the JUCE wrapper's
+        // reconstructed true-peak guard remains the final host-rate boundary.
         const double deuceMakeup = deuceMatchMakeup.next();
         wetL *= deuceMakeup;
         wetR *= deuceMakeup;
