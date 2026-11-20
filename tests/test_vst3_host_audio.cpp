@@ -613,7 +613,7 @@ int main(int argc, char** argv) {
             require(metrics.samplePeak<=configuredSampleCeiling+3.e-4,
                     "Hosted VST3 escaped the configured sample-peak ceiling");
             if (deuceMatchEnabled) {
-                // The production guard uses a 0.4dB internal margin. The hosted
+                // The production guard uses a 0.3dB internal margin. The hosted
                 // 48-tap monitor must remain 0.1dB below the configured
                 // true-peak target; portable tests also check an independent 16x oracle.
                 const double configuredTruePeakCeiling =
