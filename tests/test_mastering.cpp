@@ -497,6 +497,7 @@ int main() {
             p.lowsDb=-6+12*k; p.highsDb=6-12*k;
             p.inputDb=8-12*k; p.outputDb=4-8*k;
             p.ceilingDb=-3+2.9*k; p.bypass=(i/4096)%7==0;
+            p.deuceMatch=(i/4096)%5==0;
             dsp.setParameters(p);
         }
         const float a = static_cast<float>(1.4*std::sin(i*2*3.14159265*240.0/rate));
