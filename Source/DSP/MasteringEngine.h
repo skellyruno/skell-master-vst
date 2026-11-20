@@ -15,6 +15,8 @@ namespace detail {
 constexpr double pi = 3.1415926535897932384626433832795;
 inline double clamp(double v, double lo, double hi) noexcept { return std::max(lo, std::min(hi, v)); }
 inline double dbToLinear(double db) noexcept { return std::pow(10.0, db / 20.0); }
+// 2.4 dB Deuce Match makeup, precomputed so the audio callback does no pow().
+inline constexpr double deuceMatchMakeupGain = 1.318256738556407;
 inline double linearToDb(double v) noexcept {
     return 20.0 * std::log10(std::isfinite(v) ? std::max(v, 1.0e-12) : 1.0e-12);
 }
@@ -677,7 +679,7 @@ public:
         // opt-in makeup AFTER the internal limiter so the final host-rate
         // reconstructed true-peak guard controls the added level safely.
         // The 12 ms smoother prevents an automation/state-toggle gain step.
-        deuceMatchMakeup.setTarget(deuceMatch ? detail::dbToLinear(2.4) : 1.0);
+        deuceMatchMakeup.setTarget(deuceMatch ? detail::deuceMatchMakeupGain : 1.0);
     }
 
     void beginBlock() noexcept { gainReduction = 1.0; outputPeak = 0.0; }
