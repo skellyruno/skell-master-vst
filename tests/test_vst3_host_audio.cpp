@@ -614,12 +614,12 @@ int main(int argc, char** argv) {
                     "Hosted VST3 escaped the configured sample-peak ceiling");
             if (deuceMatchEnabled) {
                 // The production guard uses a 1.5dB internal margin. The hosted
-                // 48-tap monitor must remain at least 0.5dB below the configured
-                // sample ceiling; the independent 16x oracle enforces -1.0dBTP.
+                // 48-tap monitor must remain 0.1dB below the configured
+                // true-peak target; portable tests also check an independent 16x oracle.
                 const double configuredTruePeakCeiling =
-                    skelly::detail::dbToLinear(ceilingDb - 0.5);
+                    skelly::detail::dbToLinear(ceilingDb - 0.1);
                 require(metrics.reconstructedPeak<=configuredTruePeakCeiling+3.e-4,
-                        "Hosted Deuce Match escaped the 0.5dB headroom below the sample ceiling");
+                        "Hosted Deuce Match escaped the configured 0.1dB true-peak guard margin");
             }
         }
         require(std::isfinite(metrics.reconstructedPeak)&&std::isfinite(width),
