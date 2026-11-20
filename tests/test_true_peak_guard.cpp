@@ -193,6 +193,8 @@ int main() {
                   << " dBTP; production target -1.1 dBTP (+0.1 dB measurement tolerance)\\n";
         require(independentPeak <= targetTolerance,
                 "independent 16x sinc reconstruction exceeded -1.1 dBTP target (+0.1 dB measurement tolerance) at 20kHz");
+        require(independentPeak >= detail::dbToLinear(-1.35),
+                "20kHz true-peak guard attenuated more than 0.25 dB beyond its -1.1 dBTP target");
         std::cout << "PASS: independent 16x sinc 20kHz true peak at "
                   << rate << " Hz = "
                   << 20.0 * std::log10(std::max(1.0e-12, independentPeak))
