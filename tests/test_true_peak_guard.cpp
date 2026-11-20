@@ -38,7 +38,7 @@ static double independentSincPeak(const std::vector<skelly::StereoFrame>& sample
                 const double sinc = std::abs(distance) < 1.0e-12
                     ? 1.0 : std::sin(independentPi * distance) / (independentPi * distance);
                 const double normalized = distance / sincHalfTaps;
-                const double window = std::abs(distance) <= halfTaps
+                const double window = std::abs(distance) <= sincHalfTaps
                     ? 0.42 + 0.5 * std::cos(independentPi * normalized)
                           + 0.08 * std::cos(2.0 * independentPi * normalized)
                     : 0.0;
@@ -61,10 +61,10 @@ static double independentSincPeak(const std::vector<skelly::StereoFrame>& sample
                                       std::abs(static_cast<double>(current.right))));
         for (int phase = 1; phase < sincPhases; ++phase) {
             double left = 0.0, right = 0.0;
-            for (int tap = -halfTaps; tap <= halfTaps; ++tap) {
+            for (int tap = -sincHalfTaps; tap <= sincHalfTaps; ++tap) {
                 const auto& sample = samples[static_cast<std::size_t>(frame + tap)];
                 const double weight = weights[static_cast<std::size_t>(phase)]
-                                            [static_cast<std::size_t>(tap + halfTaps)];
+                                            [static_cast<std::size_t>(tap + sincHalfTaps)];
                 left += weight * sample.left;
                 right += weight * sample.right;
             }
@@ -95,7 +95,7 @@ static double independentPolyphasePeak4x(const std::vector<skelly::StereoFrame>&
         const double i0beta=besselI0(beta);
         for(int n=0;n<kaiserTaps;++n) {
             const double x=static_cast<double>(n-kaiserCenter);
-            const double normalized=x/center;
+            const double normalized=x/kaiserCenter;
             const double sinc=std::abs(x)<1.0e-12 ? 0.25
                 : 0.25*std::sin(independentPi*0.25*x)/(independentPi*0.25*x);
             const double window=besselI0(beta*std::sqrt(
