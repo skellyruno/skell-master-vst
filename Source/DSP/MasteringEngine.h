@@ -316,21 +316,118 @@ private:
     int newest = 0;
 };
 
-// Stereo-linked, host-rate true-peak safety stage. The existing 48-tap / 4-phase
-// ITU Annex 2 monitor sees the next 12-sample window while the oldest sample is
-// delayed by 11 frames. Gain attacks immediately and releases over 85ms. A fixed
-// 0.8dB margin covers the measured under-read of the compact 48-tap FIR against an
-// independent 257-tap Kaiser 4x reconstruction on full-band stress audio. Bypass preserves
-// the same 11-sample latency but never attenuates. No allocations or locks.
+// Stereo-linked, host-rate true-peak safety stage. The detector uses the
+// same 257-tap / 4-phase Kaiser reconstruction as the independent full-band
+// regression oracle. Its 65-frame history estimates the peak centered 32 frames
+// behind the newest input; the programme delay is aligned to that center.
+// Coefficients are built in prepare(), never on the audio thread. Gain attacks
+// immediately and releases over 85ms. The 0.8dB margin is additional headroom
+// beyond the measured reconstructed peak. Bypass preserves the fixed latency.
+//
+// This longer reconstruction was chosen after the compact 48-tap BS.1770
+// monitor under-read a deterministic full-band burst by 1.4dB against the
+// independent 257-tap reference. The ordinary loudness/true-peak meter remains
+// the lightweight BS.1770 monitor; only the output safety detector is upgraded.
+class StereoKaiserTruePeakDetector {
+public:
+    static constexpr int taps = 257;
+    static constexpr int center = 128;
+    static constexpr int upsample = 4;
+    static constexpr int phases = 4;
+    static constexpr int halfWindowFrames = center / upsample;
+    static constexpr int historyLength = 2 * halfWindowFrames + 1;
+
+    void prepare() noexcept {
+        constexpr double beta = 12.0;
+        const double i0beta = besselI0(beta);
+        double sum = 0.0;
+        for (int n = 0; n < taps; ++n) {
+            const double x = static_cast<double>(n - center);
+            const double normalized = x / center;
+            const double sinc = std::abs(x) < 1.0e-12
+                ? 0.25
+                : 0.25 * std::sin(detail::pi * 0.25 * x)
+                    / (detail::pi * 0.25 * x);
+            const double window = besselI0(beta * std::sqrt(
+                std::max(0.0, 1.0 - normalized * normalized))) / i0beta;
+            coefficients[static_cast<std::size_t>(n)] = sinc * window;
+            sum += coefficients[static_cast<std::size_t>(n)];
+        }
+        const double inverseSum = 1.0 / sum;
+        for (auto& coefficient : coefficients)
+            coefficient *= inverseSum;
+        reset();
+    }
+
+    void reset() noexcept {
+        for (auto& channel : history)
+            channel.fill(0.0);
+        newest = 0;
+    }
+
+    double process(float left, float right) noexcept {
+        const double l = detail::finiteSample(static_cast<double>(left));
+        const double r = detail::finiteSample(static_cast<double>(right));
+        history[0][static_cast<std::size_t>(newest)] = l;
+        history[1][static_cast<std::size_t>(newest)] = r;
+
+        const int centerIndex = (newest + historyLength - halfWindowFrames)
+                              % historyLength;
+        double maximum = std::max(
+            std::abs(history[0][static_cast<std::size_t>(centerIndex)]),
+            std::abs(history[1][static_cast<std::size_t>(centerIndex)]));
+
+        // At time t, the 65-frame ring contains t..t-64. For phase p,
+        // coefficient 4*q+p multiplies sample t-q, exactly reconstructing
+        // the sample interval centered at t-32 used by the test oracle.
+        for (int phase = 0; phase < phases; ++phase) {
+            double reconstructedLeft = 0.0;
+            double reconstructedRight = 0.0;
+            for (int q = 0; upsample * q + phase < taps; ++q) {
+                const int index = (newest + historyLength - q) % historyLength;
+                const double weight = upsample
+                    * coefficients[static_cast<std::size_t>(upsample * q + phase)];
+                reconstructedLeft += weight * history[0][static_cast<std::size_t>(index)];
+                reconstructedRight += weight * history[1][static_cast<std::size_t>(index)];
+            }
+            maximum = std::max(maximum, std::max(
+                std::abs(reconstructedLeft), std::abs(reconstructedRight)));
+        }
+
+        if (++newest == historyLength)
+            newest = 0;
+        return maximum;
+    }
+
+private:
+    static double besselI0(double x) noexcept {
+        double sum = 1.0;
+        double term = 1.0;
+        const double y = x * x * 0.25;
+        for (int k = 1; k <= 80; ++k) {
+            term *= y / (static_cast<double>(k) * k);
+            sum += term;
+            if (term < sum * 1.0e-16)
+                break;
+        }
+        return sum;
+    }
+
+    std::array<double, taps> coefficients {};
+    std::array<std::array<double, historyLength>, 2> history {};
+    int newest = 0;
+};
+
 class StereoTruePeakGuard {
 public:
-    static constexpr int delayLength = 12;
+    static constexpr int delayLength = StereoKaiserTruePeakDetector::historyLength / 2 + 1;
     static constexpr int lookaheadSamples = delayLength - 1;
 
     void prepare(double sampleRate) noexcept {
         const double rate = std::isfinite(sampleRate)
             ? std::max(1.0, sampleRate) : 48000.0;
         release = std::exp(-1.0 / (rate * 0.085));
+        detector.prepare();
         reset();
     }
 
@@ -349,7 +446,7 @@ public:
         const float right = static_cast<float>(detail::clamp(
             detail::finiteSample(static_cast<double>(input.right)), -256.0, 256.0));
 
-        const double measuredPeak = static_cast<double>(detector.process(left, right));
+        const double measuredPeak = detector.process(left, right);
         const double requestedCeiling = std::clamp(
             std::isfinite(ceilingLinear) ? ceilingLinear : detail::dbToLinear(-1.0),
             1.0e-5, 1.0);
@@ -381,7 +478,7 @@ public:
     int getLatencySamples() const noexcept { return lookaheadSamples; }
 
 private:
-    StereoTruePeakMonitor detector;
+    StereoKaiserTruePeakDetector detector;
     std::array<std::array<float, delayLength>, 2> delay {};
     std::size_t writeIndex = 0;
     double gain = 1.0;
