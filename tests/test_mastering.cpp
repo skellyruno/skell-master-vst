@@ -548,6 +548,60 @@ int main() {
     std::cout << "PASS: SKELL MASTER first-pass portable DSP stress and sample ceiling "
               << referencePeak << "\\n";
 
+    // Deuce Match makeup is deliberately after the engine's internal limiter.
+    // At low level it should add the measured reference loudness offset without
+    // changing the default/legacy path, and bypass must remain latency-aligned dry.
+    MasteringEngine deuceMatchOff, deuceMatchOn;
+    deuceMatchOff.prepare(rate, 2, lookahead);
+    deuceMatchOn.prepare(rate, 2, lookahead);
+    MasterParameters deuceOff, deuceOn;
+    deuceOn.deuceMatch = true;
+    deuceMatchOff.setParameters(deuceOff);
+    deuceMatchOn.setParameters(deuceOn);
+    double offEnergy = 0.0, onEnergy = 0.0;
+    for (int i = 0; i < static_cast<int>(rate * 0.5); ++i) {
+        const float x = static_cast<float>(0.01 * std::sin(
+            2.0 * detail::pi * 997.0 * i / rate));
+        const auto offFrame = deuceMatchOff.processFrame(x, x * 0.83f);
+        const auto onFrame = deuceMatchOn.processFrame(x, x * 0.83f);
+        if (i > static_cast<int>(rate * 0.1)) {
+            offEnergy += static_cast<double>(offFrame.left) * offFrame.left
+                       + static_cast<double>(offFrame.right) * offFrame.right;
+            onEnergy += static_cast<double>(onFrame.left) * onFrame.left
+                      + static_cast<double>(onFrame.right) * onFrame.right;
+        }
+        require(std::isfinite(onFrame.left) && std::isfinite(onFrame.right),
+                "Deuce Match makeup must remain finite");
+    }
+    const double deuceMakeupDb = 10.0 * std::log10(onEnergy / offEnergy);
+    require(deuceMakeupDb > 2.0 && deuceMakeupDb < 2.9,
+            "Deuce Match must apply the smoothed 2.4 dB post-limiter makeup");
+    std::cout << "PASS: Deuce Match post-limiter makeup " << deuceMakeupDb << " dB\\n";
+
+    MasteringEngine bypassWithDeuce, bypassNeutral;
+    bypassWithDeuce.prepare(rate, 2, lookahead);
+    bypassNeutral.prepare(rate, 2, lookahead);
+    MasterParameters bypassDeuce, bypassPlain;
+    bypassDeuce.bypass = true;
+    bypassDeuce.deuceMatch = true;
+    bypassPlain.bypass = true;
+    bypassWithDeuce.setParameters(bypassDeuce);
+    bypassNeutral.setParameters(bypassPlain);
+    double bypassNull = 0.0;
+    for (int i = 0; i < 12000; ++i) {
+        const float x = static_cast<float>(0.02 * std::sin(
+            2.0 * detail::pi * 440.0 * i / rate));
+        const auto a = bypassWithDeuce.processFrame(x, x * 0.77f);
+        const auto b = bypassNeutral.processFrame(x, x * 0.77f);
+        bypassNull = std::max(bypassNull,
+            std::max(std::abs(static_cast<double>(a.left) - b.left),
+                     std::abs(static_cast<double>(a.right) - b.right)));
+    }
+    require(bypassNull < 1.0e-7,
+            "Deuce Match makeup must not change the latency-aligned bypass path");
+    std::cout << "PASS: Deuce Match makeup is absent in bypass (null "
+              << bypassNull << ")\\n";
+
     // Across the *entire* mastering chain, hostile NaN/Inf automation
     // should fall back to the old neutral settings, never unexpectedly
     // switch on maximum drive/compression/treble or an unsafe ceiling.
