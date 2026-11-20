@@ -483,7 +483,7 @@ private:
 
 // Stereo-linked host-rate true-peak safety stage. The 257-tap / 4-phase Kaiser
 // detector uses parabolic peak refinement; a separate 32-sample sample-peak
-// window pre-attacks upcoming transients. A fixed 0.1dB internal guard margin covers
+// window pre-attacks upcoming transients. A fixed 0.4dB internal guard margin covers
 // independent-channel broadband noise as well as full-band bursts at 44.1/48/96k.
 // Bypass preserves the same 32-sample latency but never attenuates. No audio-thread allocation.
 class StereoTruePeakGuard {
@@ -521,7 +521,7 @@ public:
         const double requestedCeiling = std::clamp(
             std::isfinite(ceilingLinear) ? ceilingLinear : detail::dbToLinear(-1.0),
             1.0e-5, 1.0);
-        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-0.1);
+        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-0.4);
         const double wantedGain = (!bypass && measuredPeak > truePeakLimit)
             ? truePeakLimit / std::max(measuredPeak, 1.0e-12) : 1.0;
 
