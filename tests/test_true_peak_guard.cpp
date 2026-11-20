@@ -138,8 +138,8 @@ int main() {
         StereoTruePeakMonitor outputMeter;
         guard.prepare(rate);
         outputMeter.reset();
-        require(guard.getLatencySamples()==11,
-                "true-peak guard must report its exact 11-sample lookahead");
+        require(guard.getLatencySamples()==32,
+                "true-peak guard must report its exact 32-sample reconstruction lookahead");
         double maxTruePeak=0.0,maxSample=0.0;
         const int frames=static_cast<int>(rate*0.10);
         for(int i=0;i<frames;++i) {
@@ -244,13 +244,13 @@ int main() {
     {
         StereoTruePeakGuard guard;
         guard.prepare(48000.0);
-        for(int i=0;i<40;++i) {
+        for(int i=0;i<64;++i) {
             const float x=i==0 ? 0.25f : 0.0f;
             const auto out=guard.process({x,-0.5f*x},
                                          detail::dbToLinear(-1.0),true);
-            if(i<11) require(out.left==0.0f&&out.right==0.0f,
-                             "bypass delay emitted before its 11-sample latency");
-            if(i==11) require(out.left==0.25f&&out.right==-0.125f,
+            if(i<32) require(out.left==0.0f&&out.right==0.0f,
+                             "bypass delay emitted before its 32-sample latency");
+            if(i==32) require(out.left==0.25f&&out.right==-0.125f,
                              "bypass did not preserve the exact delayed impulse");
             require(guard.currentGain()==1.0,
                     "bypass must never apply true-peak attenuation");
