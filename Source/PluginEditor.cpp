@@ -521,7 +521,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         s.setTextValueSuffix(i==9 ? "" : db ? " dB" : " %");
         const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "SOFT CLIP AMOUNT");
          s.setTooltip(i==9
-            ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Deuce Match uses the 257-tap reconstruction guard with a 0.3 dB guard margin and 32-sample lookahead; legacy factories retain sample-peak limiting. Drag, type, or double-click to reset."
+            ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Deuce Match uses the 257-tap reconstruction guard with a 0.5/0.4/0.3 dB margin at 44.1/48/96 kHz and 32-sample lookahead; legacy factories retain sample-peak limiting. Drag, type, or double-click to reset."
             : i==10 ? "CLIP: 0% = transparent lookahead limiting; higher settings blend oversampled soft clipping before the limiter."
             : juce::String(labels[i]) + " - " + sub +
               " | drag to adjust, double-click to reset, right-click for menu");
