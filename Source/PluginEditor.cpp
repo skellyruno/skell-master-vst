@@ -557,7 +557,13 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
             const int factory=processor.getFactoryPresetId();
             const float expected=factory>=1 && factory<=6
                 ? factoryValues[factory-1][i] : 0.0f;
-            if(std::abs(knobs[static_cast<size_t>(i)].getValue()-expected)>.01) {
+            // APVTS attachments may synchronously initialize slider ranges
+            // before the editor's neutral state has settled. A neutral ID0
+            // does not represent an edited factory; the 30Hz timer handles
+            // later custom neutral adjustments. Only existing *selected*
+            // factories need immediate star feedback from this callback.
+            if(factory>=1 && factory<=6 &&
+                std::abs(knobs[static_cast<size_t>(i)].getValue()-expected)>.01) {
                 auto& properties=presetSelector.getProperties();
                 if(!static_cast<bool>(properties.getWithDefault(
                         "skellMasterPresetModified",false))) {
