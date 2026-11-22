@@ -1,5 +1,7 @@
 # SKELLY MASTER — M-01
 
+> **Codex continuation / current DSP reference:** [CODEX_HANDOFF.md](CODEX_HANDOFF.md) records PR #35, the exact full-song LUFS/crest/width/tonal measurements, known issues, and guarded next steps. [Portable real-audio comparison script](tools/reference_compare.py). Owner WAVs are private and never stored in GitHub.
+
 A dark neon-green mastering effect built on your `skell-vst-template-main(1).zip` project: **JUCE 8 / C++17 / VST3 + Windows Standalone**, original vector UI, an automated mastering DSP chain and a Windows GitHub Actions build. No bitmap UI assets or third-party plugin binaries.
 
 > **Engineering status:** portable C++ DSP tests are included. A successful Windows VST3/Standalone compile, compatibility with every DAW, mastering-quality subjective evaluation, peak compliance to BS.1770, and real-world listening tests must be independently verified before selling or claiming commercial flagship parity.
