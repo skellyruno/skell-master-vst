@@ -177,6 +177,53 @@ private:
     Smoother blend;
 };
 
+// A restrained, host-rate reference tonal correction for the primary
+// five-plugin SKELL MASTER identity only. The independent source-music
+// comparison found ~0.36dB deficit in the 500-2500Hz band after loudness
+// matching. Four broad shelves/bells were fitted OFFLINE on the user's
+// premaster/target recordings, then placed after L2 but BEFORE the existing
+// true-peak safety guard. They do not change latency or automate anything.
+// This is a proposed v8 calibration: the actual post-guard hosted VST3 must
+// still be compared with private audio before it is approved.
+class ReferenceToneCorrection {
+public:
+    void prepare(double sampleRate) noexcept {
+        const double rate=std::max(8000.0,sampleRate);
+        for(auto& channel : filters) {
+            channel[0].setShelf(rate,95.0,0.47,false);
+            channel[1].setPeak(rate,300.0,0.87,0.75);
+            channel[2].setPeak(rate,1350.0,1.00,0.80);
+            channel[3].setShelf(rate,5000.0,0.69,true);
+        }
+        blend.prepare(rate,12.0,0.0);
+        reset();
+    }
+    void reset() noexcept {
+        for(auto& channel : filters)
+            for(auto& stage : channel) stage.reset();
+        blend.snap(0.0);
+    }
+    void setEnabled(bool enabled) noexcept {
+        blend.setTarget(enabled?1.0:0.0);
+    }
+    void process(double& left,double& right) noexcept {
+        // Keep filter histories current in bypass/other factories so enabling
+        // a reference factory never produces a stale-state pop. At wet=0 the
+        // audio is bit-exact dry. No coefficient work or allocation here.
+        double filteredL=left, filteredR=right;
+        for(auto& stage : filters[0]) filteredL=stage.process(filteredL);
+        for(auto& stage : filters[1]) filteredR=stage.process(filteredR);
+        const double wet=blend.next();
+        if(wet>1.0e-12) {
+            left+=wet*(filteredL-left);
+            right+=wet*(filteredR-right);
+        }
+    }
+private:
+    std::array<std::array<Biquad,4>,2> filters {};
+    Smoother blend;
+};
+
 // New v8-only response curve: direct, bit-identical mapping through the
 // complete published 0..30% factory range, followed by a smooth increasing
 // compression taper. Unlike a hard clamp it has a continuous first derivative

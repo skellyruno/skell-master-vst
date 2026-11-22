@@ -871,8 +871,19 @@ int main() {
         std::cout << "PASS: true-peak safety, Deuce Match state recall, factory identity, clipper, bypass and automation bindings\n";
 
         // Host-like audio checks exercise the actual JUCE wrapper + 4x resampler.
-        // Activate the real SKELL MASTER DSP path, not just its 11 parameter values.
+        // Explicitly isolate the test state: earlier UI cases leave the
+        // ceiling at +3 and BYPASS modified. A hardcoded -1dB sample ceiling
+        // cannot be asserted against those unrelated preceding selections.
+        auto* ceilingParameter=processor.parameters.getParameter("ceiling");
+        check(ceilingParameter!=nullptr,"audio fixture requires ceiling parameter");
+        ceilingParameter->setValueNotifyingHost(
+            ceilingParameter->convertTo0to1(0.0f));
+        processor.parameters.getParameter("bypass")->setValueNotifyingHost(0.0f);
         processor.parameters.getParameter("deuceMatch")->setValueNotifyingHost(1.0f);
+        check(std::abs(processor.parameters.getRawParameterValue("ceiling")->load())<0.01f
+              && processor.parameters.getRawParameterValue("bypass")->load()<0.5f
+              && processor.parameters.getRawParameterValue("deuceMatch")->load()>=0.5f,
+              "host audio fixture must enter active mastering at -1dB target");
         for (const int sampleRate : {44100, 48000, 96000}) {
             processor.prepareToPlay(static_cast<double>(sampleRate),512);
             const auto latency=processor.getLatencySamples();

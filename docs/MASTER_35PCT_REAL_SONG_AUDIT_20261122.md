@@ -95,3 +95,25 @@ actual Windows JUCE screenshots, actual VST3 owner's full-song null
 analysis (normal wet output should be unchanged), and an audio host
 bypass-transition test. A full-song A/B and FL Studio session save/reopen
 remain essential. Never put original user WAVs or FL Studio presets into GitHub.
+
+## Full-song tonal-fit experiment (subsequent draft iteration)
+The pre-correction, exact compiled VST3 was separately filtered OFFLINE
+using the repository's host-rate RBJ shelf/peak equations against the owner's
+identical 84.5-second middle music segment. The four-stage fit at 95Hz
+(+0.47dB shelf), 300Hz (+0.87dB/Q0.75), 1350Hz (+1.00dB/Q0.80),
+and 5kHz (+0.69dB high shelf) reduced **level-matched 5-band mean
+absolute spectral error** from **0.186dB to 0.046dB** in this *offline,
+post-output preview*, but **increased sample peaks from -0.600dBFS
+to +0.475dBFS** and increased crest factor by about 0.53dB.
+
+Those elevated peaks are **NOT safe output** and the preview is **not**
+proof of actual plugin improvement. The candidate filters are now
+implemented after L2 but **before the original reconstructed true-peak
+guard**, only for SKELL MASTER factory ID5. Run the same source through
+the new compiled VST3, independently measure integrated LUFS, crest,
+five-band error, stereo, 16x true peaks, 20/50ms envelopes and CPU. If
+the real guard interaction degrades crest/envelope or fails peak safety,
+reduce or revert this experimental correction. No host IDs, saved-state
+schema or latency were changed. The owner reference itself exceeds
+0dBTP and its unsafe transient peaks cannot be faithfully copied at
+a safe target ceiling.

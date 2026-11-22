@@ -83,6 +83,7 @@ private:
     skelly::StereoTruePeakMonitor truePeakMonitor;
     // Opt-in five-plugin factory #6 only. Final host-rate EQ after L2.
     skelly::detail::ReferenceFinalEq referenceFinalEq;
+    skelly::detail::ReferenceToneCorrection referenceToneCorrection;
     skelly::StereoLoudnessMonitor loudnessMonitor;
     std::atomic<float> momentaryLufs {-100.0f}, shortTermLufs {-100.0f};
     std::atomic<int> factoryPresetId { 0 };

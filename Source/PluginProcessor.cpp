@@ -60,6 +60,7 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     postLimiterPresence.prepare(sampleRate);
     postLimiterMidPresence.prepare(sampleRate);
     referenceFinalEq.prepare(sampleRate);
+    referenceToneCorrection.prepare(sampleRate);
     legacySafetyGuard.prepare(sampleRate);
     safetyGuard.prepare(sampleRate);
     setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
@@ -75,6 +76,7 @@ void SkellyMasterAudioProcessor::releaseResources() {
     postLimiterPresence.reset();
     postLimiterMidPresence.reset();
     referenceFinalEq.reset();
+    referenceToneCorrection.reset();
     legacySafetyGuard.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
@@ -90,6 +92,7 @@ void SkellyMasterAudioProcessor::reset() {
     postLimiterPresence.reset();
     postLimiterMidPresence.reset();
     referenceFinalEq.reset();
+    referenceToneCorrection.reset();
     legacySafetyGuard.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
@@ -173,6 +176,9 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     // same broad final API-like tone as the opt-in 5-PLUGIN MATCH preset.
     referenceFinalEq.setEnabled((selectedFactory==5 || selectedFactory==6)
                                 && !p.bypass);
+    // Only primary factory5 takes the measured current five-plugin tone fit.
+    // All other presets and dry bypass remain sample-for-sample unchanged.
+    referenceToneCorrection.setEnabled(selectedFactory==5 && !p.bypass);
 
     // Reject malformed input BEFORE JUCE's oversampling filter stages.
     // Sanitizing only the oversampled samples is too late: NaN or Inf can
@@ -214,6 +220,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         postLimiterPresence.process(postL, postR, presenceWet);
         postLimiterMidPresence.process(postL, postR, presenceWet);
         referenceFinalEq.process(postL, postR);
+        referenceToneCorrection.process(postL, postR);
         const skelly::StereoFrame postFrame {
             static_cast<float>(postL), static_cast<float>(postR)
         };

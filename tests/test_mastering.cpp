@@ -475,6 +475,47 @@ int main() {
             "lowpass state decays to exact zero, without denormals");
     std::cout << "PASS: NaN/Inf recovery and denormal-safe filter tails\n";
 
+    // The new factory5 post-L2 tonal correction is measured offline and
+    // must remain stable, bounded and completely transparent when bypassed.
+    detail::ReferenceToneCorrection tone;
+    tone.prepare(44100.0);
+    for(int i=0;i<512;++i) {
+        double l=0.15*std::sin(i*2.0*detail::pi*997.0/44100.0);
+        double r=-0.61*l;
+        const double dryL=l,dryR=r;
+        tone.process(l,r);
+        require(l==dryL && r==dryR,
+                "inactive reference tonal correction must be bit-exact dry");
+    }
+    tone.setEnabled(true);
+    double originalEnergy=0.0,correctedEnergy=0.0;
+    for(int i=0;i<44100;++i) {
+        const double original=0.08*std::sin(i*2.0*detail::pi*1350.0/44100.0);
+        double l=original,r=-0.61*original;
+        tone.process(l,r);
+        require(std::isfinite(l)&&std::isfinite(r),
+                "tonal correction introduced invalid or unstable samples");
+        if(i>22050) {
+            originalEnergy+=original*original;
+            correctedEnergy+=l*l;
+            require(std::abs(r+0.61*l)<1.e-8,
+                    "post-L2 reference tone must preserve stereo balance for coherent samples");
+        }
+    }
+    const double toneDb=10.0*std::log10(correctedEnergy/originalEnergy);
+    require(toneDb>0.4 && toneDb<2.5,
+            "reference tonal correction does not restore measurable mid presence");
+    tone.setEnabled(false);
+    double maxOffError=0.0;
+    for(int i=0;i<6000;++i) {
+        const double dry=0.06*std::sin(i*2.0*detail::pi*439.0/44100.0);
+        double l=dry,r=-0.61*dry;
+        tone.process(l,r);
+        if(i>5500) maxOffError=std::max(maxOffError,std::abs(l-dry));
+    }
+    require(maxOffError<1.e-9,"tonal correction must smoothly return to exact neutral");
+    std::cout << "PASS: factory5 reference tone, neutral bypass, stereo link, smooth disable\\n";
+
     // Host-rate final sample-peak guard regression:
     // both channels must share one gain to preserve image and phase.
     StereoPeakGuard guard;
