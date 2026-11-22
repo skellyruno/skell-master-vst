@@ -516,3 +516,16 @@ Start with all 8 macro controls at zero. Increase **GLUE** gradually to control 
 - `Source/PluginEditor.*` — original brushed-metal/rack-meter visual GUI drawn in C++.
 - `tests/test_mastering.cpp` — C++ DSP regression smoke tests.
 - `.github/workflows/build.yml` — Windows VST3/Standalone CI and artifact release.
+
+## v8 transparent DEFAULT legacy-state compatibility (November 22, 2026)
+
+Fresh v8 instances and an explicit **RESET** expose a genuinely transparent,
+latency-aligned DEFAULT: zero controls no longer engage the always-on limiter.
+A v1–v7 saved project at zero controls **retains its original limiting sound**
+when reopened. The new, non-automatable `skellMasterTransparentDefault` state
+bit is persisted during migration; v8 states from before the bit existed
+continue to use the modern transparent DEFAULT. Explicitly selecting factory
+DEFAULT or pressing RESET opts an old project into the modern behavior.
+No APVTS parameter IDs, automation, host program indices, or old saved values
+were changed. Windows/Linux hosted audio and FL Studio save/reopen still require
+verification of the exact development head before release.

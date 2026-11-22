@@ -143,7 +143,8 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     // metering still runs and the explicit BYPASS switch stays independent.
     const auto atZero=[](double v) noexcept { return std::abs(v)<1.0e-8; };
     const int factoryId=getFactoryPresetId();
-    const bool neutralDefault=(factoryId==0 || factoryId==1)
+    const bool neutralDefault=usesTransparentDefault()
+        && (factoryId==0 || factoryId==1)
         && !p.deuceMatch && atZero(p.inputDb) && atZero(p.drive)
         && atZero(p.glue) && atZero(p.dynamics) && atZero(p.lowsDb)
         && atZero(p.highsDb) && atZero(p.sauce) && atZero(p.transients)
@@ -269,6 +270,8 @@ void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     snapshot.setProperty("skellMasterClipPlacement",usesChainOrderedClip() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterRefinedControlCurves",
                          usesRefinedControlCurves() ? 1 : 0,nullptr);
+    snapshot.setProperty("skellMasterTransparentDefault",
+                         usesTransparentDefault() ? 1 : 0,nullptr);
     if (auto xml=snapshot.createXml()) copyXmlToBinary(*xml,dest);
 }
 
@@ -301,6 +304,17 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         const bool refined=previousVersion>=8 &&
             (refinedText.isEmpty() || refinedText=="1");
         setRefinedControlCurvesEnabled(refined);
+        // Transparent DEFAULT is new in v8. A v1-v7 session saved with all
+        // knobs at zero previously still ran the mastering limiter. Do not
+        // silently replace that approved sound with the new dry path.
+        // Early v8 snapshots lacked this bit: their new dry behavior remains.
+        const juce::String transparentText=snapshot.getProperty(
+            "skellMasterTransparentDefault",{}).toString().trim();
+        const bool transparentDefault=previousVersion>=8 &&
+            (transparentText.isEmpty() || transparentText=="1");
+        setTransparentDefaultEnabled(transparentDefault);
+        snapshot.setProperty("skellMasterTransparentDefault",
+                             transparentDefault ? 1 : 0,nullptr);
         snapshot.setProperty("skellMasterRefinedControlCurves",
                              refined ? 1 : 0,nullptr);
         snapshot.setProperty("skellMasterClipAlgorithm",useReference ? 1 : 0,nullptr);
