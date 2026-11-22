@@ -126,6 +126,22 @@ int main() {
               "processor out-of-range legacy program name must be empty");
         processor.prepareToPlay(48000.0, 512);
         SkellyMasterAudioProcessorEditor editor(processor);
+        // Snapshot the startup identity BEFORE testing knob positions.
+        // The hardware-pointer screenshot test later intentionally moves
+        // INPUT to +18dB, which is supposed to mark an unnamed custom state.
+        {
+            juce::ComboBox* initialMenu=nullptr;
+            for(int i=0;i<editor.getNumChildComponents();++i)
+                if(auto* combo=dynamic_cast<juce::ComboBox*>(editor.getChildComponent(i)))
+                    if(combo->getComponentID()=="skell-master-preset")
+                        initialMenu=combo;
+            check(initialMenu!=nullptr
+                && initialMenu->getSelectedId()==0
+                && initialMenu->getText().isEmpty()
+                && !static_cast<bool>(initialMenu->getProperties().getWithDefault(
+                    "skellMasterPresetModified",false)),
+                "fresh neutral startup must retain saved ID0 without edit marker");
+        }
         // Every *fresh* control starts at displayed zero. Old projects still
         // restore their saved user settings rather than resetting on open.
         for (const auto* id : {"input","drive","glue","dynamics","lows",
@@ -292,6 +308,18 @@ int main() {
         check(fixedRingPixels>100 && movingPointerPixels>20,
               "rotary pointer did not move independently of the fixed metal");
         std::cout << "PASS: physical knob ring stationary; ivory pointer moves at min/zero/max\n";
+        // The final screenshot left INPUT at +18dB; this is an intentional
+        // custom edit, NOT a fresh unmodified startup. Assert the new
+        // immediate feedback, then return to neutral before preset tests.
+        check(static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "rotating neutral INPUT to +18 must mark CUSTOM immediately");
+        input->setValue(0.0,juce::sendNotificationSync);
+        juce::Thread::sleep(55);
+        juce::Timer::callPendingTimersSynchronously();
+        check(!static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "returning neutral INPUT to 0 must clear its edited marker");
 
         // Monitoring toggles and CLEAR must never change mix/audio parameters.
         check(static_cast<bool>(peak->onClick) && static_cast<bool>(truePeak->onClick)
@@ -310,7 +338,7 @@ int main() {
         check(preset->getSelectedId()==0 && preset->getText().isEmpty()
               && !static_cast<bool>(preset->getProperties().getWithDefault(
                   "skellMasterPresetModified",false)),
-              "fresh neutral startup must retain saved ID 0 without edit marker");
+              "restored neutral INPUT and preset ID0 must be unmodified");
         check(processor.usesReferenceClip(),"fresh instance must enable new CLIP sound");
         check(processor.usesChainOrderedClip(),
               "fresh instance must place Soft Clip Pro before L2-style limiter");
