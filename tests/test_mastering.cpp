@@ -817,6 +817,41 @@ int main() {
             "v7 pre-L2 clip must retain original fixed plugin latency");
     std::cout << "PASS: v7 pre-L2 35% shape, stronger 70%, symmetry, no extra PDC\\n";
 
+    // Owner L2 uses threshold -2.8dB / ceiling -1.1dB.
+    // v7 places the +1.7dB makeup before limiting, while v6 stays on
+    // its original opt-in +2.4dB post-limiter path.
+    MasteringEngine chainL2, historicDeuce;
+    chainL2.prepare(rate,2,lookahead);
+    historicDeuce.prepare(rate,2,lookahead);
+    MasterParameters chainP,historicP;
+    chainP.referenceClip=historicP.referenceClip=true;
+    chainP.clipBeforeLimiter=true;
+    historicP.clipBeforeLimiter=false;
+    chainP.deuceMatch=historicP.deuceMatch=true;
+    chainP.clipper=historicP.clipper=0.0;
+    chainL2.setParameters(chainP);
+    historicDeuce.setParameters(historicP);
+    double chainE=0.0,historicE=0.0;
+    for(int i=0;i<static_cast<int>(rate*.65);++i) {
+        const float x=static_cast<float>(
+            .035*std::sin(2.0*detail::pi*390.0*i/rate));
+        const auto newer=chainL2.processFrame(x,x*.8f);
+        const auto older=historicDeuce.processFrame(x,x*.8f);
+        require(std::isfinite(newer.left)&&std::isfinite(older.left),
+                "both L2-style makeup placements must stay finite");
+        if(i>static_cast<int>(rate*.25)) {
+            chainE+=newer.left*newer.left;
+            historicE+=older.left*older.left;
+        }
+    }
+    const double inputVsPostDb=10.0*std::log10(
+        chainE/std::max(historicE,1.e-20));
+    require(inputVsPostDb>-1.2 && inputVsPostDb<-0.2,
+            "v7 pre-L2 +1.7dB and v6 post-L2 +2.4dB makeup must remain distinct");
+    require(chainL2.getLookaheadSamples()==historicDeuce.getLookaheadSamples(),
+            "v7 L2 makeup placement must not change host latency");
+    std::cout << "PASS: five-plugin pre-L2 +1.7dB, stable v6 post-L2 +2.4dB and PDC\\n";
+
     // A restored pre-v6 project uses the original CLIP engine. No new
     // algorithm may alter its 14% SKELL MASTER or other old CLIP automation.
     require(!MasterParameters{}.referenceClip,

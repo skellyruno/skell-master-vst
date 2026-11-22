@@ -17,6 +17,9 @@ inline double clamp(double v, double lo, double hi) noexcept { return std::max(l
 inline double dbToLinear(double db) noexcept { return std::pow(10.0, db / 20.0); }
 // 2.4 dB Deuce Match makeup, precomputed so the audio callback does no pow().
 inline constexpr double deuceMatchMakeupGain = 1.318256738556407;
+// The uploaded L2 threshold (-2.8) and output ceiling (-1.1) imply
+// +1.7dB input drive before limiting. Only the new v7 chain opts in.
+inline constexpr double fivePluginL2InputGain = 1.216186000646368;
 inline double linearToDb(double v) noexcept {
     return 20.0 * std::log10(std::isfinite(v) ? std::max(v, 1.0e-12) : 1.0e-12);
 }
@@ -619,6 +622,7 @@ public:
         referenceClipDrive.prepare(rate, 18, 0);
         bypassMix.prepare(rate, 12, 0);
         deuceMatchMakeup.prepare(rate, 12, 1.0);
+        chainL2InputMakeup.prepare(rate, 12, 1.0);
         glueComp.prepare(rate, 27, 220);
         dynamicsComp.prepare(rate, 8, 110);
         hf[0].prepare(rate, 2400); hf[1].prepare(rate, 2400);
@@ -664,6 +668,7 @@ public:
         stereoImager.reset();
         fiveBandColor.reset();
         deuceMatchMakeup.snap(1.0);
+        chainL2InputMakeup.snap(1.0);
         referenceClipDrive.snap(0.0);
         glueComp.reset(); dynamicsComp.reset();
         dcInput.fill(0.0); dcOutput.fill(0.0);
@@ -704,11 +709,17 @@ public:
         // Deuce color stage to neutral while bypassed; FiveBandColorPrototype
         // still tracks its crossover history at zero wet for click-free re-enable.
         deuceMatch = p.deuceMatch && !p.bypass;
-        // The reference master is about 2.4 LU louder than its input. Apply
-        // opt-in makeup AFTER the internal limiter so the final host-rate
-        // reconstructed true-peak guard controls the added level safely.
-        // The 12 ms smoother prevents an automation/state-toggle gain step.
-        deuceMatchMakeup.setTarget(deuceMatch ? detail::deuceMatchMakeupGain : 1.0);
+        // Previous v1-v6 projects keep their +2.4dB Deuce makeup AFTER
+        // the internal limiter, sample-for-sample. The uploaded five-plugin
+        // source has an L2 with -2.8dB threshold and -1.1dB out ceiling.
+        // In v7 we instead put their +1.7dB difference BEFORE the limiter;
+        // post-limiter makeup is neutral, so the final safety guard need not
+        // re-flatten peaks that have already been lookahead limited.
+        const bool chainL2=deuceMatch && p.referenceClip && p.clipBeforeLimiter;
+        chainL2InputMakeup.setTarget(chainL2
+            ? detail::fivePluginL2InputGain : 1.0);
+        deuceMatchMakeup.setTarget(deuceMatch && !chainL2
+            ? detail::deuceMatchMakeupGain : 1.0);
     }
 
     void beginBlock() noexcept { gainReduction = 1.0; outputPeak = 0.0; }
@@ -888,6 +899,11 @@ public:
             }
         }
 
+        // v7 five-plugin chain: L2 threshold/ceiling makeup goes INTO the
+        // lookahead detector. Earlier saved states have target unity here.
+        const double inputToL2=chainL2InputMakeup.next();
+        l*=inputToL2; r*=inputToL2;
+
         // Lookahead feed-forward brickwall-style limiter. Detector looks ahead by
         // delaying the programme signal; release is stereo-linked and smooth.
         const double peak = std::max(std::abs(l), std::abs(r));
@@ -1004,7 +1020,7 @@ private:
     double rate = 192000, dcR = 0.999;
     int channels = 2, lookahead = 288, writeIndex = 0, eqCounter = 0;
     std::array<std::vector<double>, 2> programDelay, dryDelay;
-    detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, referenceClipDrive, bypassMix, deuceMatchMakeup;
+    detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, referenceClipDrive, bypassMix, deuceMatchMakeup, chainL2InputMakeup;
     std::array<double,1025> referenceClipGainTable {};
     std::array<double,1025> referenceClipThresholdTable {};
     std::array<detail::Biquad, 2> lowShelf, highShelf;

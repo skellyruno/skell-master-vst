@@ -304,6 +304,12 @@ the actual input gain of the plugin.
   owner's actual mixer order; 0% is neutral and higher settings have
   progressively deeper saturation/lower clipping thresholds. It is
   **not** proprietary SIR DSP or a sample-exact clone.
+- The L2 screenshot's **-2.8dB threshold** and **-1.1dB output ceiling**
+  imply about **+1.7dB input drive** into the L2 limiter. For new v7
+  chain-ordered sessions with Deuce Match enabled, Skell applies that
+  makeup **before** its lookahead limiter and removes the old post-limiter
+  +2.4dB boost. This avoids double-limiting the same mastered peaks.
+  Restored v6 and older saved states keep their original post-stage makeup.
 - New chain-order clipping still uses the existing **4x processing** and
   final host-rate true-peak guard. The screenshot's **8x** StandardCLIP
   oversampling is **not yet matched**. Do not call the current sound an
