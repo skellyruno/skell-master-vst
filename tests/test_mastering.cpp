@@ -681,6 +681,40 @@ int main() {
     require(std::abs(recovered.left-1.3f) < 1.e-5f, "bypass is dry and latency aligned");
     require(std::abs(recovered.right+1.3f) < 1.e-5f, "bypass preserves stereo phase");
 
+    // Limiter recovery across the actual bypass state is not equivalent to
+    // attenuation of a continuous hot programme. The limiter may need to
+    // protect a wet/dry transition, but once the dry mix has settled it must
+    // never retain hidden release/hold gain from loud bypassed samples.
+    MasteringEngine reactivated;
+    reactivated.prepare(rate,2,lookahead);
+    MasterParameters switchMode;
+    switchMode.bypass=true;
+    reactivated.setParameters(switchMode);
+    for(int i=0;i<static_cast<int>(rate*0.35);++i) {
+        const auto dry=reactivated.processFrame(2.0f,-1.0f);
+        if(i>static_cast<int>(rate*0.25))
+            require(std::abs(dry.left-2.0f)<1.e-5f
+                    && std::abs(dry.right+1.0f)<1.e-5f,
+                    "settled bypass must keep hot samples dry and stereo coherent");
+    }
+    switchMode.bypass=false;
+    reactivated.setParameters(switchMode);
+    double resumeError=0.0;
+    int resumeSamples=0;
+    for(int i=0;i<static_cast<int>(rate*0.070);++i) {
+        const auto wet=reactivated.processFrame(0.12f,-0.06f);
+        if(i>static_cast<int>(rate*0.042)) {
+            resumeError=std::max(resumeError,
+                std::max(std::abs(static_cast<double>(wet.left)-0.12),
+                         std::abs(static_cast<double>(wet.right)+0.06)));
+            ++resumeSamples;
+        }
+    }
+    require(resumeSamples>1000 && resumeError<0.003,
+            "hot bypass must not cause stale gain reduction on quiet wet re-entry");
+    std::cout<<"PASS: hot bypass to quiet wet restores limiter unity, "
+             <<"maximum post-fade error "<<resumeError<<"\n";
+
     // Long-running stereo stress: automated controls, mono compatibility, and NaN guard.
     dsp.prepare(rate, 2, lookahead);
     for (int i=0;i<250000;i++) {

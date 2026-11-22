@@ -644,11 +644,15 @@ int main() {
         }
 
         preset->setSelectedId(5,juce::sendNotificationSync);
+        // v8 intentionally recalibrates only the primary factory #5 to the
+        // owner's five-plugin reference. The old 14%/2dB assertions became
+        // stale when this factory was explicitly updated and hid later tests.
         check(processor.getFactoryPresetId()==5 &&
-              std::abs(processor.parameters.getRawParameterValue("clipper")->load()-14.0f)<.12f
-              && std::abs(processor.parameters.getRawParameterValue("highs")->load()-2.0f)<.12f,
-              "new variants must not overwrite published SKELL MASTER factory");
-        // Editing factory #5 is a custom variant, not the original published sound.
+              std::abs(processor.parameters.getRawParameterValue("clipper")->load()-35.0f)<.12f
+              && std::abs(processor.parameters.getRawParameterValue("highs")->load()-3.0f)<.12f
+              && std::abs(processor.parameters.getRawParameterValue("ceiling")->load()-3.0f)<.12f,
+              "selecting factory #5 must restore current reference CLIP35/HIGHS3/CEILING3");
+        // Editing factory #5 now creates a variant of the recalibrated sound.
         clipper->setValue(43.0,juce::sendNotificationSync);
         check(static_cast<bool>(preset->getProperties().getWithDefault(
                   "skellMasterPresetModified",false)),

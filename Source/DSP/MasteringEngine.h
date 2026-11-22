@@ -998,7 +998,17 @@ public:
         // A peak is detected ahead of the delayed programme. Hold the
         // attenuation until that peak has actually cleared the output;
         // otherwise the release starts while the transient is still queued.
-        if (wanted < limiterGain) {
+        // Bypass crossfades over 12ms, so keep limiting while any audible
+        // wet signal remains. Once fully dry, stop tracking the bypassed
+        // programme's peaks and clear gain/hold state. Previously a loud
+        // passage played in BYPASS could leave hidden attenuation in the
+        // internal 65-220ms release envelope. Re-engaging on a quiet section
+        // would then duck its first transients despite no limiting demand.
+        // When fully wet this is exactly the original limiter path.
+        if (by >= 0.9999) {
+            limiterGain = 1.0;
+            limiterHold = 0;
+        } else if (wanted < limiterGain) {
             limiterGain = wanted;
             limiterHold = lookahead + 1;
         } else if (limiterHold > 0) {
