@@ -454,7 +454,7 @@ static void requireHostRenderedStateMatch(juce::AudioPluginInstance& source,
                 "transparent DEFAULT/BYPASS has implausible transient amplification");
         std::cout << "PASS: dry VST3 host gain " << gainDb
                   << "dB, input peak " << maximumInputPeak
-                  << " output peak " << maximumOutputPeak << '\\n';
+                  << " output peak " << maximumOutputPeak << '\n';
     } else {
         require(maximumOutputPeak <= 1.0,
                 "active mastering VST3 produced an out-of-range sample");
