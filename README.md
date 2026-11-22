@@ -517,15 +517,15 @@ Start with all 8 macro controls at zero. Increase **GLUE** gradually to control 
 - `tests/test_mastering.cpp` — C++ DSP regression smoke tests.
 - `.github/workflows/build.yml` — Windows VST3/Standalone CI and artifact release.
 
-## v8 transparent DEFAULT legacy-state compatibility (November 22, 2026)
+## November 22 DSP guard consolidation (draft)
 
-Fresh v8 instances and an explicit **RESET** expose a genuinely transparent,
-latency-aligned DEFAULT: zero controls no longer engage the always-on limiter.
-A v1–v7 saved project at zero controls **retains its original limiting sound**
-when reopened. The new, non-automatable `skellMasterTransparentDefault` state
-bit is persisted during migration; v8 states from before the bit existed
-continue to use the modern transparent DEFAULT. Explicitly selecting factory
-DEFAULT or pressing RESET opts an old project into the modern behavior.
-No APVTS parameter IDs, automation, host program indices, or old saved values
-were changed. Windows/Linux hosted audio and FL Studio save/reopen still require
-verification of the exact development head before release.
+The host-rate output now uses the legacy sample-peak guard **only** for legacy
+sample-limited processing. Fresh DEFAULT and explicit BYPASS remain dry at the
+existing latency; true-peak-protected modes run without accumulating inaudible
+legacy guard gain reduction. The disabled true-peak guard retains its fixed
+32-sample delay and detector history but skips the unused lookahead maximum
+scan. Tests explicitly cover hot bypass, immediate guard reactivation, stereo
+balance, and exact delayed dry output. No controls or automation IDs changed.
+This is a CPU-path and mode-transition correction, **not** a claim of improved
+master tonal matching or a verified CPU benchmark. Windows/Linux VST3 checks
+and owner audio A/B are still required on the exact commit.

@@ -495,6 +495,43 @@ int main() {
     const auto neutralGuard = guard.process({0.1f, -0.1f}, guardCeiling);
     require(std::abs(neutralGuard.left - 0.1f) < 1.e-6f,
             "safety limiter transparent under ceiling");
+    // Only the selected guard should track gain. Repeated hot dry frames
+    // must not preload the legacy limiter with 85ms of inaudible reduction.
+    guard.process({2.0f,-1.0f},guardCeiling);
+    require(guard.currentGain()<0.9,
+            "active legacy sample-peak guard must reduce hot frames");
+    for(int i=0;i<2048;++i) {
+        const auto dry=guard.process({1.75f,-0.875f},guardCeiling,true);
+        require(dry.left==1.75f && dry.right==-0.875f,
+                "disabled legacy guard must be byte-transparent");
+    }
+    require(guard.currentGain()==1.0,
+            "disabled legacy guard must not retain old limiting history");
+    const auto resumed=guard.process({0.20f,-0.10f},guardCeiling);
+    require(std::abs(resumed.left-0.20f)<1.e-7f
+            && std::abs(resumed.right+0.10f)<1.e-7f,
+            "reactivated legacy guard must not duck quiet program audio");
+
+    // Disabled true-peak reconstruction must keep the delay and detector
+    // history warm; switching back to active must immediately protect peaks.
+    StereoTruePeakGuard fastSwitch;
+    fastSwitch.prepare(48000.0);
+    for(int i=0;i<384;++i) {
+        const auto dry=fastSwitch.process({1.20f,-0.60f},guardCeiling,true);
+        if(i>64)
+            require(std::abs(dry.left-1.20f)<1.e-6f
+                    && std::abs(dry.right+0.60f)<1.e-6f,
+                    "true-peak bypass must preserve exact delayed dry audio");
+    }
+    require(fastSwitch.currentGain()==1.0,
+            "true-peak bypass cannot accumulate stale limiter gain");
+    const auto reenabled=fastSwitch.process(
+        {1.20f,-0.60f},guardCeiling,false);
+    require(std::abs(reenabled.left)<=guardCeiling+1.e-4
+            && std::abs(reenabled.right)<=guardCeiling+1.e-4,
+            "true-peak guard must protect first post-bypass hot sample");
+    std::cout << "PASS: both guards state-neutral during bypass, "
+                 "warm true-peak history and safe immediate reactivation\n";
     std::cout << "PASS: linked final safety, gain release, neutral guard\n";
 
     // Test high-band only stereo imaging, bass stability and anti-phase guard.

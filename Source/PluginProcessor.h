@@ -64,14 +64,6 @@ public:
     void setRefinedControlCurvesEnabled(bool enabled) noexcept {
         refinedControlCurvesEnabled.store(enabled,std::memory_order_relaxed);
     }
-    // Fresh v8 defaults are dry; v1-v7 saved zero-knob presets must retain
-    // their original always-on limiter sound until a deliberate UI RESET.
-    bool usesTransparentDefault() const noexcept {
-        return transparentDefaultEnabled.load(std::memory_order_relaxed);
-    }
-    void setTransparentDefaultEnabled(bool enabled) noexcept {
-        transparentDefaultEnabled.store(enabled,std::memory_order_relaxed);
-    }
 
     // Lock-free peak accumulation. GUI calls exchange(0) once per frame.
     float consumePeakLeft() noexcept { return peakLeft.exchange(0.0f, std::memory_order_relaxed); }
@@ -100,8 +92,6 @@ private:
     // V8 new sessions taper extreme compressor settings; v1-v7 restore
     // the original, exact unmodified GLUE / DYNAMICS response.
     std::atomic<bool> refinedControlCurvesEnabled { true };
-    // Non-automatable, versioned compatibility bit; no new APVTS IDs.
-    std::atomic<bool> transparentDefaultEnabled { true };
     int referenceClipGuardHold = 0;
     int activeChannels = 2;
     int lookaheadSamples = 0;

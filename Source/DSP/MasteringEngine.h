@@ -284,11 +284,20 @@ public:
         reset();
     }
     void reset() noexcept { gain = 1.0; }
-    StereoFrame process(StereoFrame in, double ceilingLinear) noexcept {
+    StereoFrame process(StereoFrame in, double ceilingLinear,
+                        bool bypass = false) noexcept {
         // Guard downsampled output as a final safety boundary. Do not let a
         // broken host buffer permanently poison the linked gain envelope.
         in.left = static_cast<float>(detail::finiteSample(in.left));
         in.right = static_cast<float>(detail::finiteSample(in.right));
+        // Only the active sample-peak route should update its envelope.
+        // DEFAULT/BYPASS and the reconstructed true-peak route previously
+        // accumulated inaudible gain reduction here, making the next legacy
+        // route start attenuated. This also skips needless guard arithmetic.
+        if (bypass) {
+            gain = 1.0;
+            return in;
+        }
         const double limit = detail::clamp(std::isfinite(ceilingLinear) ? ceilingLinear : 1.0,
                                            1.0e-5, 1.0);
         const double peak = std::max(std::abs(static_cast<double>(in.left)),
@@ -589,8 +598,11 @@ public:
 
         const double reconstructedPeak = static_cast<double>(
             detector.process(left, right, !bypass));
-        const double lookaheadPeak = static_cast<double>(detector.lookaheadSamplePeak());
-        const double measuredPeak = std::max(reconstructedPeak, lookaheadPeak);
+        // Detector history and the 32-sample audio delay remain current in
+        // bypass, but measuring the 33-sample peak window has no effect when
+        // guard gain is forced to unity. Avoid that work on the host thread.
+        const double measuredPeak = bypass ? 0.0 : std::max(reconstructedPeak,
+            static_cast<double>(detector.lookaheadSamplePeak()));
         const double requestedCeiling = std::clamp(
             std::isfinite(ceilingLinear) ? ceilingLinear : detail::dbToLinear(-1.0),
             1.0e-5, 1.0);

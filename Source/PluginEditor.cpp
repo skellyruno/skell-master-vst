@@ -777,7 +777,6 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     processor.setReferenceClipEnabled(true);
     processor.setChainOrderedClipEnabled(true);
     processor.setRefinedControlCurvesEnabled(true);
-    processor.setTransparentDefaultEnabled(true);
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     processor.setFactoryPresetId(0);
     for (const char* id : ids)
@@ -809,8 +808,6 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     }
     if(presetId>=7)
         processor.setRefinedControlCurvesEnabled(true);
-    if(presetId==1)
-        processor.setTransparentDefaultEnabled(true);
     // Ordered exactly as ids[]: Input, Drive, Glue, Dynamics, Lows, Highs,
     // Sauce, Transients, Output, Ceiling offset, Clip. The original four
     // presets keep their exact values; only SKELL MASTER enables Deuce Match.
