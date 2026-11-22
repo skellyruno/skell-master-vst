@@ -698,6 +698,33 @@ int main() {
         check(processor.parameters.getRawParameterValue("deuceMatch")->load()<.5f,
               "reset did not disable Deuce Match mode");
 
+        // Regression: RESET must clear hidden legacy choices too. Previously
+        // DEFAULT showed zero knobs but kept the old post-limiter CLIP mode,
+        // making the next CLIP automation sound different from a fresh v8.
+        preset->setSelectedId(8,juce::sendNotificationSync);
+        processor.setRefinedControlCurvesEnabled(false);
+        check(!processor.usesReferenceClip() && !processor.usesRefinedControlCurves(),
+              "legacy CLIP / compressor mode test precondition failed");
+        reset->onClick();
+        check(processor.getFactoryPresetId()==0 && preset->getSelectedId()==0
+              && processor.usesReferenceClip()
+              && processor.usesChainOrderedClip()
+              && processor.usesRefinedControlCurves(),
+              "RESET must restore fresh v8 CLIP placement and compressor response");
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f
+              && processor.parameters.getRawParameterValue("deuceMatch")->load()<.5f,
+              "RESET must remain neutral after restoring hidden DSP modes");
+        juce::MemoryBlock neutralResetState;
+        processor.getStateInformation(neutralResetState);
+        SkellyMasterAudioProcessor restoredNeutralReset;
+        restoredNeutralReset.setStateInformation(
+            neutralResetState.getData(),static_cast<int>(neutralResetState.getSize()));
+        check(restoredNeutralReset.getFactoryPresetId()==0
+              && restoredNeutralReset.usesReferenceClip()
+              && restoredNeutralReset.usesChainOrderedClip()
+              && restoredNeutralReset.usesRefinedControlCurves(),
+              "DEFAULT reset modes must survive the real host state format");
+
         // Host project state must preserve the named factory identity as well as its real DSP mode.
         preset->setSelectedId(5,juce::sendNotificationSync);
         check(processor.getFactoryPresetId()==5,

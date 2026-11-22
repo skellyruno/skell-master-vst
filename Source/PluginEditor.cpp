@@ -769,7 +769,14 @@ void SkellyMasterAudioProcessorEditor::switchSkin() {
 }
 
 void SkellyMasterAudioProcessorEditor::resetToDefaults() {
-    // Reset removes the selection label without activating any factory preset.
+    // RESET explicitly returns to the complete v8 DEFAULT, including the
+    // non-automatable processing modes. Otherwise switching to LEGACY CLIP
+    // and pressing RESET leaves a hidden legacy algorithm active when the
+    // next CLIP knob edit is made. Simply loading an old host state does NOT
+    // call RESET and retains that project's original sound.
+    processor.setReferenceClipEnabled(true);
+    processor.setChainOrderedClipEnabled(true);
+    processor.setRefinedControlCurvesEnabled(true);
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     processor.setFactoryPresetId(0);
     for (const char* id : ids)
