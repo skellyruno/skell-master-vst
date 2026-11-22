@@ -361,8 +361,25 @@ static void requireHostRenderedStateMatch(juce::AudioPluginInstance& source,
     juce::MidiBuffer sourceMidi, restoredMidi;
     const juce::int64 totalFrames = static_cast<juce::int64>(sampleRate * 1.25);
     const juce::int64 pulsePeriod = static_cast<juce::int64>(sampleRate * 0.5);
-    double maximumDifference = 0.0;
-    double maximumOutputPeak = 0.0;
+    // A transparent DEFAULT or explicit BYPASS is intentionally NOT a
+    // limiter. Unlike active mastering, loud unaltered source transients
+    // can legally exceed 0dBFS. Keep the strict <=1 guard for actual
+    // mastering, and instead assert dry output is not unexpectedly boosted.
+    bool allControlsAtDefault=true;
+    bool explicitBypass=false;
+    for(auto* parameter : source.getParameters()) {
+        if(parameter->getName(128)=="Bypass") {
+            explicitBypass=parameter->getValue()>=0.5f;
+        } else if(std::abs(parameter->getValue()-
+                           parameter->getDefaultValue())>1.e-4f) {
+            allControlsAtDefault=false;
+        }
+    }
+    const bool expectedDry=explicitBypass ||
+        (getFactoryIdentityFromHostState(source)==1 && allControlsAtDefault);
+    double maximumInputPeak=0.0;
+    double maximumDifference=0.0;
+    double maximumOutputPeak=0.0;
 
     for (juce::int64 position = 0; position < totalFrames; position += blockSize) {
         const int count = static_cast<int>(std::min<juce::int64>(
@@ -385,6 +402,9 @@ static void requireHostRenderedStateMatch(juce::AudioPluginInstance& source,
             const float left = static_cast<float>(transient + bass + body + air);
             const float right = static_cast<float>(
                 0.82 * transient + 0.87 * bass + 0.67 * body - 0.75 * air);
+            maximumInputPeak=std::max(maximumInputPeak,
+                std::max(std::abs(static_cast<double>(left)),
+                         std::abs(static_cast<double>(right))));
             sourceBuffer.setSample(0, i, left);
             sourceBuffer.setSample(1, i, right);
             restoredBuffer.setSample(0, i, left);
@@ -414,8 +434,13 @@ static void requireHostRenderedStateMatch(juce::AudioPluginInstance& source,
     }
 
     require(maximumDifference <= 2.0e-6, context);
-    require(maximumOutputPeak <= 1.0,
-            "VST3 state roundtrip produced an out-of-range sample");
+    if(expectedDry) {
+        require(maximumOutputPeak <= maximumInputPeak*1.06 + 1.e-4,
+                "transparent DEFAULT/BYPASS unexpectedly boosted peak level");
+    } else {
+        require(maximumOutputPeak <= 1.0,
+                "active mastering VST3 produced an out-of-range sample");
+    }
     std::cout << "PASS: hosted VST3 state audio equivalence at " << sampleRate
               << " Hz; max difference " << maximumDifference
               << ", peak " << maximumOutputPeak << '\n';
