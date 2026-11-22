@@ -125,6 +125,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.clipper = parameters.getRawParameterValue("clipper")->load(std::memory_order_relaxed)*0.01;
     p.referenceClip = usesReferenceClip();
     p.clipBeforeLimiter = p.referenceClip && usesChainOrderedClip();
+    p.refinedControlCurves = usesRefinedControlCurves();
     p.ceilingDb = skelly::detail::ceilingOffsetToDb(
         parameters.getRawParameterValue("ceiling")->load(std::memory_order_relaxed));
     p.bypass = parameters.getRawParameterValue("bypass")->load(std::memory_order_relaxed) >= 0.5f;
@@ -240,6 +241,8 @@ void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     snapshot.setProperty("skellMasterFactoryPreset",getFactoryPresetId(),nullptr);
     snapshot.setProperty("skellMasterClipAlgorithm",usesReferenceClip() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterClipPlacement",usesChainOrderedClip() ? 1 : 0,nullptr);
+    snapshot.setProperty("skellMasterRefinedControlCurves",
+                         usesRefinedControlCurves() ? 1 : 0,nullptr);
     if (auto xml=snapshot.createXml()) copyXmlToBinary(*xml,dest);
 }
 
@@ -263,6 +266,17 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             "skellMasterClipPlacement",{}).toString().trim();
         const bool chainOrdered=previousVersion>=7 && placement=="1";
         setChainOrderedClipEnabled(chainOrdered);
+        // Only fresh v8 states may opt into gently-tapered upper-range
+        // compressor knobs. Older saved states have 1:1 legacy curves,
+        // including if GLUE/DYNAMICS were automated above 30%.
+        // V8 prototypes with the flag absent resolve to the new behavior.
+        const juce::String refinedText=snapshot.getProperty(
+            "skellMasterRefinedControlCurves",{}).toString().trim();
+        const bool refined=previousVersion>=8 &&
+            (refinedText.isEmpty() || refinedText=="1");
+        setRefinedControlCurvesEnabled(refined);
+        snapshot.setProperty("skellMasterRefinedControlCurves",
+                             refined ? 1 : 0,nullptr);
         snapshot.setProperty("skellMasterClipAlgorithm",useReference ? 1 : 0,nullptr);
         snapshot.setProperty("skellMasterClipPlacement",chainOrdered ? 1 : 0,nullptr);
         // ValueTree XML attributes can be surfaced as strings after reload.

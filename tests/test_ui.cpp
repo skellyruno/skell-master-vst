@@ -345,6 +345,8 @@ int main() {
         check(processor.usesReferenceClip(),"fresh instance must enable new CLIP sound");
         check(processor.usesChainOrderedClip(),
               "fresh instance must place Soft Clip Pro before L2-style limiter");
+        check(processor.usesRefinedControlCurves(),
+              "fresh v8 instances must use the refined compressor controls");
         preset->setSelectedId(8,juce::sendNotificationSync);
         check(!processor.usesReferenceClip() && preset->getSelectedId()==0,
               "menu must switch to legacy CLIP without changing factory identity");
@@ -501,8 +503,9 @@ int main() {
                                                static_cast<int>(variantState.getSize()));
             check(restoredVariant.getFactoryPresetId()==variant.internal
                   && restoredVariant.usesReferenceClip()
-                  && restoredVariant.usesChainOrderedClip(),
-                  "v8 preset identity and clip topology must survive DAW state recall");
+                  && restoredVariant.usesChainOrderedClip()
+                  && restoredVariant.usesRefinedControlCurves(),
+                  "v8 identity, clip topology and knob map must survive DAW state recall");
             {
                 SkellyMasterAudioProcessorEditor restoredVariantEditor(restoredVariant);
                 juce::ComboBox* restoredMenu=nullptr;
@@ -541,8 +544,26 @@ int main() {
         SkellyMasterAudioProcessor v7Restored;
         v7Restored.setStateInformation(oldV7Blob.getData(),
                                     static_cast<int>(oldV7Blob.getSize()));
-        check(v7Restored.getFactoryPresetId()==6,
-              "old v7 projects must not resolve malformed IDs7..9 as new variants");
+        check(v7Restored.getFactoryPresetId()==6
+              && !v7Restored.usesRefinedControlCurves(),
+              "old v7 states must cap identities and keep the old 100% compressor DSP");
+        // Selecting a new v8 factory from an old project is explicit
+        // consent to the modern *factory* voicing; merely restoring the
+        // v7 state must not change its compressor automation sound.
+        {
+            SkellyMasterAudioProcessorEditor legacyChoice(v7Restored);
+            juce::ComboBox* legacyMenu=nullptr;
+            for(int c=0;c<legacyChoice.getNumChildComponents();++c)
+                if(auto* combo=dynamic_cast<juce::ComboBox*>(
+                       legacyChoice.getChildComponent(c)))
+                    if(combo->getComponentID()=="skell-master-preset")
+                        legacyMenu=combo;
+            check(legacyMenu!=nullptr,"v7 legacy option menu is accessible");
+            if(legacyMenu)legacyMenu->setSelectedId(12,juce::sendNotificationSync);
+            check(v7Restored.getFactoryPresetId()==8
+                  && v7Restored.usesRefinedControlCurves(),
+                  "explicit PUNCH+ selection should opt the legacy session into v8 curves");
+        }
 
         preset->setSelectedId(5,juce::sendNotificationSync);
         check(processor.getFactoryPresetId()==5 &&
@@ -678,8 +699,9 @@ int main() {
         check(restoredLegacyState.getFactoryPresetId()==0,
               "legacy host state without factory identity must restore SELECT");
         check(!restoredLegacyState.usesReferenceClip()
-              && !restoredLegacyState.usesChainOrderedClip(),
-              "v1-5 project must retain both old CLIP algorithm and topology");
+              && !restoredLegacyState.usesChainOrderedClip()
+              && !restoredLegacyState.usesRefinedControlCurves(),
+              "v1-5 project must retain CLIP, topology, and old compressor response");
         // A hostile/old v6 state with an impossible factory identity 6
         // must keep the historic saturation clamp at 5. Only v7 can save
         // the new reference factory 6.

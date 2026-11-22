@@ -293,6 +293,71 @@ int main() {
                   << std::sqrt(differenceEnergy/baselineEnergy) << ")\\n";
     }
 
+    // V8 compressor knobs: published factory positions are IDENTICAL,
+    // while the extreme 100% end no longer drops programme level by
+    // 10-13dB unexpectedly. Their mapping remains continuous and monotone.
+    for(const double maxEffective : {0.75,0.60}) {
+        double prior=-1.0;
+        for(int percent=0;percent<=100;++percent) {
+            const double x=percent*.01;
+            const double y=detail::refinedCompressorAmount(x,maxEffective);
+            require(std::isfinite(y) && y>=prior-1.e-12
+                    && y>=0 && y<=maxEffective+1.e-12,
+                    "refined compressor curve must be finite/monotone/bounded");
+            if(percent<=30)
+                require(y==x,"published 0..30% compressor positions must be exact");
+            prior=y;
+        }
+        require(std::abs(prior-maxEffective)<1.e-12,
+                "refined compressor at 100% must reach intended limit");
+    }
+    const auto compressorProbe=[&](bool dynamics,bool refined) {
+        MasteringEngine dsp;
+        dsp.prepare(rate,2,lookahead);
+        MasterParameters p;
+        p.referenceClip=true;
+        p.clipBeforeLimiter=true;
+        p.refinedControlCurves=refined;
+        if(dynamics) p.dynamics=1.0; else p.glue=1.0;
+        dsp.setParameters(p);
+        double energy=0.0;
+        for(int i=0;i<76000;++i) {
+            const auto inputFrame=fixtureFrame(i);
+            const auto out=dsp.processFrame(inputFrame.left,inputFrame.right);
+            require(std::isfinite(out.left)&&std::isfinite(out.right),
+                    "refined compressor generated invalid audio");
+            if(i>18000)
+                energy+=out.left*out.left+out.right*out.right;
+        }
+        return energy;
+    };
+    require(compressorProbe(false,true)>compressorProbe(false,false)*1.15,
+            "refined 100% GLUE must avoid excessive legacy attenuation");
+    require(compressorProbe(true,true)>compressorProbe(true,false)*1.15,
+            "refined 100% DYNAMICS must avoid excessive legacy attenuation");
+
+    // Exact audio null in the entire old factory compressor range. The
+    // default portable engine remains legacy so restored v1-v7 sessions
+    // use exactly the historic compressor response.
+    MasterParameters classicPreset,refinedPreset;
+    classicPreset.glue=refinedPreset.glue=0.24;
+    classicPreset.dynamics=refinedPreset.dynamics=0.18;
+    refinedPreset.refinedControlCurves=true;
+    MasteringEngine classicEngine,refinedEngine;
+    classicEngine.prepare(rate,2,lookahead);
+    refinedEngine.prepare(rate,2,lookahead);
+    classicEngine.setParameters(classicPreset);
+    refinedEngine.setParameters(refinedPreset);
+    for(int i=0;i<42000;++i) {
+        const auto x=fixtureFrame(i);
+        const auto a=classicEngine.processFrame(x.left,x.right);
+        const auto b=refinedEngine.processFrame(x.left,x.right);
+        require(a.left==b.left && a.right==b.right,
+                "refined compressor curves must null at old factory values");
+    }
+    std::cout << "PASS: all 11 knob DSP paths, v8 gentle compressor extremes, "
+                 "bit-exact published compressor range\\n";
+
     // The new clip amount is a genuine 4x audio process; zero retains
     // all earlier sessions' transparent limiting behavior by default.
     require(MasterParameters{}.clipper == 0.0, "legacy clipper default must be zero");

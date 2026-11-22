@@ -355,12 +355,38 @@ factory choices. Host regression runs all 9 factory states, checks all
 11 knob names produce a real VST3 audio change, and validates
 selection/edit-marker/reapply/host-state recall.
 
-*Engineering note:* the 11-knob extreme-value sweep on this reference
-excerpt verified live DSP for every control, but full 100% GLUE and
-DYNAMICS are intentionally very aggressive compressor settings.
-Their nonlinear loudness behavior should be auditioned, not mistaken
-for a linear 0..100% makeup knob. Preserve the existing control mappings
-in old projects until an explicit versioned alternative is A/B tested.
+### All-knob DSP audit and versioned compressor control correction
+
+An exhaustive **actual hosted VST3** sweep of all 11 existing automation
+knobs at minimum/maximum values confirmed that each changes the actual
+audio signal rather than just its displayed number. The portable C++
+DSP regressions additionally drive all 11 controls independently with
+identical stereo fixtures and verify finite output and nonzero response.
+No knob IDs, published ranges, automation ordering or reset defaults changed.
+
+The sweep caught an undesirable extreme: full 100% DYNAMICS reduced RMS
+from about -7.45 to -20.48dBFS on the same owner-source excerpt, and
+100% GLUE to -12.92dBFS. Their old compressor settings are intentionally
+preserved *exactly* for previously saved v1-v7 states. **New v8
+instances** use an opt-in versioned, monotone upper-range taper:
+
+- 0..30%: exact, bit-identical original GLUE/DYNAMICS mapping;
+  this includes every published factory value (GLUE max24%, DYNAMICS max18%)
+  and every additional v8 factory.
+- GLUE above30%: smoothly transitions to an effective compressor amount
+  of 75% at a knob setting of 100%.
+- DYNAMICS above30%: smoothly transitions to an effective compressor amount
+  of 60% at a knob setting of 100%.
+
+The taper has no derivative step at 30%, is monotone and allocation-free on
+the audio thread, and still allows strong bus dynamics control. It does
+not automatically raise output gain or alter existing saved projects.
+The non-automatable state property `skellMasterRefinedControlCurves`
+saves this choice in version 8. Restoring a pre-v8 state forces the
+original curve. This is a measured and audibly testable improvement
+hypothesis rather than a promise that 100% suits every mix.
+
+
 
 ### Owner's five-plugin master reference and compatibility
 

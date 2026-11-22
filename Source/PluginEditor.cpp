@@ -726,11 +726,13 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
 void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     if(presetId<1 || presetId>9) return;
     if(presetId>=6) {
-        // The newly added preset requires the exact v7 clip-before-L2 path.
-        // Explicit selection opts in; restoring an old saved preset does not.
+        // Fresh opt-in factory sounds use the 4x clip-before-L2 topology.
+        // Never rewrite an older saved project merely by loading it.
         processor.setReferenceClipEnabled(true);
         processor.setChainOrderedClipEnabled(true);
     }
+    if(presetId>=7)
+        processor.setRefinedControlCurvesEnabled(true);
     // Ordered exactly as ids[]: Input, Drive, Glue, Dynamics, Lows, Highs,
     // Sauce, Transients, Output, Ceiling offset, Clip. The original four
     // presets keep their exact values; only SKELL MASTER enables Deuce Match.
@@ -772,6 +774,8 @@ void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
         modified=true;
     if(factory>=6 && (!processor.usesReferenceClip() ||
                       !processor.usesChainOrderedClip()))
+        modified=true;
+    if(factory>=7 && !processor.usesRefinedControlCurves())
         modified=true;
     auto& properties=presetSelector.getProperties();
     const bool previous=static_cast<bool>(properties.getWithDefault(

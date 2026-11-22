@@ -177,6 +177,19 @@ private:
     Smoother blend;
 };
 
+// New v8-only response curve: direct, bit-identical mapping through the
+// complete published 0..30% factory range, followed by a smooth increasing
+// compression taper. Unlike a hard clamp it has a continuous first derivative
+// at 30% and never reverses direction near 100%.
+inline double refinedCompressorAmount(double value,double maxEffective) noexcept {
+    const double raw=clamp(finiteSample(value),0.0,1.0);
+    if(raw<=0.30) return raw;
+    const double maxAmount=clamp(maxEffective,0.31,1.0);
+    const double taper=(0.70/(maxAmount-0.30)-1.0)/0.70;
+    const double excess=raw-0.30;
+    return 0.30+excess/(1.0+taper*excess);
+}
+
 class Compressor {
 public:
     void prepare(double rate, double attackMs, double releaseMs) noexcept {
@@ -254,6 +267,7 @@ struct MasterParameters {
     double clipper = 0.0;  // existing 0..1 CLIP automation ID, unchanged
     bool referenceClip = false; // v6 post-limit or v7 chain-ordered clip
     bool clipBeforeLimiter = false; // false preserves exact v6 topology
+    bool refinedControlCurves = false; // v8 new-instance only; old states exact
     double ceilingDb = -1.0;
     bool bypass = false;
     bool deuceMatch = false; // opt-in pre-limiter five-band reference coloration
@@ -738,8 +752,15 @@ public:
         };
         input.setTarget(detail::dbToLinear(safe(p.inputDb, -18, 18)));
         drive.setTarget(safe(p.drive, 0, 1));
-        glueAmt.setTarget(safe(p.glue, 0, 1));
-        dynamicsAmt.setTarget(safe(p.dynamics, 0, 1));
+        const double gluePosition=safe(p.glue,0,1);
+        const double dynamicsPosition=safe(p.dynamics,0,1);
+        // Factory 1..9 compressor values are all <=24% GLUE and <=18%
+        // DYNAMICS, so these settings are mathematically unchanged.
+        // Old saved sessions use their exact published linear 0..100% map.
+        glueAmt.setTarget(p.refinedControlCurves
+            ? detail::refinedCompressorAmount(gluePosition,0.75) : gluePosition);
+        dynamicsAmt.setTarget(p.refinedControlCurves
+            ? detail::refinedCompressorAmount(dynamicsPosition,0.60) : dynamicsPosition);
         lows.setTarget(safe(p.lowsDb, -6, 6));
         highs.setTarget(safe(p.highsDb, -6, 6));
         sauceAmt.setTarget(safe(p.sauce, 0, 1));
