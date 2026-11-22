@@ -284,18 +284,27 @@ authoritative actual-editor visual inspection output.
 
 ### New opt-in factory: 5-PLUGIN MATCH (ID 6)
 
-The first five factories (IDs 1..5) retain their **published parameter values**
-and names. A sixth selectable preset, **5-PLUGIN MATCH**, is added using
-internal saved factory identity `6` and menu item ID `10`, without
-renumbering the existing factory IDs or non-preset menu actions 6..9.
-Fresh selection explicitly enables the v7 clip-before-L2 topology.
+**SKELL MASTER** (factory ID5) is now the principal five-plugin
+reference calibration on this *unreleased* plugin: CLIP **35%**
+(Soft Clip Pro-style 11% saturation / -1.2dB knee),
+HIGHS **+3dB**, CEILING **+3 steps**, and the +0.8dB broad
+1.4kHz post-limiter API-style bell. All other ID5 settings remain
+Input4/Drive8/Glue17/Dynamics11/Lows-1/Sauce20/Transients0/Output0.
+This makes the main preset audibly louder than the prior CLIP14
+voicing without pushing extra level into the limiter and flattening
+transients. Current reference is 8x oversampled proprietary SIR DSP;
+Skell remains its independently developed 4x approximation.
 
-The new preset uses the original SKELL MASTER settings except
-**HIGHS=3%/dB control** (up from published factory5's 2), **CLIP=35%**
-(up from 14%). Its source-calibrated final API-style EQ is an
-**opt-in +0.8dB broad 1.4kHz bell** after the native limiter and before
-the host-rate true-peak safety stage. This bell is activated by saved
-factory identity 6 only and is neutral for factory IDs 0..5. It has
+**5-PLUGIN MATCH** remains selectable separately as factory ID6,
+menu ID10: it uses the same 35%-clip, highs and final-EQ coloration
+but retains the original **CEILING0** for more true-peak headroom.
+This is the safer direct comparison preset; SKELL MASTER is the
+higher-output audition target. UI action IDs6..9 and all 11 APVTS
+parameter names/IDs remain stable.
+
+Both factory IDs5 and6 enable the **opt-in +0.8dB 1.4kHz bell**
+after the native limiter and before the host-rate reconstructed
+true-peak safety stage. The other factories keep it disabled. It has
 no extra host latency, requires no host parameter IDs, tracks filter
 history while inactive and crossfades the wet correction over 12ms.
 The settings remain editable with the existing 11 stable APVTS knobs;
@@ -306,9 +315,10 @@ latest clip-0 v7 render in crest (7.31 vs 7.29dB) while loudness was
 about 1.75LU lower due largely to Skell's preserved -1.5dB ceiling.
 After LUFS matching, the earlier Skell clip-0 spectrum was roughly
 0.6dB low in the 500-2594Hz band and 0.7dB low in the highest band.
-A tested +1 step to the HIGHS control addressed the air gap without
-overwriting the old factory; the final API-like bell is the separate
-mid-band correction hypothesis. Audition and independent final-WAV
+A measured +1 HIGHS step and +0.8dB final mid bell improve the
+source-matched tonal balance. Because this build is pre-release,
+SKELL MASTER was retuned directly rather than retaining a quiet
+14% CLIP preset as the main factory sound. Audition and independent final-WAV
 spectral measurement still determine its suitability.
 
 Older saved state: v1-v6 factory IDs remain capped at 5, and
@@ -316,23 +326,27 @@ v7 at 6, so malformed historical values cannot accidentally enable new
 factories. State v8 supports factory IDs7..9 while preserving the v7
 reference-clip placement property, selections and parameter automation.
 
-### DEFAULT preset label (display-only)
+### DEFAULT — neutral audio, not a quiet limiter
 
-The existing neutral factory menu ID **1** is now named **DEFAULT**
-instead of INIT / CLEAN, and the *unselected neutral startup/reset
-display* uses the same **DEFAULT** text. It still saves its original
-internal ID **0** until the user actually selects factory ID1, so old
-FL Studio sessions and host program identities are not remapped. The
-underlying eleven knob values, Deuce Match state, DSP processing,
-bypass behavior, APVTS parameter IDs and host state format are unchanged.
-Turning a neutral knob still shows **CUSTOM**, while reapplying
-the selected factory restores its unmodified title.
+Factory menu ID1 and neutral startup/reset ID0 both show **DEFAULT**.
+When all 11 mastering controls remain at 0 and Deuce Match is off,
+the engine now follows its **latency-aligned dry path** instead of
+silently applying the previous -1dB limiting. An 8-second stereo owner
+fixture previously measured approximately -1.5dB RMS lower from
+the supposedly empty preset; this was a real DSP bug, not a label issue.
+Turning any mastering knob restores processing automatically.
+The explicit BYPASS button remains independent. Host parameters/IDs
+and reported plugin latency are unchanged.
+
+The visual preset remains **CUSTOM** after modifying an unnamed
+neutral startup, and REAPPLY CURRENT restores a selected factory.
 
 ### Additive factory voicing: WARM MASTER+, PUNCH MASTER+, LOUD MASTER+ (v8)
 
-**No changes** to the existing published factory IDs 1..5, the existing
-5-PLUGIN MATCH factory ID6, any APVTS automation IDs, any parameter ranges,
-or the previous v6/v7 saved-session sounds. Three additional, opt-in
+WARM, PUNCH, LOUD, their three + variants and the existing
+5-PLUGIN MATCH remain distinct. The *unreleased* SKELL MASTER factory5
+was deliberately retuned; its old CLIP14 settings are no longer
+preserved as the principal selectable reference preset. Three additional, opt-in
 factories have internal saved IDs **7, 8, 9** and menu IDs **11, 12, 13**.
 The menu action IDs 6..9 remain reserved and unchanged.
 

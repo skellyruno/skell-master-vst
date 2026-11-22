@@ -77,6 +77,8 @@ private:
     juce::TextButton bypass { "BYPASS" }, reset { "RESET" };
     juce::ComboBox presetSelector;
     bool reapplyEnabled = false;
+    // Avoid mutating menu item enabled state at 30 Hz while a popup is open.
+    int lastClipMenuMode=-1;
     std::array<juce::TextButton,3> monitorButtons {juce::TextButton("PEAK"), juce::TextButton("TRUE"), juce::TextButton("CLEAR")};
     bool monitorTruePeak = true;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;

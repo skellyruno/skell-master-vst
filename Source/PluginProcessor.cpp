@@ -134,6 +134,23 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     // dry path; the wrapper's post-limiter presence and safety stages stay gated.
     p.deuceMatch = parameters.getRawParameterValue("deuceMatch")
         ->load(std::memory_order_relaxed) >= 0.5f;
+
+    // The pre-release DEFAULT was not actually neutral: the always-on
+    // -1dB limiter reduced loud incoming audio by ~1.5dB RMS.
+    // When DEFAULT (startup ID0 / factory ID1) is fully at its zero
+    // knob values, use the engine's latency-aligned dry path. The first
+    // actual knob change immediately restores mastering DSP, while
+    // metering still runs and the explicit BYPASS switch stays independent.
+    const auto atZero=[](double v) noexcept { return std::abs(v)<1.0e-8; };
+    const int factoryId=getFactoryPresetId();
+    const bool neutralDefault=(factoryId==0 || factoryId==1)
+        && !p.deuceMatch && atZero(p.inputDb) && atZero(p.drive)
+        && atZero(p.glue) && atZero(p.dynamics) && atZero(p.lowsDb)
+        && atZero(p.highsDb) && atZero(p.sauce) && atZero(p.transients)
+        && atZero(p.outputDb) && atZero(p.clipper)
+        && atZero(parameters.getRawParameterValue("ceiling")
+                      ->load(std::memory_order_relaxed));
+    p.bypass=p.bypass || neutralDefault;
     engine.setParameters(p);
     engine.beginBlock();
     const bool deuceMatch = p.deuceMatch && !p.bypass;
@@ -152,7 +169,10 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         deuceMatch || referenceClipGuardHold>0 || newV8Voicing);
     // A sixth, additive factory preset alone enables this API-like post-L2
     // bell. Existing SKELL MASTER and all v1-v7 saved presets stay the same.
-    referenceFinalEq.setEnabled(getFactoryPresetId()==6 && !p.bypass);
+    // SKELL MASTER is now calibrated to the five-plugin reference too:
+    // same broad final API-like tone as the opt-in 5-PLUGIN MATCH preset.
+    referenceFinalEq.setEnabled((selectedFactory==5 || selectedFactory==6)
+                                && !p.bypass);
 
     // Reject malformed input BEFORE JUCE's oversampling filter stages.
     // Sanitizing only the oversampled samples is too late: NaN or Inf can

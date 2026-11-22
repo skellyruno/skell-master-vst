@@ -89,7 +89,9 @@ constexpr float factoryValues[9][11] = {
     {0,15,18,10,0,0,12,0,0,0,0},
     {0,8,12,7,0,0,0,22,0,0,0},
     {0,10,24,18,0,0,8,8,0,0,12},
-    {4,8,17,11,-1,2,20,0,0,0,14},
+    // Principal reference sound: clip35, full 5-plugin coloration,
+    // slightly higher final ceiling without extra compression.
+    {4,8,17,11,-1,3,20,0,0,3,35},
     // Existing v7 opt-in five-plugin source-matched factory.
     {4,8,17,11,-1,3,20,0,0,0,35},
     // New v8 alternatives tested by actual hosted VST3 WAV render:
@@ -217,6 +219,26 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawComboBox(
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
     juce::Graphics& g, juce::Label& label) {
+    // The parent ComboBox already paints the ONE complete engraved preset
+    // window and arrow. JUCE adds a child Label to render its selected text.
+    // Painting a SECOND glassWindow here created a miniature pill *inside*
+    // the full-length preset bar, and made the clickable area misleading.
+    // Draw text only: the parent handles pointer hits, border and arrow.
+    if (auto* preset=dynamic_cast<juce::ComboBox*>(label.getParentComponent());
+        preset && preset->getComponentID()=="skell-master-preset") {
+        const bool unselected=preset->getSelectedId()==0;
+        const bool modified=static_cast<bool>(preset->getProperties().getWithDefault(
+            "skellMasterPresetModified",false));
+        const juce::String title=unselected
+            ? (modified ? juce::String("CUSTOM") : juce::String(defaultPresetName))
+            : label.getText()+(modified ? juce::String(" *") : juce::String());
+        g.setFont(getComboBoxFont(*preset));
+        g.setColour(unselected
+            ? juce::Colour(0xffe3d3ae) : hardwareText(activeSkin));
+        g.drawFittedText(title,label.getLocalBounds().reduced(4,1),
+                         juce::Justification::centred,1,0.82f);
+        return;
+    }
     const auto r=label.getLocalBounds().toFloat().reduced(0.65f);
     // Readout is a recessed glass lens with a manufactured metal rim.
     hw::glassWindow(g,r,4.5f);
@@ -295,6 +317,25 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
     juce::Graphics& g, juce::Button& b, const juce::Colour&, bool hover, bool down) {
     const auto r=b.getLocalBounds().toFloat().reduced(1.0f);
     const bool active=b.getToggleState();
+    if (b.getComponentID().startsWith("skell-monitor-")) {
+        // At 620px the three controls are each only ~32px wide. One
+        // clean etched face per button replaces the thick double bezel
+        // which swallowed most of the readable PEAK/TRUE/CLEAR text.
+        const float radius=juce::jmin(5.0f,r.getHeight()*0.24f);
+        g.setColour(juce::Colour(0xff040805));
+        g.fillRoundedRectangle(r.translated(0,1.0f),radius);
+        g.setColour(active ? juce::Colour(0xff214332)
+                           : juce::Colour(0xff171814));
+        g.fillRoundedRectangle(r.reduced(1.0f),radius);
+        g.setColour(active ? juce::Colour(0xffcdb87e)
+                           : juce::Colour(0xff977d50));
+        g.drawRoundedRectangle(r.reduced(0.55f),radius,1.25f);
+        if (hover || down) {
+            g.setColour(juce::Colours::white.withAlpha(down?0.12f:0.06f));
+            g.fillRoundedRectangle(r.reduced(1.3f),radius);
+        }
+        return;
+    }
     g.setColour(juce::Colour(0xff030403));
     g.fillRoundedRectangle(r.translated(0,2),9.0f);
     juce::ColourGradient bezel(juce::Colour(0xffd1b27b),r.getX(),r.getY(),
@@ -319,6 +360,17 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonBackground(
 
 void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonText(
     juce::Graphics& g, juce::TextButton& b, bool, bool) {
+    if (b.getComponentID().startsWith("skell-monitor-")) {
+        const float size=juce::jlimit(7.8f,12.0f,
+                                      static_cast<float>(b.getHeight())*.56f);
+        font(g,size,true);
+        g.setColour(b.getToggleState() ? juce::Colour(0xffe8efd9)
+                                      : juce::Colour(0xffe5d1a5));
+        g.drawFittedText(b.getButtonText(),
+                         b.getLocalBounds().reduced(2,1),
+                         juce::Justification::centred,1,0.82f);
+        return;
+    }
     const float size=juce::jlimit(9.0f,17.0f,
                                   static_cast<float>(b.getHeight())*0.43f);
     font(g,size,true);
@@ -604,6 +656,11 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     // The small GR-module rectangle is now a working factory-preset selector.
     // Each selection writes actual APVTS parameters through host gestures.
     presetSelector.setComponentID("skell-master-preset");
+    // Keep the whole 170x26 engraved bar (including the arrow) a single
+    // ComboBox mouse target, even inside the FL Studio plugin wrapper.
+    // The internal Label should not steal clicks or open an editor.
+    presetSelector.setEditableText(false);
+    presetSelector.setWantsKeyboardFocus(true);
     presetSelector.addItem(defaultPresetName,1);
     presetSelector.addItem("WARM MASTER",2);
     presetSelector.addItem("PUNCH MASTER",3);
@@ -647,8 +704,15 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         refreshPresetDisplay();
     };
     addAndMakeVisible(presetSelector);
+    for (int i=0;i<presetSelector.getNumChildComponents();++i)
+        if (auto* label=dynamic_cast<juce::Label*>(
+                presetSelector.getChildComponent(i)))
+            label->setInterceptsMouseClicks(false,false);
 
     // These are genuine monitoring controls; none changes an exported mix.
+    monitorButtons[0].setComponentID("skell-monitor-peak");
+    monitorButtons[1].setComponentID("skell-monitor-true");
+    monitorButtons[2].setComponentID("skell-monitor-clear");
     monitorButtons[0].setTooltip("PEAK: show stereo sample-peak hold in dBFS.");
     monitorButtons[1].setTooltip("TRUE: show 4x reconstructed output peaks in dBTP.");
     monitorButtons[2].setTooltip("CLEAR: reset displayed sample-peak and true-peak holds; audio stays untouched.");
@@ -790,16 +854,23 @@ void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
         for(int i=0;i<presetSelector.getNumChildComponents();++i)
             if(auto* child=presetSelector.getChildComponent(i)) child->repaint();
     }
-    if(reapplyEnabled!=hasFactory) {
+    if(reapplyEnabled!=hasFactory && !presetSelector.isPopupActive()) {
+        // JUCE popup menus must not be rebuilt during mouse selection.
         reapplyEnabled=hasFactory;
         presetSelector.setItemEnabled(6,hasFactory);
     }
-    const bool modern=processor.usesReferenceClip();
-    presetSelector.setItemEnabled(7,!modern);
-    presetSelector.setItemEnabled(8,modern);
-    // A saved v6 Reference CLIP is still post-limiter. Offer an explicit
-    // opt-in to chain order without changing its recall automatically.
-    presetSelector.setItemEnabled(9,modern && !processor.usesChainOrderedClip());
+    // The 30 Hz UI timer must not rebuild item states while FL Studio's
+    // dropdown is open. Repeated setItemEnabled caused intermittent lost
+    // click selection. Update only when mode actually changes.
+    const int clipMenuMode=!processor.usesReferenceClip() ? 0
+        : (processor.usesChainOrderedClip() ? 2 : 1);
+    if(!presetSelector.isPopupActive() && clipMenuMode!=lastClipMenuMode) {
+        const bool modern=clipMenuMode!=0;
+        presetSelector.setItemEnabled(7,!modern);
+        presetSelector.setItemEnabled(8,modern);
+        presetSelector.setItemEnabled(9,clipMenuMode==1);
+        lastClipMenuMode=clipMenuMode;
+    }
 }
 
 void SkellyMasterAudioProcessorEditor::clearMeterHolds() {
@@ -1294,8 +1365,10 @@ void SkellyMasterAudioProcessorEditor::resized() {
     place(reset,1024,29,126,38);
     place(presetSelector,976,228,170,26);
     place(knobs[10],371,685,178,68);
+    // Every compact button occupies the full available monitor row;
+    // fixed 2px insets at min size preserve legibility and hit targets.
     for(int i=0;i<3;++i)
-        place(monitorButtons[static_cast<size_t>(i)],64+i*61,216,57,29);
+        place(monitorButtons[static_cast<size_t>(i)],63+i*62,215,60,30);
     place(knobs[8],647,685,199,68);
     place(knobs[9],929,685,181,68);
     place(skullHitTarget,57,10,82,72);

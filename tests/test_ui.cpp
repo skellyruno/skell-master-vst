@@ -6,6 +6,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -144,6 +145,58 @@ int main() {
                     "skellMasterPresetModified",false)),
                 "neutral startup must display DEFAULT while retaining saved ID0");
         }
+        // The requested DEFAULT must be transparent even for loud
+        // premastered input. Before this fix the always-on -1dB limiter
+        // reduced RMS by ~1.5dB although every knob displayed 0.
+        // Compare the real processor path to explicit latency-aligned BYPASS
+        // at both startup ID0 and menu factory ID1, then check RMS unity.
+        for(int defaultId : {0,1}) {
+            auto neutral=std::make_unique<SkellyMasterAudioProcessor>();
+            auto dry=std::make_unique<SkellyMasterAudioProcessor>();
+            neutral->setFactoryPresetId(defaultId);
+            dry->setFactoryPresetId(defaultId);
+            neutral->prepareToPlay(44100,256);
+            dry->prepareToPlay(44100,256);
+            if(auto* bp=dry->parameters.getParameter("bypass"))
+                bp->setValueNotifyingHost(1.0f);
+            juce::AudioBuffer<float> neutralAudio(2,256),dryAudio(2,256);
+            juce::MidiBuffer midi;
+            double inEnergy=0,outEnergy=0,maxDifferent=0;
+            for(int block=0;block<144;++block) {
+                for(int k=0;k<256;++k) {
+                    const double t=(block*256+k)/44100.0;
+                    const float left=static_cast<float>(
+                        .88*std::sin(2.0*juce::MathConstants<double>::pi*437.0*t)
+                        +.27*std::sin(2.0*juce::MathConstants<double>::pi*1790.0*t));
+                    const float right=static_cast<float>(
+                        .82*std::sin(2.0*juce::MathConstants<double>::pi*493.0*t)
+                        -.22*std::sin(2.0*juce::MathConstants<double>::pi*3830.0*t));
+                    neutralAudio.setSample(0,k,left);
+                    neutralAudio.setSample(1,k,right);
+                    dryAudio.setSample(0,k,left);
+                    dryAudio.setSample(1,k,right);
+                    if(block>20)inEnergy+=left*left+right*right;
+                }
+                neutral->processBlock(neutralAudio,midi);
+                dry->processBlock(dryAudio,midi);
+                for(int k=0;k<256;++k)
+                    for(int channel=0;channel<2;++channel) {
+                        const double fresh=neutralAudio.getSample(channel,k);
+                        const double bypassed=dryAudio.getSample(channel,k);
+                        maxDifferent=std::max(maxDifferent,std::abs(fresh-bypassed));
+                        if(block>20)outEnergy+=fresh*fresh;
+                    }
+            }
+            const double gainDb=10.0*std::log10(
+                outEnergy/std::max(inEnergy,1.e-20));
+            check(maxDifferent<1.e-6,
+                  "DEFAULT does not match explicit dry bypass sample-for-sample");
+            check(std::abs(gainDb)<.12,
+                  "DEFAULT must not lower or boost premaster RMS at zero controls");
+            std::cout<<"PASS: transparent DEFAULT ID"<<defaultId
+                     <<" vs dry bypass, gain "<<gainDb<<" dB\\n";
+        }
+
         // Every *fresh* control starts at displayed zero. Old projects still
         // restore their saved user settings rather than resetting on open.
         for (const auto* id : {"input","drive","glue","dynamics","lows",
@@ -264,6 +317,26 @@ int main() {
         }
         check(input && bypass && reset && clipper && peak && truePeak && clear && preset,
               "cannot locate actual hardware monitor controls");
+        // A mouse click on ANY part of the visible preset bar must reach
+        // the ComboBox (not its overlaid child text label). Repeat at
+        // the minimum and medium resize sizes, including the arrow edge.
+        for(const int width : {620,702,1200}) {
+            editor.setSize(width,juce::roundToInt(width*760.0/1200.0));
+            const auto bounds=preset->getBounds();
+            const int middleY=bounds.getCentreY();
+            for(const int xx : {bounds.getX()+3,bounds.getCentreX(),
+                                bounds.getRight()-5})
+                check(editor.getComponentAt(xx,middleY)==preset,
+                      "preset dropdown text or arrow intercepts native mouse clicks");
+            for(auto* monitor : {peak,truePeak,clear}) {
+                const auto local=monitor->getBounds().getCentre();
+                check(editor.getComponentAt(local)==monitor,
+                      "small-size PEAK/TRUE/CLEAR button hit area is obstructed");
+            }
+        }
+        // JUCE's combo popup should not have its item states mutated by
+        // the 30Hz timer while the user clicks a menu entry.
+        editor.setSize(1200,760);
 
         // A true hardware rotary has a motionless bezel, barrel, lighting
         // and machined scale. The ivory pointer extends to 0.94 * face radius
@@ -376,7 +449,7 @@ int main() {
             {0,15,18,10,0,0,12,0,0,0,0},
             {0,8,12,7,0,0,0,22,0,0,0},
             {0,10,24,18,0,0,8,8,0,0,12},
-            {4,8,17,11,-1,2,20,0,0,0,14}
+            {4,8,17,11,-1,3,20,0,0,3,35}
         };
         const char* frozenKnobs[]={
             "input","drive","glue","dynamics","lows","highs",
@@ -403,9 +476,9 @@ int main() {
               "reference preset label must be visible in the real selector");
         const struct {const char* id; float expected;} matched[]={
             {"input",4.0f},{"drive",8.0f},{"glue",17.0f},
-            {"dynamics",11.0f},{"lows",-1.0f},{"highs",2.0f},
+            {"dynamics",11.0f},{"lows",-1.0f},{"highs",3.0f},
             {"sauce",20.0f},{"transients",0.0f},{"output",0.0f},
-            {"ceiling",0.0f},{"clipper",14.0f}
+            {"ceiling",3.0f},{"clipper",35.0f}
         };
         for (const auto& value : matched)
             check(std::abs(processor.parameters.getRawParameterValue(value.id)->load()
@@ -590,8 +663,8 @@ int main() {
         preset->setSelectedId(6,juce::sendNotificationSync);
         check(preset->getSelectedId()==5 && processor.getFactoryPresetId()==5,
               "REAPPLY CURRENT must restore the same selected identity");
-        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-14.0f)<.12f,
-              "REAPPLY CURRENT must restore published clipper setting");
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-35.0f)<.12f,
+              "REAPPLY CURRENT must restore SKELL MASTER 35% clip setting");
         check(!static_cast<bool>(preset->getProperties().getWithDefault(
                   "skellMasterPresetModified",false)),
               "reapplying a factory must clear edited status");
