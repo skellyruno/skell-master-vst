@@ -78,6 +78,14 @@ constexpr const char* ids[11] = {
     "input", "drive", "glue", "dynamics", "lows", "highs",
     "sauce", "transients", "output", "ceiling", "clipper"
 };
+// Frozen published factory values (in the existing APVTS ID order).
+constexpr float factoryValues[5][11] = {
+    {0,0,0,0,0,0,0,0,0,0,0},
+    {0,15,18,10,0,0,12,0,0,0,0},
+    {0,8,12,7,0,0,0,22,0,0,0},
+    {0,10,24,18,0,0,8,8,0,0,12},
+    {4,8,17,11,-1,2,20,0,0,0,14}
+};
 constexpr const char* subtitles[8] = {
     "GAIN STAGE", "HARMONIC DRIVE", "BUS COMPRESSION", "LEVEL CONTROL",
     "115 Hz SHELF", "8.2 kHz SHELF", "ANALOG ENHANCE", "ATTACK SHAPE"
@@ -205,6 +213,8 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
         auto* preset=dynamic_cast<juce::ComboBox*>(label.getParentComponent());
         const bool presetLens=preset && preset->getComponentID()=="skell-master-preset";
         const bool unselected=presetLens && preset->getSelectedId()==0;
+        const bool modified=presetLens && static_cast<bool>(
+            preset->getProperties().getWithDefault("skellMasterPresetModified",false));
         if(presetLens) {
             // ComboBox owns this child Label; draw text here (above the
             // backdrop), not in drawComboBox where the child obscures it.
@@ -216,7 +226,11 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
             g.setColour(findColour(juce::Label::textColourId));
         }
         const int inset=r.getWidth()>75.0f?13:4;
-        g.drawFittedText(unselected ? juce::String("SELECT") : label.getText(),
+        const auto displayText = !presetLens ? label.getText()
+            : unselected ? (modified ? juce::String("CUSTOM")
+                                     : juce::String("INIT / CLEAN"))
+                         : label.getText() + (modified ? juce::String(" *") : juce::String());
+        g.drawFittedText(displayText,
                          label.getLocalBounds().reduced(inset,2),
                          presetLens?juce::Justification::centred:label.getJustificationType(), 1);
     }
@@ -547,12 +561,23 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     presetSelector.addItem("PUNCH MASTER",3);
     presetSelector.addItem("LOUD MASTER",4);
     presetSelector.addItem("SKELL MASTER",5);
+    presetSelector.addSeparator();
+    presetSelector.addItem("REAPPLY CURRENT",6);
+    presetSelector.setItemEnabled(6,false);
     presetSelector.setSelectedId(processor.getFactoryPresetId(),juce::dontSendNotification);
-    // Empty label is intentional: a quiet SELECT hint is drawn in the glass.
+    // ID 0 remains the old neutral state, not a changed factory ID.
     presetSelector.setTextWhenNothingSelected({});
     presetSelector.setJustificationType(juce::Justification::centred);
-    presetSelector.setTooltip("Choose a factory mastering starting point. SKELL MASTER also enables the saved, automatable Deuce Match DSP path and true-peak safety.");
-    presetSelector.onChange=[this] { applyFactoryPreset(presetSelector.getSelectedId()); };
+    presetSelector.setTooltip("INIT / CLEAN = neutral start; * = edited factory. REAPPLY CURRENT restores factory values. Bypass is independent.");
+    presetSelector.onChange=[this] {
+        const int selected=presetSelector.getSelectedId();
+        if(selected==6) {
+            const int previous=processor.getFactoryPresetId();
+            if(previous>=1 && previous<=5) applyFactoryPreset(previous);
+            presetSelector.setSelectedId(previous,juce::dontSendNotification);
+        } else applyFactoryPreset(selected);
+        refreshPresetDisplay();
+    };
     addAndMakeVisible(presetSelector);
 
     // These are genuine monitoring controls; none changes an exported mix.
@@ -574,6 +599,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     setResizeLimits(620, 393, 1800, 1140);
     getConstrainer()->setFixedAspectRatio(static_cast<double>(designW) / designH);
     setSize(702, 445);
+    refreshPresetDisplay();
     startTimerHz(30);
 }
 
@@ -630,6 +656,7 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
         param->setValueNotifyingHost(param->getDefaultValue());
         param->endChangeGesture();
     }
+    refreshPresetDisplay();
 }
 
 void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
@@ -641,17 +668,11 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     // stage, +2dB/5kHz post-limiter bell, and final 4x true-peak safety guard.
     // This is a measured first-pass sound hypothesis, not an exact null match;
     // the private full-length master WAVs remain out of GitHub.
-    static constexpr float values[5][11]={
-        {0,0,0,0,0,0,0,0,0,0,0},
-        {0,15,18,10,0,0,12,0,0,0,0},
-        {0,8,12,7,0,0,0,22,0,0,0},
-        {0,10,24,18,0,0,8,8,0,0,12},
-        {4,8,17,11,-1,2,20,0,0,0,14}
-    };
+    // Values above are shared with the read-only customization indicator.
     for(int i=0;i<knobCount;++i) {
         if(auto* p=processor.parameters.getParameter(ids[i])) {
             p->beginChangeGesture();
-            p->setValueNotifyingHost(p->convertTo0to1(values[presetId-1][i]));
+            p->setValueNotifyingHost(p->convertTo0to1(factoryValues[presetId-1][i]));
             p->endChangeGesture();
         }
     }
@@ -661,6 +682,37 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
         p->endChangeGesture();
     }
     processor.setFactoryPresetId(presetId);
+    refreshPresetDisplay();
+}
+
+void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
+    const int factory=processor.getFactoryPresetId();
+    const bool hasFactory=factory>=1 && factory<=5;
+    bool modified=false;
+    for(int i=0;i<knobCount;++i) {
+        const auto* raw=processor.parameters.getRawParameterValue(ids[i]);
+        const float expected=hasFactory ? factoryValues[factory-1][i] : 0.0f;
+        if(!raw || std::abs(raw->load(std::memory_order_relaxed)-expected)>0.01f) {
+            modified=true;
+            break;
+        }
+    }
+    const auto* deuce=processor.parameters.getRawParameterValue("deuceMatch");
+    if(!deuce || (deuce->load(std::memory_order_relaxed)>=0.5f)!=(factory==5))
+        modified=true;
+    auto& properties=presetSelector.getProperties();
+    const bool previous=static_cast<bool>(properties.getWithDefault(
+        "skellMasterPresetModified",false));
+    if(previous!=modified) {
+        properties.set("skellMasterPresetModified",modified);
+        presetSelector.repaint();
+        for(int i=0;i<presetSelector.getNumChildComponents();++i)
+            if(auto* child=presetSelector.getChildComponent(i)) child->repaint();
+    }
+    if(reapplyEnabled!=hasFactory) {
+        reapplyEnabled=hasFactory;
+        presetSelector.setItemEnabled(6,hasFactory);
+    }
 }
 
 void SkellyMasterAudioProcessorEditor::clearMeterHolds() {
@@ -678,6 +730,7 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
     const int restoredPreset=processor.getFactoryPresetId();
     if(presetSelector.getSelectedId()!=restoredPreset)
         presetSelector.setSelectedId(restoredPreset,juce::dontSendNotification);
+    refreshPresetDisplay();
     const std::array<float, 2> peaks {processor.consumePeakLeft(), processor.consumePeakRight()};
     for (size_t channel = 0; channel < meterValues.size(); ++channel) {
         meterValues[channel] = juce::jmax(peaks[channel], meterValues[channel] * 0.89f);

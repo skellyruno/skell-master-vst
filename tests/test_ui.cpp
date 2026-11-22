@@ -303,9 +303,12 @@ int main() {
         clear->onClick();
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
               "passive output monitoring modified audio");
-        check(preset->getNumItems()==5, "factory preset selector must list original four plus SKELL MASTER");
-        check(preset->getSelectedId()==0 && preset->getText().isEmpty(),
-              "initial preset UI must not display INIT / CLEAN by default");
+        check(preset->getNumItems()==6 && preset->getItemId(5)==6,
+              "preset selector must retain five factory entries plus REAPPLY CURRENT");
+        check(preset->getSelectedId()==0 && preset->getText().isEmpty()
+              && !static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "fresh neutral startup must retain saved ID 0 without edit marker");
         preset->setSelectedId(2,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-15.0f)<.12f,
               "WARM factory preset must apply its real DSP drive setting");
@@ -332,6 +335,23 @@ int main() {
                   "SKELL MASTER factory parameter snapshot is incorrect");
         check(processor.parameters.getRawParameterValue("deuceMatch")->load()>=0.5f,
               "SKELL MASTER must enable the real Deuce DSP stages");
+        // Editing factory #5 is a custom variant, not the original published sound.
+        clipper->setValue(43.0,juce::sendNotificationSync);
+        juce::Thread::sleep(70);
+        juce::Timer::callPendingTimersSynchronously();
+        check(static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "edited factory should display modified status");
+        check(processor.getFactoryPresetId()==5,
+              "customization must preserve saved base factory identity");
+        preset->setSelectedId(6,juce::sendNotificationSync);
+        check(preset->getSelectedId()==5 && processor.getFactoryPresetId()==5,
+              "REAPPLY CURRENT must restore the same selected identity");
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-14.0f)<.12f,
+              "REAPPLY CURRENT must restore published clipper setting");
+        check(!static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "reapplying a factory must clear edited status");
         preset->setSelectedId(1,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("input")->load())<.12f &&
               std::abs(processor.parameters.getRawParameterValue("highs")->load())<.12f &&
