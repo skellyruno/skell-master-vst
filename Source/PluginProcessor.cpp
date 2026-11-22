@@ -56,6 +56,7 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     const double highRate = sampleRate * static_cast<double>(oversamplingFactor);
     lookaheadSamples = juce::jmax(4, static_cast<int>(std::ceil(sampleRate * 0.0015)) * oversamplingFactor);
     engine.prepare(highRate, activeChannels, lookaheadSamples);
+    referenceClipGuardHold=0;
     postLimiterPresence.prepare(sampleRate);
     postLimiterMidPresence.prepare(sampleRate);
     legacySafetyGuard.prepare(sampleRate);
@@ -83,6 +84,7 @@ void SkellyMasterAudioProcessor::releaseResources() {
 void SkellyMasterAudioProcessor::reset() {
     if (oversampler) oversampler->reset();
     engine.reset();
+    referenceClipGuardHold=0;
     postLimiterPresence.reset();
     postLimiterMidPresence.reset();
     legacySafetyGuard.reset();
@@ -118,6 +120,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.transients = parameters.getRawParameterValue("transients")->load(std::memory_order_relaxed) * 0.01;
     p.outputDb = parameters.getRawParameterValue("output")->load(std::memory_order_relaxed);
     p.clipper = parameters.getRawParameterValue("clipper")->load(std::memory_order_relaxed)*0.01;
+    p.referenceClip = usesReferenceClip();
     p.ceilingDb = skelly::detail::ceilingOffsetToDb(
         parameters.getRawParameterValue("ceiling")->load(std::memory_order_relaxed));
     p.bypass = parameters.getRawParameterValue("bypass")->load(std::memory_order_relaxed) >= 0.5f;
@@ -129,6 +132,13 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     engine.setParameters(p);
     engine.beginBlock();
     const bool deuceMatch = p.deuceMatch && !p.bypass;
+    // Maintain final true-peak safety when reference CLIP is active even
+    // outside Deuce Match, keeping it through the 18ms automation ramp and
+    // 85ms release after the CLIP knob returns to zero.
+    if(p.referenceClip && p.clipper>0.0 && !p.bypass)
+        referenceClipGuardHold=static_cast<int>(std::ceil(getSampleRate()*.12));
+    else referenceClipGuardHold=std::max(0,referenceClipGuardHold-samples);
+    const bool requireTruePeak=deuceMatch || (referenceClipGuardHold>0 && !p.bypass);
 
     // Reject malformed input BEFORE JUCE's oversampling filter stages.
     // Sanitizing only the oversampled samples is too late: NaN or Inf can
@@ -177,10 +187,10 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         // true-peak limiting. The fixed 32-sample delay remains in both paths
         // so host PDC never changes when the automatable mode is switched.
         const auto legacyLimited = legacySafetyGuard.process(postFrame, ceiling);
-        const auto inputToTruePeak = deuceMatch ? postFrame
+        const auto inputToTruePeak = requireTruePeak ? postFrame
             : (p.bypass ? postFrame : legacyLimited);
         const auto corrected = safetyGuard.process(
-            inputToTruePeak, ceiling, p.bypass || !deuceMatch);
+            inputToTruePeak, ceiling, p.bypass || !requireTruePeak);
         outL[i] = corrected.left;
         if (outR) outR[i] = corrected.right;
     }
@@ -204,7 +214,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     shortTermLufs.store(static_cast<float>(loudnessMonitor.shortTermLufs()),std::memory_order_relaxed);
     // Report the strongest gain reduction actually applied, including the
     // final safety stage after the JUCE downsampler.
-    const double activeGuardGain = deuceMatch ? safetyGuard.currentGain()
+    const double activeGuardGain = requireTruePeak ? safetyGuard.currentGain()
         : (p.bypass ? 1.0 : legacySafetyGuard.currentGain());
     const float postReductionDb = static_cast<float>(
         juce::jmax(0.0, -skelly::detail::linearToDb(activeGuardGain)));
@@ -218,8 +228,9 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",5,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",6,nullptr);
     snapshot.setProperty("skellMasterFactoryPreset",getFactoryPresetId(),nullptr);
+    snapshot.setProperty("skellMasterClipAlgorithm",usesReferenceClip() ? 1 : 0,nullptr);
     if (auto xml=snapshot.createXml()) copyXmlToBinary(*xml,dest);
 }
 
@@ -228,6 +239,15 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         if (!xml->hasTagName(parameters.state.getType())) return;
         auto snapshot=juce::ValueTree::fromXml(*xml);
         if (!snapshot.isValid()) return;
+        // Sessions saved before v6 did not encode the CLIP signal path.
+        // Retain their old sound, even when CLIP automation is nonzero.
+        const int previousVersion=static_cast<int>(
+            snapshot.getProperty("skellMasterStateVersion",1));
+        const juce::String clipMode=snapshot.getProperty(
+            "skellMasterClipAlgorithm",{}).toString().trim();
+        const bool useReference=previousVersion>=6 && clipMode=="1";
+        setReferenceClipEnabled(useReference);
+        snapshot.setProperty("skellMasterClipAlgorithm",useReference ? 1 : 0,nullptr);
         // ValueTree XML attributes can be surfaced as strings after reload.
         // Parse the saved UI identity and clamp it; absent/malformed legacy
         // values restore the neutral SELECT label (0).
@@ -295,7 +315,7 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             deuceMatchState.setProperty("value",0.0f,nullptr);
             snapshot.appendChild(deuceMatchState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",5,nullptr);
+        snapshot.setProperty("skellMasterStateVersion",6,nullptr);
         parameters.replaceState(snapshot);
     }
 }

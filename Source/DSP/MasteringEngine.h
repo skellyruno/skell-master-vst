@@ -197,7 +197,8 @@ struct MasterParameters {
     double sauce = 0.0;     // 0..1
     double transients = 0.0;// 0..1
     double outputDb = 0.0;
-    double clipper = 0.0;  // 0=original transparent limiter, 1=pre-limit soft clipper
+    double clipper = 0.0;  // existing 0..1 CLIP automation ID, unchanged
+    bool referenceClip = false; // false = exact pre-v6 legacy clip DSP
     double ceilingDb = -1.0;
     bool bypass = false;
     bool deuceMatch = false; // opt-in pre-limiter five-band reference coloration
@@ -614,6 +615,7 @@ public:
         sauceAmt.prepare(rate, 30, 0); transientsAmt.prepare(rate, 30, 0);
         output.prepare(rate, 15, 1); ceiling.prepare(rate, 15, detail::dbToLinear(-1));
         clipperMix.prepare(rate, 18, 0);
+        referenceClipDrive.prepare(rate, 18, 0);
         bypassMix.prepare(rate, 12, 0);
         deuceMatchMakeup.prepare(rate, 12, 1.0);
         glueComp.prepare(rate, 27, 220);
@@ -622,6 +624,13 @@ public:
         stereoImager.prepare(rate);
         fiveBandColor.prepare(rate);
         driveShaper.prepare();
+        // Precompute the nonlinear CLIP drive mapping off the audio callback:
+        // 0%=unity, 50%=+2.12dB, 100%=+6dB (rate-independent).
+        for(std::size_t i=0;i<referenceClipGainTable.size();++i) {
+            const double amount=static_cast<double>(i)/(referenceClipGainTable.size()-1);
+            referenceClipGainTable[i]=detail::dbToLinear(
+                6.0*amount*std::sqrt(amount));
+        }
         dcR = std::exp(-2.0 * detail::pi * 5.0 / rate);
         fastAtk = std::exp(-1.0 / (rate * 0.002));
         slowAtk = std::exp(-1.0 / (rate * 0.060));
@@ -641,6 +650,7 @@ public:
         stereoImager.reset();
         fiveBandColor.reset();
         deuceMatchMakeup.snap(1.0);
+        referenceClipDrive.snap(0.0);
         glueComp.reset(); dynamicsComp.reset();
         dcInput.fill(0.0); dcOutput.fill(0.0);
         fastEnv = slowEnv = 0.0; limiterGain = 1.0; limiterHold = 0; writeIndex = 0;
@@ -665,7 +675,11 @@ public:
         sauceAmt.setTarget(safe(p.sauce, 0, 1));
         transientsAmt.setTarget(safe(p.transients, 0, 1));
         output.setTarget(detail::dbToLinear(safe(p.outputDb, -18, 12)));
-        clipperMix.setTarget(safe(p.clipper, 0, 1));
+        // Switch clip topology with two smoothly crossfading controls.
+        // Old saved sessions still use their original pre-limiter soft clip.
+        const double clipPosition=safe(p.clipper,0,1);
+        clipperMix.setTarget(!p.referenceClip ? clipPosition : 0.0);
+        referenceClipDrive.setTarget(p.referenceClip && !p.bypass ? clipPosition : 0.0);
         // For an invalid ceiling, fall back to the established -1dBFS
         // factory value, not the upper edge of -0.1dBFS.
         ceiling.setTarget(detail::dbToLinear(detail::clamp(
@@ -841,6 +855,36 @@ public:
         const double deuceMakeup = deuceMatchMakeup.next();
         wetL *= deuceMakeup;
         wetR *= deuceMakeup;
+
+        // Reference CLIP stage. The real Skelly master is already processed
+        // at 4x host sample rate, so this post-limiter nonlinear stage is
+        // oversampled without extra converters or additional plugin latency.
+        // Unlike legacy CLIP, the knob now increases input drive into a
+        // smooth bounded knee, matching the louder/denser reference behavior.
+        // Stereo-linked gain preserves the ratio of asymmetric channels.
+        // Original design, not SIR StandardCLIP's proprietary algorithm.
+        const double modernClip=referenceClipDrive.next();
+        if(modernClip>1.0e-6) {
+            const double tablePos=modernClip*(referenceClipGainTable.size()-1);
+            const auto lo=static_cast<std::size_t>(tablePos);
+            const auto hi=std::min(lo+1,referenceClipGainTable.size()-1);
+            const double t=tablePos-static_cast<double>(lo);
+            const double push=referenceClipGainTable[lo]
+                +t*(referenceClipGainTable[hi]-referenceClipGainTable[lo]);
+            const double peak=std::max(std::abs(wetL),std::abs(wetR))*push;
+            const double clipCeiling=absoluteCeiling*0.9885530946569389; // -0.1dB
+            const double knee=clipCeiling*.75;
+            const double width=clipCeiling-knee;
+            double rounded=peak;
+            if(peak>knee) {
+                const double excess=peak-knee;
+                rounded=knee+width*excess/(width+excess);
+            }
+            const double shapeGain=peak>1.0e-24 ? rounded/peak : 1.0;
+            wetL*=push*shapeGain;
+            wetR*=push*shapeGain;
+            clipGain*=shapeGain;
+        }
         // Last-resort stereo-linked ceiling guard: do not independently
         // hard-clip L/R, which can alter the stereo ratio on unexpected
         // delayed transients or automation. This is still a sample-peak
@@ -868,7 +912,8 @@ private:
     double rate = 192000, dcR = 0.999;
     int channels = 2, lookahead = 288, writeIndex = 0, eqCounter = 0;
     std::array<std::vector<double>, 2> programDelay, dryDelay;
-    detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, bypassMix, deuceMatchMakeup;
+    detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, referenceClipDrive, bypassMix, deuceMatchMakeup;
+    std::array<double,1025> referenceClipGainTable {};
     std::array<detail::Biquad, 2> lowShelf, highShelf;
     std::array<detail::OnePole, 2> hf;
     StereoImager stereoImager;

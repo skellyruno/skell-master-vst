@@ -303,12 +303,20 @@ int main() {
         clear->onClick();
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
               "passive output monitoring modified audio");
-        check(preset->getNumItems()==6 && preset->getItemId(5)==6,
-              "preset selector must retain five factory entries plus REAPPLY CURRENT");
+        check(preset->getNumItems()==8 && preset->getItemId(5)==6
+              && preset->getItemId(6)==7 && preset->getItemId(7)==8,
+              "keep factory 1..5 identities and three non-parameter menu actions");
         check(preset->getSelectedId()==0 && preset->getText().isEmpty()
               && !static_cast<bool>(preset->getProperties().getWithDefault(
                   "skellMasterPresetModified",false)),
               "fresh neutral startup must retain saved ID 0 without edit marker");
+        check(processor.usesReferenceClip(),"fresh instance must enable new CLIP sound");
+        preset->setSelectedId(8,juce::sendNotificationSync);
+        check(!processor.usesReferenceClip() && preset->getSelectedId()==0,
+              "menu must switch to legacy CLIP without changing factory identity");
+        preset->setSelectedId(7,juce::sendNotificationSync);
+        check(processor.usesReferenceClip() && preset->getSelectedId()==0,
+              "menu must return to reference CLIP without changing factory identity");
         preset->setSelectedId(2,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-15.0f)<.12f,
               "WARM factory preset must apply its real DSP drive setting");
@@ -393,6 +401,8 @@ int main() {
               "Deuce Match did not survive host state save/reload");
         check(restoredState.getFactoryPresetId()==5,
               "factory preset identity did not survive host state save/reload");
+        check(restoredState.usesReferenceClip(),
+              "clip algorithm v6 state did not survive save/reload");
         check(restoredState.parameters.getRawParameterValue("bypass")->load()<0.5f,
               "SKELL MASTER factory state unexpectedly restored bypass");
         for (const auto& value : matched)
@@ -427,6 +437,8 @@ int main() {
               "legacy project without Deuce Match must default to OFF");
         check(restoredLegacyState.getFactoryPresetId()==0,
               "legacy host state without factory identity must restore SELECT");
+        check(!restoredLegacyState.usesReferenceClip(),
+              "v1-5 project must retain the exact old CLIP algorithm");
 
         // XML numeric properties are text after deserialization; clamp invalid positive IDs.
         auto malformedFactoryState=processor.parameters.copyState();

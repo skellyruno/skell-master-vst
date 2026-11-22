@@ -279,7 +279,26 @@ authoritative actual-editor visual inspection output.
 | TRANSIENTS | Dual-envelope attack enhancement | 0…100% / **0** |
 | OUTPUT | Post-chain gain **before** limiter | −18…+12 dB / **0** |
 | CEILING | Oversampled peak limit / safety clamp | −3…−0.1 dBFS / **−1** |
+| CLIP | New sessions: 4× oversampled post-limiter drive into stereo-linked smooth clipping; 0% neutral, 50% approximately +2.1 dB, 100% +6 dB drive | 0…100% / **0** |
 | BYPASS | 12 ms crossfade to latency-aligned dry audio | off |
+
+### Clip processing and backwards compatibility
+
+- The new CLIP control **drives** into a nonlinear peak-shaper rather than
+  blending a pre-limiter soft-clip signal. Processing is at the existing
+  4× oversampled rate, after internal lookahead limiting; no new plugin
+  latency or automation IDs.
+- This is an original reference-informed native algorithm, **not** a port
+  of any proprietary StandardCLIP algorithm or a bit-exact sound match.
+  The reference mode is the default for newly created instances.
+- Restoring a pre-v6 state retains the original CLIP behavior and factory
+  identity. The preset dropdown lets older sessions explicitly select
+  **USE REFERENCE CLIP**, and permits reverting to **USE LEGACY CLIP**.
+  The selected algorithm is saved as non-automatable version-6 state.
+- 0% CLIP remains an exact neutral DSP path. New reference clipping keeps
+  the stereo-linked output protection and enables the reconstructed
+  true-peak guard whenever reference CLIP is active (including without
+  Deuce Match).
 
 The editor includes **dual analog-inspired output peak meters**, peak gain reduction readout, double-click knob reset, global reset, MIDI/DAW automation through APVTS, session state save/restore, mono/stereo operation and resizable fixed-aspect UI. The DAW reports the fixed 4× oversampling-filter latency plus **1.5 ms lookahead** (rounded to host samples), rather than hiding it.
 

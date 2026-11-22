@@ -533,10 +533,10 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         s.setNumDecimalPlacesToDisplay(0);
         const bool db = i == 0 || i == 4 || i == 5 || i == 8 || i == 9;
         s.setTextValueSuffix(i==9 ? "" : db ? " dB" : " %");
-        const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "SOFT CLIP AMOUNT");
+        const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "CLIP DRIVE");
          s.setTooltip(i==9
             ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Deuce Match uses the 257-tap reconstruction guard with a 0.5/0.45/0.4 dB margin at 44.1/48/96 kHz and 32-sample lookahead; legacy factories retain sample-peak limiting. Drag, type, or double-click to reset."
-            : i==10 ? "CLIP: 0% = transparent lookahead limiting; higher settings blend oversampled soft clipping before the limiter."
+            : i==10 ? "CLIP: New instances use 4x post-limiter clipping: 0% neutral; 50% approx +2.1dB drive; 100% +6dB drive. Old projects retain original CLIP unless you choose USE REFERENCE CLIP in the preset menu."
             : juce::String(labels[i]) + " - " + sub +
               " | drag to adjust, double-click to reset, right-click for menu");
         addAndMakeVisible(s);
@@ -563,18 +563,25 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     presetSelector.addItem("SKELL MASTER",5);
     presetSelector.addSeparator();
     presetSelector.addItem("REAPPLY CURRENT",6);
+    presetSelector.addSeparator();
+    presetSelector.addItem("USE REFERENCE CLIP",7);
+    presetSelector.addItem("USE LEGACY CLIP",8);
     presetSelector.setItemEnabled(6,false);
     presetSelector.setSelectedId(processor.getFactoryPresetId(),juce::dontSendNotification);
     // ID 0 remains the old neutral state, not a changed factory ID.
     presetSelector.setTextWhenNothingSelected({});
     presetSelector.setJustificationType(juce::Justification::centred);
-    presetSelector.setTooltip("INIT / CLEAN = neutral start; * = edited factory. REAPPLY CURRENT restores factory values. Bypass is independent.");
+    presetSelector.setTooltip("Factory: * means modified. REAPPLY CURRENT restores values. Use REFERENCE CLIP to enable modern 4x post-limiter drive; LEGACY CLIP preserves old sessions.");
     presetSelector.onChange=[this] {
         const int selected=presetSelector.getSelectedId();
         if(selected==6) {
             const int previous=processor.getFactoryPresetId();
             if(previous>=1 && previous<=5) applyFactoryPreset(previous);
             presetSelector.setSelectedId(previous,juce::dontSendNotification);
+        } else if(selected==7 || selected==8) {
+            processor.setReferenceClipEnabled(selected==7);
+            presetSelector.setSelectedId(processor.getFactoryPresetId(),
+                                         juce::dontSendNotification);
         } else applyFactoryPreset(selected);
         refreshPresetDisplay();
     };
@@ -713,6 +720,9 @@ void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
         reapplyEnabled=hasFactory;
         presetSelector.setItemEnabled(6,hasFactory);
     }
+    const bool modern=processor.usesReferenceClip();
+    presetSelector.setItemEnabled(7,!modern);
+    presetSelector.setItemEnabled(8,modern);
 }
 
 void SkellyMasterAudioProcessorEditor::clearMeterHolds() {

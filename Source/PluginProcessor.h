@@ -45,6 +45,13 @@ public:
     int getFactoryPresetId() const noexcept {
         return factoryPresetId.load(std::memory_order_relaxed);
     }
+    // Non-automatable mode stored in state v6; no host/APVTS ID changes.
+    bool usesReferenceClip() const noexcept {
+        return referenceClipEnabled.load(std::memory_order_relaxed);
+    }
+    void setReferenceClipEnabled(bool enabled) noexcept {
+        referenceClipEnabled.store(enabled,std::memory_order_relaxed);
+    }
 
     // Lock-free peak accumulation. GUI calls exchange(0) once per frame.
     float consumePeakLeft() noexcept { return peakLeft.exchange(0.0f, std::memory_order_relaxed); }
@@ -65,6 +72,8 @@ private:
     skelly::StereoLoudnessMonitor loudnessMonitor;
     std::atomic<float> momentaryLufs {-100.0f}, shortTermLufs {-100.0f};
     std::atomic<int> factoryPresetId { 0 };
+    std::atomic<bool> referenceClipEnabled { true };
+    int referenceClipGuardHold = 0;
     int activeChannels = 2;
     int lookaheadSamples = 0;
     // Five-band Deuce coloration lives before the internal limiter. The

@@ -607,6 +607,90 @@ int main() {
     std::cout << "PASS: Deuce Match makeup is absent in bypass (null "
               << bypassNull << ")\\n";
 
+    // The new owner-reference CLIP is a second, 4x oversampled signal path.
+    // Its zero position must null with the old engine; 50/100 must actually
+    // drive the output into soft clipping, not merely blend its wet fraction.
+    MasteringEngine modernZero, oldZero;
+    modernZero.prepare(rate,2,lookahead);
+    oldZero.prepare(rate,2,lookahead);
+    MasterParameters modernZeroP;
+    modernZeroP.referenceClip=true;
+    modernZero.setParameters(modernZeroP);
+    oldZero.setParameters(MasterParameters{});
+    double nullError=0.0;
+    for(int i=0;i<16000;++i) {
+        const float x=static_cast<float>(.31*std::sin(2*detail::pi*740*i/rate));
+        const auto a=modernZero.processFrame(x,x*.63f);
+        const auto b=oldZero.processFrame(x,x*.63f);
+        nullError=std::max(nullError,std::max(
+            std::abs(static_cast<double>(a.left)-b.left),
+            std::abs(static_cast<double>(a.right)-b.right)));
+    }
+    require(nullError<1.e-7,"Reference CLIP at zero must be identical to legacy neutral");
+
+    MasteringEngine refClean,refMedium,refHard;
+    for(auto* e : {&refClean,&refMedium,&refHard})
+        e->prepare(rate,2,lookahead);
+    MasterParameters baseClip;
+    baseClip.referenceClip=true;
+    MasterParameters mediumClip=baseClip,hardClip=baseClip;
+    mediumClip.clipper=.5;
+    hardClip.clipper=1.0;
+    refClean.setParameters(baseClip);
+    refMedium.setParameters(mediumClip);
+    refHard.setParameters(hardClip);
+    double cleanEnergy=0.0,medEnergy=0.0,hardEnergy=0.0;
+    double medPeak=0.0,hardPeak=0.0,ratioError=0.0;
+    for(int i=0;i<static_cast<int>(rate*.8);++i) {
+        const double t=static_cast<double>(i)/rate;
+        const float x=static_cast<float>(.30*std::sin(2*detail::pi*440*t)
+                                         +.13*std::sin(2*detail::pi*63*t));
+        const auto c=refClean.processFrame(x,x*.71f);
+        const auto m=refMedium.processFrame(x,x*.71f);
+        const auto h=refHard.processFrame(x,x*.71f);
+        require(std::isfinite(h.left) && std::isfinite(h.right),
+                "New reference CLIP generated a non-finite sample");
+        if(i>static_cast<int>(rate*.20)) {
+            cleanEnergy+=c.left*c.left;
+            medEnergy+=m.left*m.left;
+            hardEnergy+=h.left*h.left;
+            medPeak=std::max(medPeak,std::abs(static_cast<double>(m.left)));
+            hardPeak=std::max(hardPeak,std::abs(static_cast<double>(h.left)));
+            if(std::abs(h.left)>.05f)
+                ratioError=std::max(ratioError,
+                    std::abs(static_cast<double>(h.right)/h.left-.71));
+        }
+    }
+    require(medEnergy>cleanEnergy*1.05 && hardEnergy>medEnergy*1.05,
+            "Reference CLIP 50% and 100% must progressively raise RMS");
+    require(medPeak<detail::dbToLinear(-1.0)+1.e-5 &&
+            hardPeak<detail::dbToLinear(-1.0)+1.e-5,
+            "Reference CLIP exceeded the configured sample ceiling");
+    require(ratioError<.002,"Reference CLIP must preserve linked stereo imaging");
+
+    // A restored pre-v6 project uses the original CLIP engine. No new
+    // algorithm may alter its 14% SKELL MASTER or other old CLIP automation.
+    require(!MasterParameters{}.referenceClip,
+            "Portable default must preserve legacy preset compatibility");
+    MasteringEngine old14,old14Again;
+    old14.prepare(rate,2,lookahead);
+    old14Again.prepare(rate,2,lookahead);
+    MasterParameters oldClip;
+    oldClip.clipper=.14;
+    old14.setParameters(oldClip);
+    old14Again.setParameters(oldClip);
+    double oldNull=0.0;
+    for(int i=0;i<16000;++i) {
+        const float x=static_cast<float>(.53*std::sin(2*detail::pi*217*i/rate));
+        const auto a=old14.processFrame(x,x*.84f);
+        const auto b=old14Again.processFrame(x,x*.84f);
+        oldNull=std::max(oldNull,std::max(
+            std::abs(static_cast<double>(a.left)-b.left),
+            std::abs(static_cast<double>(a.right)-b.right)));
+    }
+    require(oldNull==0.0,"Legacy 14% CLIP DSP must stay deterministic");
+    std::cout << "PASS: new 4x post-limit CLIP 0% null, 50/100% density, stereo and legacy safety\\n";
+
     // Across the *entire* mastering chain, hostile NaN/Inf automation
     // should fall back to the old neutral settings, never unexpectedly
     // switch on maximum drive/compression/treble or an unsafe ceiling.

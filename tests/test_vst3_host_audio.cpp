@@ -605,21 +605,23 @@ int main(int argc, char** argv) {
         const double ceilingDb = skelly::detail::ceilingOffsetToDb(ceilingOffset);
         const double configuredSampleCeiling = skelly::detail::dbToLinear(ceilingDb);
         const bool deuceMatchEnabled = getBoolParameterByName(*plugin, "Deuce Match");
+        const bool referenceClipEnabled = getNumericParameterByName(*plugin, "Clip")>0;
         const bool bypassEnabled = getBoolParameterByName(*plugin, "Bypass");
-        // Legacy mode intentionally retains the historical sample-peak guard.
-        // Only the opt-in Deuce Match path enables the additional 4x true-peak
-        // guard. Bypass is latency-aligned dry audio and constrains neither.
+        // The new-reference VST3 instance also uses the final reconstructed
+        // true-peak guard with CLIP alone, even when Deuce Match is OFF.
+        // Legacy restored states continue using historical sample-peak mode.
+        // Bypass is aligned dry audio, without either ceiling constraint.
         if (!bypassEnabled) {
             require(metrics.samplePeak<=configuredSampleCeiling+3.e-4,
                     "Hosted VST3 escaped the configured sample-peak ceiling");
-            if (deuceMatchEnabled) {
+            if (deuceMatchEnabled || referenceClipEnabled) {
                 // The production guard uses a rate-adaptive 0.5/0.45/0.4dB margin at 44.1/48/96kHz. The hosted
                 // 48-tap monitor must remain 0.1dB below the configured
                 // true-peak target; portable tests also check an independent 16x oracle.
                 const double configuredTruePeakCeiling =
                     skelly::detail::dbToLinear(ceilingDb - 0.1);
                 require(metrics.reconstructedPeak<=configuredTruePeakCeiling+3.e-4,
-                        "Hosted Deuce Match escaped the configured 0.1dB true-peak guard margin");
+                        "Hosted reference CLIP / Deuce escaped the true-peak guard margin");
             }
         }
         require(std::isfinite(metrics.reconstructedPeak)&&std::isfinite(width),
