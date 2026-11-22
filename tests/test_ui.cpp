@@ -386,6 +386,24 @@ int main() {
               && processor.parameters.getRawParameterValue("deuceMatch")->load()>=.5f
               && processor.usesReferenceClip() && processor.usesChainOrderedClip(),
               "new preset must select source-calibrated 35%, highs and v7 chain mode");
+        // Mode actions must preserve the new preset's visible menu ID10.
+        // Item ID6 is an ACTION (REAPPLY), not a factory identity.
+        preset->setSelectedId(8,juce::sendNotificationSync);
+        check(processor.getFactoryPresetId()==6 &&
+              preset->getSelectedId()==10 &&
+              !processor.usesReferenceClip(),
+              "legacy CLIP mode must retain visible 5-PLUGIN MATCH, never select REAPPLY");
+        check(static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "changing a factory6 clip algorithm must mark it edited");
+        preset->setSelectedId(7,juce::sendNotificationSync);
+        check(processor.getFactoryPresetId()==6 &&
+              preset->getSelectedId()==10 &&
+              processor.usesReferenceClip() && processor.usesChainOrderedClip(),
+              "reference CLIP mode must retain factory6 ID10 and restore the chain");
+        check(!static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "returning to factory6 clip mode must clear edited state");
         juce::MemoryBlock matchState;
         processor.getStateInformation(matchState);
         SkellyMasterAudioProcessor referenceRestored;

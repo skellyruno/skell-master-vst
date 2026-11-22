@@ -619,7 +619,11 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         } else if(selected==7 || selected==8 || selected==9) {
             processor.setReferenceClipEnabled(selected!=8);
             if(selected!=8) processor.setChainOrderedClipEnabled(true);
-            presetSelector.setSelectedId(processor.getFactoryPresetId(),
+            const int currentFactory=processor.getFactoryPresetId();
+            // Factory6 is represented by *menu item 10*, because ID6 is
+            // the existing REAPPLY CURRENT action. Never display the
+            // action itself as the selected preset when switching modes.
+            presetSelector.setSelectedId(currentFactory==6 ? 10 : currentFactory,
                                          juce::dontSendNotification);
         } else applyFactoryPreset(selected==10 ? 6 : selected);
         refreshPresetDisplay();
