@@ -93,6 +93,18 @@ jobs:
               (Get-FileHash $outputWavPath -Algorithm SHA256).Hash) {
             throw "New LOUD MASTER+ factory has no distinct audio"
           }
+          # Both the neutral DEFAULT and explicit BYPASS should output
+          # identical dry audio through the real Windows VST3 host.
+          $neutralWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-neutral-default.wav'
+          $dryWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-neutral-bypass.wav'
+          & $runner.FullName $plugin.FullName $inputWavPath $neutralWavPath --factory 1
+          if ($LASTEXITCODE -ne 0) { throw "Neutral DEFAULT render failed" }
+          & $runner.FullName $plugin.FullName $inputWavPath $dryWavPath --factory 1 --bool 'Bypass=1'
+          if ($LASTEXITCODE -ne 0) { throw "Explicit dry bypass render failed" }
+          if ((Get-FileHash $neutralWavPath -Algorithm SHA256).Hash -ne
+              (Get-FileHash $dryWavPath -Algorithm SHA256).Hash) {
+            throw "DEFAULT is not exactly equal to dry bypass"
+          }
           @'
           import sys, wave
           with wave.open(sys.argv[1], "rb") as w:
@@ -291,6 +303,14 @@ jobs:
             "$runner" "$plugin" "$input" "$factory_wav" --factory "$factory_id"
             test -s "$factory_wav"
           done
+          # DEFAULT must be exactly the latency-aligned dry path at all
+          # zero knobs; earlier builds silently limited it by ~1.5dB.
+          dry_default="$RUNNER_TEMP/skell-master-factory-1-explicit-bypass.wav"
+          "$runner" "$plugin" "$input" "$dry_default" --factory 1 --bool 'Bypass=1'
+          if ! cmp -s "$RUNNER_TEMP/skell-master-factory-1.wav" "$dry_default"; then
+            echo "DEFAULT altered audio compared with dry bypass" >&2
+            exit 1
+          fi
           if cmp -s "$RUNNER_TEMP/skell-master-factory-4.wav" \
                     "$RUNNER_TEMP/skell-master-factory-9.wav"; then
             echo "LOUD MASTER+ must be audibly distinct from original LOUD MASTER" >&2

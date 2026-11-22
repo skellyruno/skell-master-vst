@@ -554,6 +554,12 @@ int main(int argc, char** argv) {
         requireHostRenderedStateMatch(*plugin, *restoredPlugin, sampleRate, blockSize,
             "Bypass host-state reload changed the rendered audio");
         setBoolParameterByName(*plugin,"Bypass",false);
+        // The bypass roundtrip above is deliberately temporary. Restore
+        // the user's *actual* CLI overrides AFTER the roundtrip check.
+        // Previously --bool Bypass=1 was silently erased before audio
+        // export, so a claimed dry reference was in fact limited by -1dB.
+        if(externalWav)
+            applyCommandLineOverrides(*plugin,argc,argv,4);
         plugin->reset();
         restoredPlugin->releaseResources();
 
