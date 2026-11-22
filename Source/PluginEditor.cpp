@@ -536,7 +536,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "CLIP DRIVE");
          s.setTooltip(i==9
             ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Deuce Match uses the 257-tap reconstruction guard with a 0.5/0.45/0.4 dB margin at 44.1/48/96 kHz and 32-sample lookahead; legacy factories retain sample-peak limiting. Drag, type, or double-click to reset."
-            : i==10 ? "CLIP: New instances use 4x post-limiter clipping: 0% neutral; 50% approx +2.1dB drive; 100% +6dB drive. Old projects retain original CLIP unless you choose USE REFERENCE CLIP in the preset menu."
+            : i==10 ? "CLIP: Real 4x clipping, odd-harmonic saturation and drive. The supplied StandardCLIP sound is calibrated at ~35% (+2.23 dB pre-clip drive); 100% is a much harder ceiling. Original project states keep legacy CLIP unless you select USE REFERENCE CLIP."
             : juce::String(labels[i]) + " - " + sub +
               " | drag to adjust, double-click to reset, right-click for menu");
         addAndMakeVisible(s);

@@ -279,15 +279,26 @@ authoritative actual-editor visual inspection output.
 | TRANSIENTS | Dual-envelope attack enhancement | 0…100% / **0** |
 | OUTPUT | Post-chain gain **before** limiter | −18…+12 dB / **0** |
 | CEILING | Oversampled peak limit / safety clamp | −3…−0.1 dBFS / **−1** |
-| CLIP | New sessions: 4× oversampled post-limiter drive into stereo-linked smooth clipping; 0% neutral, 50% approximately +2.1 dB, 100% +6 dB drive | 0…100% / **0** |
+| CLIP | New sessions: 4× oversampled saturation + soft-to-firm clipping; 0% neutral, **35% reference** (+2.23 dB drive), 100% deliberately more saturated/hard-clipped | 0…100% / **0** |
 | BYPASS | 12 ms crossfade to latency-aligned dry audio | off |
 
 ### Clip processing and backwards compatibility
 
-- The new CLIP control **drives** into a nonlinear peak-shaper rather than
-  blending a pre-limiter soft-clip signal. Processing is at the existing
-  4× oversampled rate, after internal lookahead limiting; no new plugin
-  latency or automation IDs.
+- The new CLIP control **drives** into a per-channel nonlinear saturator
+  and a C1-continuous soft-to-firm peak clipper, rather than only increasing
+  volume or blending a linked pre-limiter gain envelope. The existing 4×
+  oversampling is used after internal lookahead limiting; no new plugin
+  latency or automation IDs. A final stereo-linked host-rate true-peak
+  guard remains active.
+- The owner clarified that their provided StandardCLIP render is around
+  **35%** of that plugin's strength (not maximum). A simple fitted static
+  nonlinear transfer from their private mastered WAV to the clipped WAV
+  has approximately **+2.23 dB drive, 0.076 cubic saturation and a smooth
+  ~0.91FS knee**, so these are the **35% CLIP anchor**. The 35–100%
+  region deliberately scales to stronger drive/harder clipping. This is
+  a measured calibration, not proof of an exact proprietary-clip match.
+- The new 35% position must pass harmonic-generation and 0% neutral tests.
+  No factory preset values, APVTS IDs or automation order are changed.
 - This is an original reference-informed native algorithm, **not** a port
   of any proprietary StandardCLIP algorithm or a bit-exact sound match.
   The reference mode is the default for newly created instances.

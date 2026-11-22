@@ -652,45 +652,86 @@ int main() {
     require(maxLowKnobDiff<.03,
             "Reference CLIP 1% must not suddenly engage its full nonlinear knee");
 
-    MasteringEngine refClean,refMedium,refHard;
-    for(auto* e : {&refClean,&refMedium,&refHard})
+    MasteringEngine refClean,ref35,refMedium,refHard,refHardSwapped;
+    for(auto* e : {&refClean,&ref35,&refMedium,&refHard,&refHardSwapped})
         e->prepare(rate,2,lookahead);
     MasterParameters baseClip;
     baseClip.referenceClip=true;
-    MasterParameters mediumClip=baseClip,hardClip=baseClip;
+    MasterParameters reference35=baseClip, mediumClip=baseClip, hardClip=baseClip;
+    reference35.clipper=.35;
     mediumClip.clipper=.5;
     hardClip.clipper=1.0;
     refClean.setParameters(baseClip);
+    ref35.setParameters(reference35);
     refMedium.setParameters(mediumClip);
     refHard.setParameters(hardClip);
-    double cleanEnergy=0.0,medEnergy=0.0,hardEnergy=0.0;
-    double medPeak=0.0,hardPeak=0.0,ratioError=0.0;
+    refHardSwapped.setParameters(hardClip);
+    double cleanEnergy=0.0, refEnergy=0.0, medEnergy=0.0, hardEnergy=0.0;
+    double refPeak=0.0, medPeak=0.0, hardPeak=0.0, swapError=0.0;
     for(int i=0;i<static_cast<int>(rate*.8);++i) {
         const double t=static_cast<double>(i)/rate;
         const float x=static_cast<float>(.30*std::sin(2*detail::pi*440*t)
                                          +.13*std::sin(2*detail::pi*63*t));
         const auto c=refClean.processFrame(x,x*.71f);
+        const auto r=ref35.processFrame(x,x*.71f);
         const auto m=refMedium.processFrame(x,x*.71f);
         const auto h=refHard.processFrame(x,x*.71f);
-        require(std::isfinite(h.left) && std::isfinite(h.right),
-                "New reference CLIP generated a non-finite sample");
+        const auto swapped=refHardSwapped.processFrame(x*.71f,x);
+        require(std::isfinite(r.left)&&std::isfinite(r.right)
+                &&std::isfinite(h.left)&&std::isfinite(h.right),
+                "Reference CLIP generated a non-finite sample");
         if(i>static_cast<int>(rate*.20)) {
             cleanEnergy+=c.left*c.left;
+            refEnergy+=r.left*r.left;
             medEnergy+=m.left*m.left;
             hardEnergy+=h.left*h.left;
+            refPeak=std::max(refPeak,std::abs(static_cast<double>(r.left)));
             medPeak=std::max(medPeak,std::abs(static_cast<double>(m.left)));
             hardPeak=std::max(hardPeak,std::abs(static_cast<double>(h.left)));
-            if(std::abs(h.left)>.05f)
-                ratioError=std::max(ratioError,
-                    std::abs(static_cast<double>(h.right)/h.left-.71));
+            // Unlike the OLD linked pre-limit clip, this is actual
+            // per-channel waveshaping. Preserve channel-swap symmetry,
+            // not the exact L/R amplitude ratio (that would forbid it).
+            swapError=std::max(swapError,std::max(
+                std::abs(static_cast<double>(h.left)-swapped.right),
+                std::abs(static_cast<double>(h.right)-swapped.left)));
         }
     }
-    require(medEnergy>cleanEnergy*1.05 && hardEnergy>medEnergy*1.05,
-            "Reference CLIP 50% and 100% must progressively raise RMS");
-    require(medPeak<detail::dbToLinear(-1.0)+1.e-5 &&
+    require(refEnergy>cleanEnergy*1.05 && medEnergy>refEnergy*1.02
+            && hardEnergy>medEnergy*1.02,
+            "Reference CLIP must progressively raise program energy from 0 to 35/50/100%");
+    require(refPeak<detail::dbToLinear(-1.0)+1.e-5 &&
+            medPeak<detail::dbToLinear(-1.0)+1.e-5 &&
             hardPeak<detail::dbToLinear(-1.0)+1.e-5,
             "Reference CLIP exceeded the configured sample ceiling");
-    require(ratioError<.002,"Reference CLIP must preserve linked stereo imaging");
+    require(swapError<1.e-6,"Stereo channel swap must commute with clipping");
+
+    // A 35% clip must make *new harmonics*, not just apply gain. Compare
+    // the best level-matched linear waveform to the shaped waveform; a
+    // nonzero residual proves nonlinear distortion at this reference point.
+    MasteringEngine toneDry, tone35;
+    toneDry.prepare(rate,2,lookahead);
+    tone35.prepare(rate,2,lookahead);
+    toneDry.setParameters(baseClip);
+    tone35.setParameters(reference35);
+    double xx=0.0,xy=0.0,yy=0.0;
+    int toneFrames=0;
+    for(int i=0;i<static_cast<int>(rate*.6);++i) {
+        const float sine=static_cast<float>(
+            .45*std::sin(2.0*detail::pi*330.0*i/rate));
+        const auto dry=toneDry.processFrame(sine,sine);
+        const auto wet=tone35.processFrame(sine,sine);
+        if(i>static_cast<int>(rate*.25)) {
+            xx+=dry.left*dry.left;
+            xy+=dry.left*wet.left;
+            yy+=wet.left*wet.left;
+            ++toneFrames;
+        }
+    }
+    const double nonlinearResidual=std::sqrt(
+        std::max(0.0,(yy-xy*xy/std::max(xx,1.e-20))/toneFrames));
+    require(nonlinearResidual>1.e-4,
+            "35% reference CLIP must add audible-band saturation, not only volume");
+    std::cout << "PASS: 35% nonlinear reference tone, progressive clip, ceiling and stereo symmetry\\n";
 
     // A restored pre-v6 project uses the original CLIP engine. No new
     // algorithm may alter its 14% SKELL MASTER or other old CLIP automation.
@@ -713,7 +754,7 @@ int main() {
             std::abs(static_cast<double>(a.right)-b.right)));
     }
     require(oldNull==0.0,"Legacy 14% CLIP DSP must stay deterministic");
-    std::cout << "PASS: new 4x post-limit CLIP 0% null, 50/100% density, stereo and legacy safety\\n";
+    std::cout << "PASS: new 4x 35%-anchored CLIP, legacy path deterministic\\n";
 
     // Across the *entire* mastering chain, hostile NaN/Inf automation
     // should fall back to the old neutral settings, never unexpectedly

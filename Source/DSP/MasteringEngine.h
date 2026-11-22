@@ -624,12 +624,19 @@ public:
         stereoImager.prepare(rate);
         fiveBandColor.prepare(rate);
         driveShaper.prepare();
-        // Precompute the nonlinear CLIP drive mapping off the audio callback:
-        // 0%=unity, 50%=+2.12dB, 100%=+6dB (rate-independent).
+        // Owner's full-length master-only vs StandardCLIP WAV identifies the
+        // demonstrated clipping sound at approximately 35%, NOT at 100%.
+        // A fitted nonlinear transfer at that reference point uses +2.23dB
+        // drive, ~7.6% cubic saturation and a smooth 0.91FS shoulder
+        // (relative to the original master-only WAV with a 0dBFS ceiling).
+        // Extend the range above 35% for deliberately stronger clipping.
+        // Precompute pow/db conversions ONLY during prepare, not per frame.
         for(std::size_t i=0;i<referenceClipGainTable.size();++i) {
             const double amount=static_cast<double>(i)/(referenceClipGainTable.size()-1);
-            referenceClipGainTable[i]=detail::dbToLinear(
-                6.0*amount*std::sqrt(amount));
+            const double db=amount<=0.35
+                ? 2.23*std::pow(amount/0.35,1.15)
+                : 2.23+5.77*std::pow((amount-0.35)/0.65,1.15);
+            referenceClipGainTable[i]=detail::dbToLinear(db);
         }
         dcR = std::exp(-2.0 * detail::pi * 5.0 / rate);
         fastAtk = std::exp(-1.0 / (rate * 0.002));
@@ -856,13 +863,11 @@ public:
         wetL *= deuceMakeup;
         wetR *= deuceMakeup;
 
-        // Reference CLIP stage. The real Skelly master is already processed
-        // at 4x host sample rate, so this post-limiter nonlinear stage is
-        // oversampled without extra converters or additional plugin latency.
-        // Unlike legacy CLIP, the knob now increases input drive into a
-        // smooth bounded knee, matching the louder/denser reference behavior.
-        // Stereo-linked gain preserves the ratio of asymmetric channels.
-        // Original design, not SIR StandardCLIP's proprietary algorithm.
+        // REFERENCE CLIP: real 4x oversampled nonlinear waveshaping, not
+        // merely output volume, and not a clone of proprietary StandardCLIP.
+        // 35% is the *user-supplied* StandardCLIP reference operating point.
+        // The knob progresses through drive, cubic odd-harmonic saturation
+        // and a continuous soft-to-firm clipping knee.
         const double modernClip=referenceClipDrive.next();
         if(modernClip>1.0e-6) {
             const double tablePos=modernClip*(referenceClipGainTable.size()-1);
@@ -871,22 +876,49 @@ public:
             const double t=tablePos-static_cast<double>(lo);
             const double push=referenceClipGainTable[lo]
                 +t*(referenceClipGainTable[hi]-referenceClipGainTable[lo]);
-            const double peak=std::max(std::abs(wetL),std::abs(wetR))*push;
-            const double clipCeiling=absoluteCeiling*0.9885530946569389; // -0.1dB
-            const double knee=clipCeiling*.75;
-            const double width=clipCeiling-knee;
-            double rounded=peak;
-            if(peak>knee) {
-                const double excess=peak-knee;
-                rounded=knee+width*excess/(width+excess);
-            }
-            // Continuously fade the knee from neutral at 0%; otherwise even
-            // a 1% CLIP setting could engage full-strength distortion.
-            const double gentlyRounded=peak+modernClip*(rounded-peak);
-            const double shapeGain=peak>1.0e-24 ? gentlyRounded/peak : 1.0;
-            wetL*=push*shapeGain;
-            wetR*=push*shapeGain;
-            clipGain*=shapeGain;
+
+            const double atReference=detail::clamp(modernClip/0.35,0.0,1.0);
+            const double pastReference=detail::clamp((modernClip-0.35)/0.65,0.0,1.0);
+            // smoothstep fades the saturation/clip curve from a strict null
+            // at 0%; turning CLIP on at 1% must never engage a full knee.
+            const double curveMix=atReference*atReference*(3.0-2.0*atReference);
+            const double cubic=0.076*atReference+0.074*pastReference;
+            const double softWidth=0.336-0.236*pastReference;
+            const double clipThreshold=absoluteCeiling*(1.020-0.120*pastReference);
+            const double kneeLow=clipThreshold*(1.0-softWidth);
+            const double kneeHigh=clipThreshold*(1.0+softWidth);
+            const double kneeRange=kneeHigh-kneeLow;
+
+            // Per-channel odd-harmonic saturation generates genuine waveform
+            // harmonics rather than stereo-linked broadband gain reduction.
+            // One continuous C1 quadratic knee transitions from linear to
+            // the hard ceiling (no hard corner while softness is nonzero).
+            // Both channels use IDENTICAL coefficients; no independent
+            // gain envelope, sidechain latency, or memory is introduced.
+            const auto shape=[&](double sample) noexcept {
+                const double driven=sample*push;
+                const double saturated=driven*(1.0+cubic*sample*sample);
+                const double magnitude=std::abs(saturated);
+                double clipped=magnitude;
+                if(magnitude>=kneeHigh) {
+                    clipped=clipThreshold;
+                } else if(magnitude>kneeLow) {
+                    const double excess=magnitude-kneeLow;
+                    clipped=kneeLow+excess
+                        -0.5*excess*excess/kneeRange;
+                }
+                const double shaped=std::copysign(clipped,saturated);
+                return driven+curveMix*(shaped-driven);
+            };
+            const double incomingPeak=std::max(std::abs(wetL),std::abs(wetR))*push;
+            const double shapedL=shape(wetL);
+            const double shapedR=shape(wetR);
+            wetL=shapedL;
+            wetR=shapedR;
+            const double shapedPeak=std::max(std::abs(shapedL),std::abs(shapedR));
+            // Do not count pre-clip gain or harmonic addition as gain
+            // *reduction* in the meter. Only peak attenuation qualifies.
+            clipGain*=std::min(1.0,shapedPeak/std::max(incomingPeak,1.e-24));
         }
         // Last-resort stereo-linked ceiling guard: do not independently
         // hard-clip L/R, which can alter the stereo ratio on unexpected
