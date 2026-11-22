@@ -70,6 +70,10 @@ void themeInset(juce::Graphics& g,juce::Rectangle<float> r,
                    static_cast<uint32_t>(r.getX()*67+r.getY()*31),0.38f);
 }
 
+// User-facing name for the existing neutral program (factory ID1) and
+// unselected ID0 startup/reset label. Only text changes; factory values
+// and all persisted host/automation identities remain frozen.
+constexpr const char* defaultPresetName="DEFAULT";
 constexpr const char* labels[11] = {
     "INPUT", "DRIVE", "GLUE", "DYNAMICS", "LOWS", "HIGHS",
     "SAUCE", "TRANSIENTS", "OUTPUT", "CEILING", "CLIP"
@@ -244,7 +248,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
         const int inset=r.getWidth()>75.0f?13:4;
         const auto displayText = !presetLens ? label.getText()
             : unselected ? (modified ? juce::String("CUSTOM")
-                                     : juce::String("INIT / CLEAN"))
+                                     : juce::String(defaultPresetName))
                          : label.getText() + (modified ? juce::String(" *") : juce::String());
         g.drawFittedText(displayText,
                          label.getLocalBounds().reduced(inset,2),
@@ -600,7 +604,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     // The small GR-module rectangle is now a working factory-preset selector.
     // Each selection writes actual APVTS parameters through host gestures.
     presetSelector.setComponentID("skell-master-preset");
-    presetSelector.addItem("INIT / CLEAN",1);
+    presetSelector.addItem(defaultPresetName,1);
     presetSelector.addItem("WARM MASTER",2);
     presetSelector.addItem("PUNCH MASTER",3);
     presetSelector.addItem("LOUD MASTER",4);

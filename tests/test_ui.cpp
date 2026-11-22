@@ -138,9 +138,11 @@ int main() {
             check(initialMenu!=nullptr
                 && initialMenu->getSelectedId()==0
                 && initialMenu->getText().isEmpty()
+                && initialMenu->getItemId(0)==1
+                && initialMenu->getItemText(0)=="DEFAULT"
                 && !static_cast<bool>(initialMenu->getProperties().getWithDefault(
                     "skellMasterPresetModified",false)),
-                "fresh neutral startup must retain saved ID0 without edit marker");
+                "neutral startup must display DEFAULT while retaining saved ID0");
         }
         // Every *fresh* control starts at displayed zero. Old projects still
         // restore their saved user settings rather than resetting on open.
@@ -361,8 +363,11 @@ int main() {
         check(std::abs(processor.parameters.getRawParameterValue("transients")->load()-22.0f)<.12f,
               "PUNCH factory preset must apply its real DSP transient setting");
         preset->setSelectedId(1,juce::sendNotificationSync);
+        check(preset->getSelectedId()==1 && preset->getText()=="DEFAULT"
+              && processor.getFactoryPresetId()==1,
+              "existing factory ID1 must be named DEFAULT without renumbering");
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load())<.12f,
-              "INIT factory preset must restore zero drive");
+              "DEFAULT factory preset must restore zero drive");
         // Exercise *every* original published factory value, not only a
         // handful of characteristic knobs. These snapshots must never be
         // retuned or silently migrated when adding stronger new variants.
@@ -595,7 +600,7 @@ int main() {
               std::abs(processor.parameters.getRawParameterValue("highs")->load())<.12f &&
               std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f &&
               processor.parameters.getRawParameterValue("deuceMatch")->load()<0.5f,
-              "SKELL MASTER must not alter original INIT/CLEAN preset or leave Deuce stages enabled");
+              "SKELL MASTER must not alter original DEFAULT factory sound or leave Deuce stages enabled");
         clipper->setValue(43.0,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-43.0f)<.12f,
               "clipper knob must automate real DSP parameter");
@@ -607,8 +612,10 @@ int main() {
               "bypass button automation attachment failed");
         check(static_cast<bool>(reset->onClick), "reset callback missing");
         reset->onClick();
-        check(preset->getSelectedId()==0,
-              "reset must clear the preset label without changing audio defaults");
+        check(preset->getSelectedId()==0
+              && processor.getFactoryPresetId()==0
+              && preset->getItemText(0)=="DEFAULT",
+              "reset must show DEFAULT without changing legacy startup ID0 or DSP");
         check(std::abs(processor.parameters.getRawParameterValue("input")->load())<.12f,
               "reset did not restore input default");
         check(processor.parameters.getRawParameterValue("bypass")->load()<.5f,

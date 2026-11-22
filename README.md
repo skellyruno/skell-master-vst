@@ -316,6 +316,18 @@ v7 at 6, so malformed historical values cannot accidentally enable new
 factories. State v8 supports factory IDs7..9 while preserving the v7
 reference-clip placement property, selections and parameter automation.
 
+### DEFAULT preset label (display-only)
+
+The existing neutral factory menu ID **1** is now named **DEFAULT**
+instead of INIT / CLEAN, and the *unselected neutral startup/reset
+display* uses the same **DEFAULT** text. It still saves its original
+internal ID **0** until the user actually selects factory ID1, so old
+FL Studio sessions and host program identities are not remapped. The
+underlying eleven knob values, Deuce Match state, DSP processing,
+bypass behavior, APVTS parameter IDs and host state format are unchanged.
+Turning a neutral knob still shows **CUSTOM**, while reapplying
+the selected factory restores its unmodified title.
+
 ### Additive factory voicing: WARM MASTER+, PUNCH MASTER+, LOUD MASTER+ (v8)
 
 **No changes** to the existing published factory IDs 1..5, the existing
