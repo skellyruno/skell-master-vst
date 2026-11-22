@@ -40,9 +40,20 @@ jobs:
           $metadata = Join-Path $plugin.FullName 'Contents/Resources/moduleinfo.json'
           if (-not (Test-Path $metadata)) { throw 'VST3 moduleinfo.json missing' }
           python tools/normalize_vst3_moduleinfo.py "$metadata"
-      # Preserve DSP and JUCE interaction tests; no screenshot artifact uploads.
+      # The SkellyUITests create genuine offscreen JUCE render screenshots.
+      # Preserve screenshots even on failure for direct visual inspection.
       - name: Test mastering DSP
         run: ctest --test-dir build -C Release --output-on-failure --verbose
+      - name: Upload real Windows JUCE UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: SkellMaster-Real-Windows-UI-${{ github.sha }}
+          path: |
+            build/ui-snapshots/*.png
+            build/**/ui-snapshots/*.png
+          if-no-files-found: warn
+          retention-days: 14
       - name: Smoke-test external WAV render path
         shell: pwsh
         run: |
@@ -207,6 +218,16 @@ jobs:
           python tools/normalize_vst3_moduleinfo.py "$metadata"
       - name: Run portable DSP and hosted Linux VST3 tests
         run: xvfb-run -a ctest --test-dir build-linux --output-on-failure --verbose
+      - name: Upload real Linux JUCE UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: SkellMaster-Real-Linux-UI-${{ github.sha }}
+          path: |
+            build-linux/ui-snapshots/*.png
+            build-linux/**/ui-snapshots/*.png
+          if-no-files-found: warn
+          retention-days: 14
       - name: Smoke-test Linux VST3 parameter override validation
         shell: bash
         run: |
