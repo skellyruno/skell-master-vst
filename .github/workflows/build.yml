@@ -221,6 +221,7 @@ jobs:
           boundary="$RUNNER_TEMP/skell-master-range-validation-boundary.wav"
           extreme="$RUNNER_TEMP/skell-master-range-validation-extreme-output-clip.wav"
           legacy="$RUNNER_TEMP/skell-master-range-validation-legacy-mode.wav"
+          five_plugin="$RUNNER_TEMP/skell-master-range-validation-five-plugin.wav"
           invalid_range="$RUNNER_TEMP/skell-master-range-validation-invalid-range.wav"
           invalid_step="$RUNNER_TEMP/skell-master-range-validation-invalid-step.wav"
           wrong_type="$RUNNER_TEMP/skell-master-range-validation-wrong-type.wav"
@@ -246,6 +247,14 @@ jobs:
           "$runner" "$plugin" "$input" "$extreme" --set 'Output Trim=12' --set 'Clip=100' --set 'Ceiling Adjust=3' --bool 'Deuce Match=1'
           # Legacy mode retains sample-peak safety; true-peak margin is Deuce Match-only.
           "$runner" "$plugin" "$input" "$legacy" --bool 'Deuce Match=0'
+          # Render NEW sixth factory by real serialized VST3 state; the
+          # CLI must support it without inventing an APVTS parameter.
+          "$runner" "$plugin" "$input" "$five_plugin" --factory 6
+          test -s "$five_plugin"
+          if cmp -s "$default" "$five_plugin"; then
+            echo "New five-plugin preset did not change rendered audio" >&2
+            exit 1
+          fi
           if "$runner" "$plugin" "$input" "$invalid_range" --set 'Input=1000'; then
             echo "Out-of-range numeric override was silently accepted" >&2
             exit 1

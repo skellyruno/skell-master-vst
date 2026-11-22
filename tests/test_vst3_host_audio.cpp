@@ -244,12 +244,33 @@ static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, i
             "VST3 host could not restore the non-automatable factory identity");
 }
 
-static void applyCommandLineOverrides(juce::AudioPluginInstance& instance,
-                                       int argc, char** argv, int firstOption) {
+static int applyCommandLineOverrides(juce::AudioPluginInstance& instance,
+                                      int argc, char** argv, int firstOption) {
+    // The VST3 identity is non-automatable. Explicit --factory 6 selects
+    // the newly added five-plugin preset by its *real* serialized state,
+    // not by an invented APVTS parameter. Two passes make command-line
+    // override order irrelevant. Existing default is frozen factory5.
+    int factoryId=5;
+    for(int i=firstOption;i<argc;i+=2) {
+        require(i+1<argc,"Expected complete flag/value pair");
+        const std::string option=argv[i];
+        if(option=="--factory") {
+            const std::string value=argv[i+1];
+            require(value=="5" || value=="6",
+                    "Hosted source presets are --factory 5 or --factory 6");
+            factoryId=value=="6" ? 6 : 5;
+        }
+    }
+    if(factoryId==6) {
+        setParameterByName(instance,"Highs",3.0f);
+        setParameterByName(instance,"Clip",35.0f);
+    }
     for (int i = firstOption; i < argc;) {
         const std::string option = argv[i++];
-        require((option == "--set" || option == "--bool") && i < argc,
-                "Expected --set NAME=VALUE or --bool NAME=0|1 after the WAV output path");
+        require((option == "--set" || option == "--bool" ||
+                 option == "--factory") && i < argc,
+                "Expected --factory 5|6, --set NAME=VALUE or --bool NAME=0|1");
+        if(option=="--factory") { ++i; continue; }
         const std::string assignment = argv[i++];
         const auto separator = assignment.find('=');
         require(separator != std::string::npos && separator > 0
@@ -274,6 +295,7 @@ static void applyCommandLineOverrides(juce::AudioPluginInstance& instance,
                     "Boolean VST3 parameter override did not stick: " + name);
         }
     }
+    return factoryId;
 }
 
 static void requireHostStateRoundTrip(juce::AudioPluginInstance& source,
@@ -482,13 +504,13 @@ int main(int argc, char** argv) {
         // Optional offline-render overrides are applied after the documented
         // SKELL MASTER factory values. With no flags, the reference render is
         // unchanged. This enables reproducible, non-destructive parameter sweeps.
-        if (externalWav)
-            applyCommandLineOverrides(*plugin, argc, argv, 4);
+        const int requestedFactory=externalWav
+            ? applyCommandLineOverrides(*plugin, argc, argv, 4) : 5;
         // Factory identity is deliberately non-automatable and is not present
         // in getParameters(). Seed the named SKELL MASTER identity through the
         // real serialized host-state path so the following VST3 roundtrip
         // verifies it separately from the exposed APVTS parameters.
-        setFactoryIdentityForHostTest(*plugin, 5);
+        setFactoryIdentityForHostTest(*plugin, requestedFactory);
 
         // Exercise the actual hosted VST3 component-state path, not only the
         // processor/UI fixture. Every public parameter must survive a fresh
