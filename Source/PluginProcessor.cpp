@@ -59,6 +59,7 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     referenceClipGuardHold=0;
     postLimiterPresence.prepare(sampleRate);
     postLimiterMidPresence.prepare(sampleRate);
+    referenceFinalEq.prepare(sampleRate);
     legacySafetyGuard.prepare(sampleRate);
     safetyGuard.prepare(sampleRate);
     setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
@@ -73,6 +74,7 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
 void SkellyMasterAudioProcessor::releaseResources() {
     postLimiterPresence.reset();
     postLimiterMidPresence.reset();
+    referenceFinalEq.reset();
     legacySafetyGuard.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
@@ -87,6 +89,7 @@ void SkellyMasterAudioProcessor::reset() {
     referenceClipGuardHold=0;
     postLimiterPresence.reset();
     postLimiterMidPresence.reset();
+    referenceFinalEq.reset();
     legacySafetyGuard.reset();
     safetyGuard.reset();
     truePeakMonitor.reset();
@@ -140,6 +143,9 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         referenceClipGuardHold=static_cast<int>(std::ceil(getSampleRate()*.12));
     else referenceClipGuardHold=std::max(0,referenceClipGuardHold-samples);
     const bool requireTruePeak=deuceMatch || (referenceClipGuardHold>0 && !p.bypass);
+    // A sixth, additive factory preset alone enables this API-like post-L2
+    // bell. Existing SKELL MASTER and all v1-v7 saved presets stay the same.
+    referenceFinalEq.setEnabled(getFactoryPresetId()==6 && !p.bypass);
 
     // Reject malformed input BEFORE JUCE's oversampling filter stages.
     // Sanitizing only the oversampled samples is too late: NaN or Inf can
@@ -180,6 +186,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         double postR = outR ? outR[i] : postL;
         postLimiterPresence.process(postL, postR, presenceWet);
         postLimiterMidPresence.process(postL, postR, presenceWet);
+        referenceFinalEq.process(postL, postR);
         const skelly::StereoFrame postFrame {
             static_cast<float>(postL), static_cast<float>(postR)
         };
@@ -271,13 +278,13 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
                 validFactoryPreset=false;
                 break;
             }
-            // Only values 0..6 matter: 6 is a saturating sentinel for all
-            // positive out-of-range IDs, avoiding integer overflow on hostile XML.
+            // 7 is a saturating sentinel: ID 6 is a new preset only for
+            // v7 states. Older malformed ID 6 still clamps to old ID 5.
             parsedFactoryPreset=juce::jmin(
-                6,parsedFactoryPreset*10+static_cast<int>(character-'0'));
+                7,parsedFactoryPreset*10+static_cast<int>(character-'0'));
         }
         const int restoredFactoryPreset=validFactoryPreset
-            ? juce::jmin(5,parsedFactoryPreset) : 0;
+            ? juce::jmin(previousVersion>=7 ? 6 : 5,parsedFactoryPreset) : 0;
         setFactoryPresetId(restoredFactoryPreset);
         snapshot.setProperty("skellMasterFactoryPreset",restoredFactoryPreset,nullptr);
         // Version-one presets contain the actual -3..-0.1 dBFS ceiling.

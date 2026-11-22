@@ -303,10 +303,10 @@ int main() {
         clear->onClick();
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
               "passive output monitoring modified audio");
-        check(preset->getNumItems()==9 && preset->getItemId(5)==6
-              && preset->getItemId(6)==7 && preset->getItemId(7)==8
-              && preset->getItemId(8)==9,
-              "keep factory 1..5 IDs and four non-parameter menu actions");
+        check(preset->getNumItems()==10 && preset->getItemId(5)==10
+              && preset->getItemId(6)==6 && preset->getItemId(7)==7
+              && preset->getItemId(8)==8 && preset->getItemId(9)==9,
+              "published factory 1..5 and menu 6..9 IDs stable; new factory ID10 appended");
         check(preset->getSelectedId()==0 && preset->getText().isEmpty()
               && !static_cast<bool>(preset->getProperties().getWithDefault(
                   "skellMasterPresetModified",false)),
@@ -347,6 +347,50 @@ int main() {
                   "SKELL MASTER factory parameter snapshot is incorrect");
         check(processor.parameters.getRawParameterValue("deuceMatch")->load()>=0.5f,
               "SKELL MASTER must enable the real Deuce DSP stages");
+        // New factory ID6 is an opt-in *addition*, not a mutation of any
+        // published factory values or host parameter IDs.
+        preset->setSelectedId(10,juce::sendNotificationSync);
+        check(processor.getFactoryPresetId()==6 && preset->getSelectedId()==10 &&
+              preset->getText()=="5-PLUGIN MATCH",
+              "new reference preset must have correct saved ID and visible menu name");
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-35.0f)<.12f
+              && std::abs(processor.parameters.getRawParameterValue("highs")->load()-3.0f)<.12f
+              && processor.parameters.getRawParameterValue("deuceMatch")->load()>=.5f
+              && processor.usesReferenceClip() && processor.usesChainOrderedClip(),
+              "new preset must select source-calibrated 35%, highs and v7 chain mode");
+        juce::MemoryBlock matchState;
+        processor.getStateInformation(matchState);
+        SkellyMasterAudioProcessor referenceRestored;
+        referenceRestored.setStateInformation(matchState.getData(),
+                                              static_cast<int>(matchState.getSize()));
+        check(referenceRestored.getFactoryPresetId()==6
+              && referenceRestored.parameters.getRawParameterValue("clipper")->load()>34.9f,
+              "new preset ID6 and settings must survive host project recall");
+        {
+            SkellyMasterAudioProcessorEditor referenceEditor(referenceRestored);
+            juce::ComboBox* referenceMenu=nullptr;
+            for(int i=0;i<referenceEditor.getNumChildComponents();++i)
+                if(auto* combo=dynamic_cast<juce::ComboBox*>(referenceEditor.getChildComponent(i)))
+                    if(combo->getComponentID()=="skell-master-preset") referenceMenu=combo;
+            check(referenceMenu && referenceMenu->getSelectedId()==10 &&
+                  referenceMenu->getText()=="5-PLUGIN MATCH",
+                  "new preset name must render correctly after host state restore");
+        }
+        clipper->setValue(70.0,juce::sendNotificationSync);
+        juce::Thread::sleep(70);
+        juce::Timer::callPendingTimersSynchronously();
+        check(static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "new 5-PLUGIN MATCH must mark user-edited settings");
+        preset->setSelectedId(6,juce::sendNotificationSync);
+        check(processor.getFactoryPresetId()==6 && preset->getSelectedId()==10 &&
+              std::abs(processor.parameters.getRawParameterValue("clipper")->load()-35.0f)<.12f,
+              "new preset REAPPLY CURRENT must restore 35% without changing identity");
+        preset->setSelectedId(5,juce::sendNotificationSync);
+        check(processor.getFactoryPresetId()==5 &&
+              std::abs(processor.parameters.getRawParameterValue("clipper")->load()-14.0f)<.12f
+              && std::abs(processor.parameters.getRawParameterValue("highs")->load()-2.0f)<.12f,
+              "new reference preset must not overwrite published SKELL MASTER factory");
         // Editing factory #5 is a custom variant, not the original published sound.
         clipper->setValue(43.0,juce::sendNotificationSync);
         juce::Thread::sleep(70);
@@ -475,6 +519,21 @@ int main() {
         check(!restoredLegacyState.usesReferenceClip()
               && !restoredLegacyState.usesChainOrderedClip(),
               "v1-5 project must retain both old CLIP algorithm and topology");
+        // A hostile/old v6 state with an impossible factory identity 6
+        // must keep the historic saturation clamp at 5. Only v7 can save
+        // the new reference factory 6.
+        auto oldBadFactory=processor.parameters.copyState();
+        oldBadFactory.setProperty("skellMasterStateVersion",6,nullptr);
+        oldBadFactory.setProperty("skellMasterFactoryPreset",6,nullptr);
+        auto badFactoryXml=oldBadFactory.createXml();
+        check(static_cast<bool>(badFactoryXml),"old bad-factory XML created");
+        juce::MemoryBlock oldBadBlob;
+        if(badFactoryXml)juce::AudioProcessor::copyXmlToBinary(*badFactoryXml,oldBadBlob);
+        SkellyMasterAudioProcessor migratedOldFactory;
+        migratedOldFactory.setStateInformation(oldBadBlob.getData(),
+                     static_cast<int>(oldBadBlob.getSize()));
+        check(migratedOldFactory.getFactoryPresetId()==5,
+              "pre-v7 malformed factory ID6 must not enable the new preset");
 
         // XML numeric properties are text after deserialization; clamp invalid positive IDs.
         auto malformedFactoryState=processor.parameters.copyState();

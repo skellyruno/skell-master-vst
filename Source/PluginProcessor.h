@@ -40,7 +40,7 @@ public:
 
     // Factory selector identity is UI state, not an automatable parameter.
     void setFactoryPresetId(int presetId) noexcept {
-        factoryPresetId.store(juce::jlimit(0, 5, presetId), std::memory_order_relaxed);
+        factoryPresetId.store(juce::jlimit(0, 6, presetId), std::memory_order_relaxed);
     }
     int getFactoryPresetId() const noexcept {
         return factoryPresetId.load(std::memory_order_relaxed);
@@ -75,6 +75,8 @@ private:
     std::atomic<float> peakLeft { 0.0f }, peakRight { 0.0f }, reduction { 0.0f };
     std::atomic<float> truePeak { 0.0f };
     skelly::StereoTruePeakMonitor truePeakMonitor;
+    // Opt-in five-plugin factory #6 only. Final host-rate EQ after L2.
+    skelly::detail::ReferenceFinalEq referenceFinalEq;
     skelly::StereoLoudnessMonitor loudnessMonitor;
     std::atomic<float> momentaryLufs {-100.0f}, shortTermLufs {-100.0f};
     std::atomic<int> factoryPresetId { 0 };

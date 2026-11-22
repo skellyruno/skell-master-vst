@@ -282,6 +282,40 @@ authoritative actual-editor visual inspection output.
 | CLIP | New v7: 4× oversampled pre-limiter clipping; **35%=Soft Clip Pro 11% saturation / -1.2 dB threshold / 0dB input gain**; 100%=harder clip | 0…100% / **0** |
 | BYPASS | 12 ms crossfade to latency-aligned dry audio | off |
 
+### New opt-in factory: 5-PLUGIN MATCH (ID 6)
+
+The first five factories (IDs 1..5) retain their **published parameter values**
+and names. A sixth selectable preset, **5-PLUGIN MATCH**, is added using
+internal saved factory identity `6` and menu item ID `10`, without
+renumbering the existing factory IDs or non-preset menu actions 6..9.
+Fresh selection explicitly enables the v7 clip-before-L2 topology.
+
+The new preset uses the original SKELL MASTER settings except
+**HIGHS=3%/dB control** (up from published factory5's 2), **CLIP=35%**
+(up from 14%). Its source-calibrated final API-style EQ is an
+**opt-in +0.8dB broad 1.4kHz bell** after the native limiter and before
+the host-rate true-peak safety stage. This bell is activated by saved
+factory identity 6 only and is neutral for factory IDs 0..5. It has
+no extra host latency, requires no host parameter IDs, tracks filter
+history while inactive and crossfades the wet correction over 12ms.
+The settings remain editable with the existing 11 stable APVTS knobs;
+`*` indicates an edited factory and REAPPLY CURRENT restores ID6.
+
+Why: a private 99.648s owner four-plugin master baseline matched the
+latest clip-0 v7 render in crest (7.31 vs 7.29dB) while loudness was
+about 1.75LU lower due largely to Skell's preserved -1.5dB ceiling.
+After LUFS matching, the earlier Skell clip-0 spectrum was roughly
+0.6dB low in the 500-2594Hz band and 0.7dB low in the highest band.
+A tested +1 step to the HIGHS control addressed the air gap without
+overwriting the old factory; the final API-like bell is the separate
+mid-band correction hypothesis. Audition and independent final-WAV
+spectral measurement still determine its suitability.
+
+Older saved state: v1-v6 factory IDs remain capped at 5 in migration
+so malformed historical ID6 values cannot accidentally activate the
+new EQ. State v7 explicitly supports factory ID6, preserving selection,
+settings and clip topology across host project reloads.
+
 ### Owner's five-plugin master reference and compatibility
 
 The actual FL Studio `.fst` and six plugin screenshots resolve the source

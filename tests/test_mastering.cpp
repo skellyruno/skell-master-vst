@@ -852,6 +852,46 @@ int main() {
             "v7 L2 makeup placement must not change host latency");
     std::cout << "PASS: five-plugin pre-L2 +1.7dB, stable v6 post-L2 +2.4dB and PDC\\n";
 
+    // New opt-in final API-550-like EQ. The curve is post-limiter,
+    // center ~1.4kHz, +0.8dB Q~0.78, warm states, no signal delay.
+    // Existing factory paths process at wet=0 and must remain exact.
+    detail::ReferenceFinalEq neutralFinal;
+    neutralFinal.prepare(44100.0);
+    double neutralL=.34, neutralR=-.13;
+    neutralFinal.process(neutralL,neutralR);
+    require(neutralL==.34 && neutralR==-.13,
+            "disabled final EQ must be bit-identical, not alter old presets");
+    const auto measureEqGain=[](double hz) {
+        detail::ReferenceFinalEq finalTone;
+        finalTone.prepare(48000.0);
+        finalTone.setEnabled(true);
+        double inEnergy=0.0,outEnergy=0.0,stereoError=0.0;
+        for(int i=0;i<48000;++i) {
+            const double phase=2.0*detail::pi*hz*i/48000.0;
+            const double source=.15*std::sin(phase);
+            double left=source, right=source*.71;
+            finalTone.process(left,right);
+            require(std::isfinite(left)&&std::isfinite(right),
+                    "final EQ must stay finite");
+            if(i>12000) {
+                inEnergy+=source*source;
+                outEnergy+=left*left;
+                if(std::abs(left)>.02)
+                    stereoError=std::max(stereoError,std::abs(right/left-.71));
+            }
+        }
+        require(stereoError<1.e-5,"final EQ must preserve stereo-linked tone");
+        return 10.0*std::log10(outEnergy/std::max(inEnergy,1.e-20));
+    };
+    const double midGain=measureEqGain(1400.0);
+    const double bassGain=measureEqGain(80.0);
+    const double trebleGain=measureEqGain(16000.0);
+    require(midGain>.68 && midGain<.91,
+            "reference API-like bell must boost 1.4kHz by ~0.8dB");
+    require(std::abs(bassGain)<.08 && std::abs(trebleGain)<.08,
+            "new 1.4kHz bell must not cause unintended bass/air boosts");
+    std::cout << "PASS: opt-in final mid bell, neutral old factory, stereo and PDC\\n";
+
     // A restored pre-v6 project uses the original CLIP engine. No new
     // algorithm may alter its 14% SKELL MASTER or other old CLIP automation.
     require(!MasterParameters{}.referenceClip,

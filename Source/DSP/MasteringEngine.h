@@ -95,6 +95,21 @@ public:
         if (std::abs(z2) < 1.0e-28) z2 = 0.0;
         return output;
     }
+    // RBJ peaking EQ, used only by the opt-in final API-like reference
+    // stage. Coefficients are calculated during prepare(), never on audio.
+    void setPeak(double sampleRate, double frequency, double gainDb, double q) noexcept {
+        const double A=std::pow(10.0,clamp(gainDb,-12.0,12.0)/40.0);
+        const double omega=2.0*pi*clamp(frequency,20.0,sampleRate*.45)/sampleRate;
+        const double c=std::cos(omega);
+        const double alpha=std::sin(omega)/(2.0*clamp(q,0.1,12.0));
+        const double a0=1.0+alpha/A;
+        const double norm=1.0/a0;
+        b0=(1.0+alpha*A)*norm;
+        b1=-2.0*c*norm;
+        b2=(1.0-alpha*A)*norm;
+        a1=-2.0*c*norm;
+        a2=(1.0-alpha/A)*norm;
+    }
     void setShelf(double sampleRate, double frequency, double gainDb, bool high) noexcept {
         const double A = std::pow(10.0, clamp(gainDb, -12.0, 12.0) / 40.0);
         const double w = 2.0 * pi * clamp(frequency, 20.0, sampleRate * 0.45) / sampleRate;
@@ -124,6 +139,42 @@ public:
 private:
     double b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
     double z1 = 0.0, z2 = 0.0;
+};
+
+// API-550A is AFTER L2 in the owner's real five-plugin chain.
+ // An opt-in host-rate mid bell therefore follows the Skell limiter,
+ // ahead of the final true-peak guard. No extra PDC, allocations,
+ // per-sample transcendental functions or host automation IDs.
+class ReferenceFinalEq {
+public:
+    void prepare(double sampleRate) noexcept {
+        const double rate=std::max(8000.0,sampleRate);
+        for(auto& filter:mid)
+            filter.setPeak(rate,1400.0,0.8,0.78);
+        blend.prepare(rate,12.0,0.0);
+        reset();
+    }
+    void reset() noexcept {
+        for(auto& filter:mid) filter.reset();
+        blend.snap(0.0);
+    }
+    void setEnabled(bool enabled) noexcept {
+        blend.setTarget(enabled?1.0:0.0);
+    }
+    void process(double& left,double& right) noexcept {
+        // Track both filter histories while disabled. When toggled on,
+        // the next sample starts with warm, continuous filter state.
+        const double filteredL=mid[0].process(left);
+        const double filteredR=mid[1].process(right);
+        const double wet=blend.next();
+        if(wet>1.0e-12) {
+            left+=wet*(filteredL-left);
+            right+=wet*(filteredR-right);
+        }
+    }
+private:
+    std::array<Biquad,2> mid;
+    Smoother blend;
 };
 
 class Compressor {
