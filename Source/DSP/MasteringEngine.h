@@ -638,6 +638,12 @@ public:
                 ? 2.23*std::pow(amount/0.35,1.15)
                 : 2.23+5.77*std::pow((amount-0.35)/0.65,1.15);
             referenceClipGainTable[i]=detail::dbToLinear(db);
+            const double referenceProgress=std::min(1.0,amount/0.35);
+            const double onset=referenceProgress*referenceProgress*
+                (3.0-2.0*referenceProgress);
+            const double above=std::max(0.0,(amount-0.35)/0.65);
+            referenceClipThresholdTable[i]=detail::dbToLinear(
+                -1.20*onset-4.8*above);
         }
         dcR = std::exp(-2.0 * detail::pi * 5.0 / rate);
         fastAtk = std::exp(-1.0 / (rate * 0.002));
@@ -823,8 +829,17 @@ public:
             const double onset=atReference*atReference*
                 (3.0-2.0*atReference);
             const double saturation=0.11*onset+0.24*aboveReference;
-            const double clipDb=-1.20*onset-4.8*aboveReference;
-            const double threshold=detail::dbToLinear(clipDb);
+            // CLIP threshold conversion is prepared once, never pow()
+            // inside the realtime 4x audio callback.
+            const double lutPos=modernClip*
+                static_cast<double>(referenceClipThresholdTable.size()-1);
+            const auto lutLo=static_cast<std::size_t>(lutPos);
+            const auto lutHi=std::min(lutLo+1,
+                referenceClipThresholdTable.size()-1);
+            const double lutFraction=lutPos-static_cast<double>(lutLo);
+            const double threshold=referenceClipThresholdTable[lutLo]
+                +lutFraction*(referenceClipThresholdTable[lutHi]-
+                             referenceClipThresholdTable[lutLo]);
             const double width=0.25-0.17*aboveReference;
             const double low=threshold*(1.0-width);
             const double high=threshold*(1.0+width);
@@ -989,6 +1004,7 @@ private:
     std::array<std::vector<double>, 2> programDelay, dryDelay;
     detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, referenceClipDrive, bypassMix, deuceMatchMakeup;
     std::array<double,1025> referenceClipGainTable {};
+    std::array<double,1025> referenceClipThresholdTable {};
     std::array<detail::Biquad, 2> lowShelf, highShelf;
     std::array<detail::OnePole, 2> hf;
     StereoImager stereoImager;
