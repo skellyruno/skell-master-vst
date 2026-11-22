@@ -859,8 +859,10 @@ public:
             const double beforePeak=std::max(std::abs(l),std::abs(r));
             l=curve(l); r=curve(r);
             const double afterPeak=std::max(std::abs(l),std::abs(r));
-            newChainClipGain=std::min(1.0,afterPeak/
-                std::max(beforePeak,1.e-24));
+            // Silence must NOT count as an infinite clip reduction:
+            // an inactive/no-signal clip stage has 0dB GR.
+            newChainClipGain=beforePeak>1.e-24
+                ? std::min(1.0,afterPeak/beforePeak) : 1.0;
         }
 
         // Optional oversampled soft clipping ahead of the existing lookahead

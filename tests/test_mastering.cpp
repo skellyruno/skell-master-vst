@@ -778,6 +778,17 @@ int main() {
             "v7 CLIP at 35% must make actual nonlinear shape, not fake wet gain");
     require(curveDelta70>curveDelta35*1.02,
             "v7 CLIP must develop progressively more peak shaping above 35%");
+    // Silence must never report huge fake clip gain reduction when
+    // CLIP is enabled. This is important for live UI GR metering.
+    MasteringEngine chainSilence;
+    chainSilence.prepare(rate,2,lookahead);
+    chainSilence.setParameters(before35);
+    chainSilence.beginBlock();
+    for(int i=0;i<static_cast<int>(rate*.10);++i)
+        chainSilence.processFrame(0.0f,0.0f);
+    require(chainSilence.getBlockGainReductionDb()<0.01,
+            "silent v7 CLIP must not report bogus clip gain reduction");
+
     // The screenshot has 0dB I/O gain, but harmonic saturation can
     // legitimately change RMS for loud material. Test near-linear low-level
     // gain directly instead of incorrectly requiring driven RMS to fall.
