@@ -78,6 +78,10 @@ private:
     static void atomicMax(std::atomic<float>& v, float input) noexcept;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
     skelly::MasteringEngine engine;
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> defaultDryDelay;
+    juce::AudioBuffer<float> defaultDry;
+    juce::SmoothedValue<float> defaultDryMix;
+    bool defaultDryMixInitialized = false;
     std::atomic<float> peakLeft { 0.0f }, peakRight { 0.0f }, reduction { 0.0f };
     std::atomic<float> truePeak { 0.0f };
     skelly::StereoTruePeakMonitor truePeakMonitor;

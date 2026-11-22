@@ -49,7 +49,8 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
         static_cast<size_t>(activeChannels), 2,
         juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
         true, true);
-    oversampler->initProcessing(static_cast<size_t>(juce::jmax(16384, maxBlock)));
+    const int blockCapacity = juce::jmax(16384, maxBlock);
+    oversampler->initProcessing(static_cast<size_t>(blockCapacity));
     oversampler->reset();
 
     // 1.5 ms of lookahead, exactly divisible by 4 to keep host latency integral.
@@ -66,6 +67,13 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
                       + lookaheadSamples / oversamplingFactor
                       + safetyGuard.getLatencySamples());
+    defaultDry.setSize(activeChannels, blockCapacity);
+    defaultDryDelay.setMaximumDelayInSamples(getLatencySamples());
+    defaultDryDelay.prepare({sampleRate, static_cast<juce::uint32>(blockCapacity),
+                             static_cast<juce::uint32>(activeChannels)});
+    defaultDryDelay.setDelay(static_cast<float>(getLatencySamples()));
+    defaultDryMix.reset(sampleRate, 0.012);
+    defaultDryMixInitialized = false;
     truePeakMonitor.reset();
     loudnessMonitor.prepare(sampleRate,activeChannels);
     peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
@@ -88,6 +96,8 @@ void SkellyMasterAudioProcessor::releaseResources() {
 void SkellyMasterAudioProcessor::reset() {
     if (oversampler) oversampler->reset();
     engine.reset();
+    defaultDryDelay.reset();
+    defaultDryMixInitialized = false;
     referenceClipGuardHold=0;
     postLimiterPresence.reset();
     postLimiterMidPresence.reset();
@@ -141,9 +151,8 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     // The pre-release DEFAULT was not actually neutral: the always-on
     // -1dB limiter reduced loud incoming audio by ~1.5dB RMS.
     // When DEFAULT (startup ID0 / factory ID1) is fully at its zero
-    // knob values, use the engine's latency-aligned dry path. The first
-    // actual knob change immediately restores mastering DSP, while
-    // metering still runs and the explicit BYPASS switch stays independent.
+    // knob values, use an exact host-rate dry path. The oversampled bypass
+    // alone changes transient peaks through the polyphase filters.
     const auto atZero=[](double v) noexcept { return std::abs(v)<1.0e-8; };
     const int factoryId=getFactoryPresetId();
     const bool neutralDefault=(factoryId==0 || factoryId==1)
@@ -154,6 +163,14 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         && atZero(parameters.getRawParameterValue("ceiling")
                       ->load(std::memory_order_relaxed));
     p.bypass=p.bypass || neutralDefault;
+    const float dryTarget = neutralDefault ? 1.0f : 0.0f;
+    if (!defaultDryMixInitialized) {
+        defaultDryMix.setCurrentAndTargetValue(dryTarget);
+        defaultDryMixInitialized = true;
+    } else {
+        defaultDryMix.setTargetValue(dryTarget);
+    }
+    const bool useDefaultDry = neutralDefault || defaultDryMix.isSmoothing();
     engine.setParameters(p);
     engine.beginBlock();
     const bool deuceMatch = p.deuceMatch && !p.bypass;
@@ -188,11 +205,16 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     constexpr float maxHostSample = 256.0f;
     for (int channel = 0; channel < channels; ++channel) {
         float* inputSamples = buffer.getWritePointer(channel);
+        float* drySamples = defaultDry.getWritePointer(channel);
         for (int i = 0; i < samples; ++i) {
             const float value = inputSamples[i];
             if (!std::isfinite(value)) inputSamples[i] = 0.0f;
             else if (value > maxHostSample) inputSamples[i] = maxHostSample;
             else if (value < -maxHostSample) inputSamples[i] = -maxHostSample;
+            // Keep history through wet processing for automation back to DEFAULT.
+            defaultDryDelay.pushSample(channel, inputSamples[i]);
+            const float drySample = defaultDryDelay.popSample(channel);
+            if (useDefaultDry) drySamples[i] = drySample;
         }
     }
 
@@ -243,6 +265,15 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     float maximumL = 0.0f, maximumR = 0.0f, maximumTP = 0.0f;
     const auto* readL = buffer.getReadPointer(0);
     const auto* readR = channels == 2 ? buffer.getReadPointer(1) : readL;
+    if (useDefaultDry) {
+        const auto* dryL = defaultDry.getReadPointer(0);
+        const auto* dryR = outR ? defaultDry.getReadPointer(1) : dryL;
+        for (int i = 0; i < samples; ++i) {
+            const float mix = defaultDryMix.getNextValue();
+            outL[i] = mix == 1.0f ? dryL[i] : outL[i] + mix * (dryL[i] - outL[i]);
+            if (outR) outR[i] = mix == 1.0f ? dryR[i] : outR[i] + mix * (dryR[i] - outR[i]);
+        }
+    }
     for (int i = 0; i < samples; ++i) {
         maximumL = juce::jmax(maximumL, std::abs(readL[i]));
         maximumR = juce::jmax(maximumR, std::abs(readR[i]));

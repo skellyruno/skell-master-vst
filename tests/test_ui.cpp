@@ -145,11 +145,9 @@ int main() {
                     "skellMasterPresetModified",false)),
                 "neutral startup must display DEFAULT while retaining saved ID0");
         }
-        // The requested DEFAULT must be transparent even for loud
-        // premastered input. Before this fix the always-on -1dB limiter
-        // reduced RMS by ~1.5dB although every knob displayed 0.
-        // Compare the real processor path to explicit latency-aligned BYPASS
-        // at both startup ID0 and menu factory ID1, then check RMS unity.
+        // Both DEFAULT identities must pass the source unchanged after the
+        // reported latency, including an impulse at the first sample. Checking
+        // only against internal bypass could hide identical filtering in both.
         for(int defaultId : {0,1}) {
             auto neutral=std::make_unique<SkellyMasterAudioProcessor>();
             auto dry=std::make_unique<SkellyMasterAudioProcessor>();
@@ -161,40 +159,43 @@ int main() {
                 bp->setValueNotifyingHost(1.0f);
             juce::AudioBuffer<float> neutralAudio(2,256),dryAudio(2,256);
             juce::MidiBuffer midi;
-            double inEnergy=0,outEnergy=0,maxDifferent=0;
-            for(int block=0;block<144;++block) {
+            constexpr int blockSize=256, blocks=4;
+            juce::AudioBuffer<float> source(2,blockSize*blocks);
+            const int latency=neutral->getLatencySamples();
+            check(latency>0 && latency<blockSize,"unexpected DEFAULT latency at 44.1 kHz");
+            bool exactDry=true;
+            for(int block=0;block<blocks;++block) {
                 for(int k=0;k<256;++k) {
-                    const double t=(block*256+k)/44100.0;
+                    const int sample=block*blockSize+k;
+                    const double t=sample/44100.0;
                     const float left=static_cast<float>(
                         .88*std::sin(2.0*juce::MathConstants<double>::pi*437.0*t)
-                        +.27*std::sin(2.0*juce::MathConstants<double>::pi*1790.0*t));
+                        +.27*std::sin(2.0*juce::MathConstants<double>::pi*1790.0*t)
+                        +(sample==0 ? .95 : 0.0));
                     const float right=static_cast<float>(
                         .82*std::sin(2.0*juce::MathConstants<double>::pi*493.0*t)
-                        -.22*std::sin(2.0*juce::MathConstants<double>::pi*3830.0*t));
+                        -.22*std::sin(2.0*juce::MathConstants<double>::pi*7200.0*t)
+                        -(sample==0 ? .87 : 0.0));
+                    source.setSample(0,sample,left);
+                    source.setSample(1,sample,right);
                     neutralAudio.setSample(0,k,left);
                     neutralAudio.setSample(1,k,right);
                     dryAudio.setSample(0,k,left);
                     dryAudio.setSample(1,k,right);
-                    if(block>20)inEnergy+=left*left+right*right;
                 }
                 neutral->processBlock(neutralAudio,midi);
                 dry->processBlock(dryAudio,midi);
                 for(int k=0;k<256;++k)
                     for(int channel=0;channel<2;++channel) {
-                        const double fresh=neutralAudio.getSample(channel,k);
-                        const double bypassed=dryAudio.getSample(channel,k);
-                        maxDifferent=std::max(maxDifferent,std::abs(fresh-bypassed));
-                        if(block>20)outEnergy+=fresh*fresh;
+                        const int aligned=block*blockSize+k-latency;
+                        const float expected=aligned>=0 ? source.getSample(channel,aligned) : 0.0f;
+                        exactDry &= neutralAudio.getSample(channel,k)==expected
+                                    && dryAudio.getSample(channel,k)==expected;
                     }
             }
-            const double gainDb=10.0*std::log10(
-                outEnergy/std::max(inEnergy,1.e-20));
-            check(maxDifferent<1.e-6,
-                  "DEFAULT does not match explicit dry bypass sample-for-sample");
-            check(std::abs(gainDb)<.12,
-                  "DEFAULT must not lower or boost premaster RMS at zero controls");
-            std::cout<<"PASS: transparent DEFAULT ID"<<defaultId
-                     <<" vs dry bypass, gain "<<gainDb<<" dB\\n";
+            check(exactDry,"DEFAULT and its explicit bypass must equal the latency-aligned input");
+            std::cout<<"PASS: sample-exact DEFAULT ID"<<defaultId
+                     <<" and bypass at "<<latency<<" samples of latency\n";
         }
 
         // Every *fresh* control starts at displayed zero. Old projects still
