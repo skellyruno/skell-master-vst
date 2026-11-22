@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <vector>
 
 static void require(bool ok, const char* message) {
@@ -60,6 +61,9 @@ private:
 };
 
 int main() {
+    // Windows CTest captures stdout through a pipe: flush each regression
+    // stage so a late test crash identifies the last passing block.
+    std::cout << std::unitbuf;
     using namespace skelly;
     constexpr double rate = 192000;
     const int lookahead = static_cast<int>(rate * 0.0015);
@@ -249,27 +253,30 @@ int main() {
     MasterParameters knobNeutral;
     knobNeutral.referenceClip=true;
     knobNeutral.clipBeforeLimiter=true;
-    MasteringEngine knobBaseEngine;
-    knobBaseEngine.prepare(rate,2,lookahead);
-    knobBaseEngine.setParameters(knobNeutral);
+    // Allocate large native engine states on the heap rather than growing
+    // MSVC's 1MB default test-thread stack. Linux has a larger stack, which
+    // hid a Windows-only SkellyDSPTests stack overflow during CI.
+    auto knobBaseEngine=std::make_unique<MasteringEngine>();
+    knobBaseEngine->prepare(rate,2,lookahead);
+    knobBaseEngine->setParameters(knobNeutral);
     std::vector<StereoFrame> knobBaseline;
     knobBaseline.reserve(fixtureFrames);
     for(int i=0;i<fixtureFrames;++i) {
         const auto inputFrame=fixtureFrame(i);
-        knobBaseline.push_back(knobBaseEngine.processFrame(
+        knobBaseline.push_back(knobBaseEngine->processFrame(
             inputFrame.left,inputFrame.right));
     }
     for(const auto& knob : knobDspCases) {
         auto setting=knobNeutral;
         setting.*(knob.field)=knob.extreme;
-        MasteringEngine testedKnob;
-        testedKnob.prepare(rate,2,lookahead);
-        testedKnob.setParameters(setting);
+        auto testedKnob=std::make_unique<MasteringEngine>();
+        testedKnob->prepare(rate,2,lookahead);
+        testedKnob->setParameters(setting);
         double differenceEnergy=0.0;
         double baselineEnergy=0.0;
         for(int i=0;i<fixtureFrames;++i) {
             const auto inputFrame=fixtureFrame(i);
-            const auto outputFrame=testedKnob.processFrame(
+            const auto outputFrame=testedKnob->processFrame(
                 inputFrame.left,inputFrame.right);
             require(std::isfinite(outputFrame.left)&&std::isfinite(outputFrame.right),
                     "knob sweep produced non-finite audio");
@@ -312,18 +319,18 @@ int main() {
                 "refined compressor at 100% must reach intended limit");
     }
     const auto compressorProbe=[&](bool dynamics,bool refined) {
-        MasteringEngine dsp;
-        dsp.prepare(rate,2,lookahead);
+        auto dsp=std::make_unique<MasteringEngine>();
+        dsp->prepare(rate,2,lookahead);
         MasterParameters p;
         p.referenceClip=true;
         p.clipBeforeLimiter=true;
         p.refinedControlCurves=refined;
         if(dynamics) p.dynamics=1.0; else p.glue=1.0;
-        dsp.setParameters(p);
+        dsp->setParameters(p);
         double energy=0.0;
         for(int i=0;i<76000;++i) {
             const auto inputFrame=fixtureFrame(i);
-            const auto out=dsp.processFrame(inputFrame.left,inputFrame.right);
+            const auto out=dsp->processFrame(inputFrame.left,inputFrame.right);
             require(std::isfinite(out.left)&&std::isfinite(out.right),
                     "refined compressor generated invalid audio");
             if(i>18000)
@@ -343,15 +350,16 @@ int main() {
     classicPreset.glue=refinedPreset.glue=0.24;
     classicPreset.dynamics=refinedPreset.dynamics=0.18;
     refinedPreset.refinedControlCurves=true;
-    MasteringEngine classicEngine,refinedEngine;
-    classicEngine.prepare(rate,2,lookahead);
-    refinedEngine.prepare(rate,2,lookahead);
-    classicEngine.setParameters(classicPreset);
-    refinedEngine.setParameters(refinedPreset);
+    auto classicEngine=std::make_unique<MasteringEngine>();
+    auto refinedEngine=std::make_unique<MasteringEngine>();
+    classicEngine->prepare(rate,2,lookahead);
+    refinedEngine->prepare(rate,2,lookahead);
+    classicEngine->setParameters(classicPreset);
+    refinedEngine->setParameters(refinedPreset);
     for(int i=0;i<42000;++i) {
         const auto x=fixtureFrame(i);
-        const auto a=classicEngine.processFrame(x.left,x.right);
-        const auto b=refinedEngine.processFrame(x.left,x.right);
+        const auto a=classicEngine->processFrame(x.left,x.right);
+        const auto b=refinedEngine->processFrame(x.left,x.right);
         require(a.left==b.left && a.right==b.right,
                 "refined compressor curves must null at old factory values");
     }
