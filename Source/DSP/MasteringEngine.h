@@ -198,7 +198,8 @@ struct MasterParameters {
     double transients = 0.0;// 0..1
     double outputDb = 0.0;
     double clipper = 0.0;  // existing 0..1 CLIP automation ID, unchanged
-    bool referenceClip = false; // false = exact pre-v6 legacy clip DSP
+    bool referenceClip = false; // v6 post-limit or v7 chain-ordered clip
+    bool clipBeforeLimiter = false; // false preserves exact v6 topology
     double ceilingDb = -1.0;
     bool bypass = false;
     bool deuceMatch = false; // opt-in pre-limiter five-band reference coloration
@@ -687,6 +688,7 @@ public:
         const double clipPosition=safe(p.clipper,0,1);
         clipperMix.setTarget(!p.referenceClip ? clipPosition : 0.0);
         referenceClipDrive.setTarget(p.referenceClip && !p.bypass ? clipPosition : 0.0);
+        referenceClipBeforeLimiter=p.referenceClip && p.clipBeforeLimiter;
         // For an invalid ceiling, fall back to the established -1dBFS
         // factory value, not the upper edge of -0.1dBFS.
         ceiling.setTarget(detail::dbToLinear(detail::clamp(
@@ -803,6 +805,48 @@ public:
         fiveBandColor.process(l, r, colorSettings);
 
         l *= outGain; r *= outGain;
+        // Exactly one 4x-rate smoother tick per sample, regardless of the
+        // v6 post-limiter or v7 pre-limiter clip topology.
+        const double modernClip=referenceClipDrive.next();
+
+        // The actual FL mixer routes StandardCLIP BEFORE Waves L2.
+        // User snapshot at the CLIP knob's 35% anchor:
+        // Soft Clip Pro, 11% saturator, -1.20 dB clip, 0 dB input/output.
+        // This is an original 4x-oversampled approximation, not SIR DSP.
+        // The reference explicitly uses 8x; an 8x replacement still needs
+        // a separately benchmarked latency/aliasing-safe implementation.
+        double newChainClipGain=1.0;
+        if(referenceClipBeforeLimiter && modernClip>1.e-6) {
+            const double atReference=detail::clamp(modernClip/0.35,0.0,1.0);
+            const double aboveReference=detail::clamp(
+                (modernClip-0.35)/0.65,0.0,1.0);
+            const double onset=atReference*atReference*
+                (3.0-2.0*atReference);
+            const double saturation=0.11*onset+0.24*aboveReference;
+            const double clipDb=-1.20*onset-4.8*aboveReference;
+            const double threshold=detail::dbToLinear(clipDb);
+            const double width=0.25-0.17*aboveReference;
+            const double low=threshold*(1.0-width);
+            const double high=threshold*(1.0+width);
+            const double range=high-low;
+            const auto curve=[&](double sample) noexcept {
+                const double harmonic=sample*(1.0+saturation*sample*sample);
+                const double magnitude=std::abs(harmonic);
+                double clipped=magnitude;
+                if(magnitude>=high) clipped=threshold;
+                else if(magnitude>low) {
+                    const double excess=magnitude-low;
+                    clipped=low+excess-0.5*excess*excess/range;
+                }
+                const double shaped=std::copysign(clipped,harmonic);
+                return sample+onset*(shaped-sample);
+            };
+            const double beforePeak=std::max(std::abs(l),std::abs(r));
+            l=curve(l); r=curve(r);
+            const double afterPeak=std::max(std::abs(l),std::abs(r));
+            newChainClipGain=std::min(1.0,afterPeak/
+                std::max(beforePeak,1.e-24));
+        }
 
         // Optional oversampled soft clipping ahead of the existing lookahead
         // limiter. At zero this is exactly a no-op for old projects. The
@@ -863,13 +907,9 @@ public:
         wetL *= deuceMakeup;
         wetR *= deuceMakeup;
 
-        // REFERENCE CLIP: real 4x oversampled nonlinear waveshaping, not
-        // merely output volume, and not a clone of proprietary StandardCLIP.
-        // 35% is the *user-supplied* StandardCLIP reference operating point.
-        // The knob progresses through drive, cubic odd-harmonic saturation
-        // and a continuous soft-to-firm clipping knee.
-        const double modernClip=referenceClipDrive.next();
-        if(modernClip>1.0e-6) {
+        // Keep the v6 reference CLIP *unchanged* for earlier saved states.
+        // Only freshly created v7 states switch to pre-limiter clipping.
+        if(!referenceClipBeforeLimiter && modernClip>1.0e-6) {
             const double tablePos=modernClip*(referenceClipGainTable.size()-1);
             const auto lo=static_cast<std::size_t>(tablePos);
             const auto hi=std::min(lo+1,referenceClipGainTable.size()-1);
@@ -932,7 +972,7 @@ public:
         }
         const double resultL = wetL * (1 - by) + dryL * by;
         const double resultR = wetR * (1 - by) + dryR * by;
-        const double effectiveCompression = 1.0 - (1.0 - glueGain * dynamicsGain * limiterGain * clipGain) * (1.0 - by);
+        const double effectiveCompression = 1.0 - (1.0 - glueGain * dynamicsGain * limiterGain * clipGain * newChainClipGain) * (1.0 - by);
         gainReduction = std::min(gainReduction, std::max(1.0e-9, effectiveCompression));
         outputPeak = std::max(outputPeak, std::max(std::abs(resultL), std::abs(resultR)));
         return { static_cast<float>(resultL), static_cast<float>(resultR) };
@@ -954,6 +994,7 @@ private:
     StereoImager stereoImager;
     experimental::FiveBandColorPrototype fiveBandColor;
     bool deuceMatch = false;
+    bool referenceClipBeforeLimiter = false;
     detail::DriveShaper driveShaper;
     detail::Compressor glueComp, dynamicsComp;
     std::array<double, 2> dcInput{}, dcOutput{};

@@ -279,37 +279,47 @@ authoritative actual-editor visual inspection output.
 | TRANSIENTS | Dual-envelope attack enhancement | 0…100% / **0** |
 | OUTPUT | Post-chain gain **before** limiter | −18…+12 dB / **0** |
 | CEILING | Oversampled peak limit / safety clamp | −3…−0.1 dBFS / **−1** |
-| CLIP | New sessions: 4× oversampled saturation + soft-to-firm clipping; 0% neutral, **35% reference** (+2.23 dB drive), 100% deliberately more saturated/hard-clipped | 0…100% / **0** |
+| CLIP | New v7: 4× oversampled pre-limiter clipping; **35%=Soft Clip Pro 11% saturation / -1.2 dB threshold / 0dB input gain**; 100%=harder clip | 0…100% / **0** |
 | BYPASS | 12 ms crossfade to latency-aligned dry audio | off |
 
-### Clip processing and backwards compatibility
+### Owner's five-plugin master reference and compatibility
 
-- The new CLIP control **drives** into a per-channel nonlinear saturator
-  and a C1-continuous soft-to-firm peak clipper, rather than only increasing
-  volume or blending a linked pre-limiter gain envelope. The existing 4×
-  oversampling is used after internal lookahead limiting; no new plugin
-  latency or automation IDs. A final stereo-linked host-rate true-peak
-  guard remains active.
-- The owner clarified that their provided StandardCLIP render is around
-  **35%** of that plugin's strength (not maximum). A simple fitted static
-  nonlinear transfer from their private mastered WAV to the clipped WAV
-  has approximately **+2.23 dB drive, 0.076 cubic saturation and a smooth
-  ~0.91FS knee**, so these are the **35% CLIP anchor**. The 35–100%
-  region deliberately scales to stronger drive/harder clipping. This is
-  a measured calibration, not proof of an exact proprietary-clip match.
-- The new 35% position must pass harmonic-generation and 0% neutral tests.
-  No factory preset values, APVTS IDs or automation order are changed.
-- This is an original reference-informed native algorithm, **not** a port
-  of any proprietary StandardCLIP algorithm or a bit-exact sound match.
-  The reference mode is the default for newly created instances.
-- Restoring a pre-v6 state retains the original CLIP behavior and factory
-  identity. The preset dropdown lets older sessions explicitly select
-  **USE REFERENCE CLIP**, and permits reverting to **USE LEGACY CLIP**.
-  The selected algorithm is saved as non-automatable version-6 state.
-- 0% CLIP remains an exact neutral DSP path. New reference clipping keeps
-  the stereo-linked output protection and enables the reconstructed
-  true-peak guard whenever reference CLIP is active (including without
-  Deuce Match).
+The actual FL Studio `.fst` and six plugin screenshots resolve the source
+chain order to **API-2500 → Vitamin → StandardCLIP → L2 → API-550A**. The
+master-only WAV excludes the StandardCLIP processing, so it remains a
+separate baseline for the four-plugin mastering sound.
+
+**Actual StandardCLIP snapshot:** Soft Clip Pro, 11% Soft-Clip Saturator,
+clipping at **-1.20 dB**, 8x oversampling, 0dB input and output gain, and
+Ceiling **Off**. The separate Waves L2 settings show threshold **-2.8 dB**
+and output ceiling **-1.1 dB**. These are source-derived settings, NOT a
+claim that StandardCLIP input gain is +2.23 dB. That previous number was
+a fitted gain for the *combined output difference* and could not identify
+the actual input gain of the plugin.
+
+- For **new v7 instances**, Skelly's existing CLIP knob at **35%** is a
+  reference-style original nonlinear saturator (11% nominal cubic
+  intensity) into a smooth quadratic clipping shoulder at -1.2dBFS.
+  The clip stage is **before** the lookahead limiter, following the
+  owner's actual mixer order; 0% is neutral and higher settings have
+  progressively deeper saturation/lower clipping thresholds. It is
+  **not** proprietary SIR DSP or a sample-exact clone.
+- New chain-order clipping still uses the existing **4x processing** and
+  final host-rate true-peak guard. The screenshot's **8x** StandardCLIP
+  oversampling is **not yet matched**. Do not call the current sound an
+  8x emulation; extra band-limited oversampling requires explicit
+  latency, CPU and alias-rejection tests before implementation.
+- State version **7** adds a *non-automatable* `skellMasterClipPlacement`
+  flag. Restoring **v6** Reference CLIP saved states keeps their original
+  **post-limiter** sound. Restoring pre-v6 states retains the legacy
+  pre-limiter CLIP signal path. The menu action **USE 35% CHAIN CLIP**
+  explicitly opts an older v6 state into the new order. Factory preset
+  identities and APVTS parameter IDs, order, and ranges remain unchanged.
+- The Waves Vitamin multiband contour (crossover points
+  90/500/2594/9310Hz) and final API-550A post-L2 EQ are separate
+  four-plugin mastering-core matching tasks. Screenshots alone do not
+  validate a completed sound match. FL Studio state/automation roundtrip,
+  latest real editor screenshots, and subjective audition remain necessary.
 
 The editor includes **dual analog-inspired output peak meters**, peak gain reduction readout, double-click knob reset, global reset, MIDI/DAW automation through APVTS, session state save/restore, mono/stereo operation and resizable fixed-aspect UI. The DAW reports the fixed 4× oversampling-filter latency plus **1.5 ms lookahead** (rounded to host samples), rather than hiding it.
 

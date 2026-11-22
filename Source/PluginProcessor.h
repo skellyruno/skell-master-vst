@@ -45,12 +45,18 @@ public:
     int getFactoryPresetId() const noexcept {
         return factoryPresetId.load(std::memory_order_relaxed);
     }
-    // Non-automatable mode stored in state v6; no host/APVTS ID changes.
+    // Non-automatable mode and topology stored in state v7; no host/APVTS IDs change.
     bool usesReferenceClip() const noexcept {
         return referenceClipEnabled.load(std::memory_order_relaxed);
     }
     void setReferenceClipEnabled(bool enabled) noexcept {
         referenceClipEnabled.store(enabled,std::memory_order_relaxed);
+    }
+    bool usesChainOrderedClip() const noexcept {
+        return chainOrderedClipEnabled.load(std::memory_order_relaxed);
+    }
+    void setChainOrderedClipEnabled(bool enabled) noexcept {
+        chainOrderedClipEnabled.store(enabled,std::memory_order_relaxed);
     }
 
     // Lock-free peak accumulation. GUI calls exchange(0) once per frame.
@@ -73,6 +79,8 @@ private:
     std::atomic<float> momentaryLufs {-100.0f}, shortTermLufs {-100.0f};
     std::atomic<int> factoryPresetId { 0 };
     std::atomic<bool> referenceClipEnabled { true };
+    // New instances: StandardCLIP -> limiter. Old v6 host states: post-L2.
+    std::atomic<bool> chainOrderedClipEnabled { true };
     int referenceClipGuardHold = 0;
     int activeChannels = 2;
     int lookaheadSamples = 0;

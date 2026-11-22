@@ -536,7 +536,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "CLIP DRIVE");
          s.setTooltip(i==9
             ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Deuce Match uses the 257-tap reconstruction guard with a 0.5/0.45/0.4 dB margin at 44.1/48/96 kHz and 32-sample lookahead; legacy factories retain sample-peak limiting. Drag, type, or double-click to reset."
-            : i==10 ? "CLIP: Real 4x clipping, odd-harmonic saturation and drive. The supplied StandardCLIP sound is calibrated at ~35% (+2.23 dB pre-clip drive); 100% is a much harder ceiling. Original project states keep legacy CLIP unless you select USE REFERENCE CLIP."
+            : i==10 ? "CLIP: 35% matches the supplied Soft Clip Pro 11% saturator/-1.2dB clip reference. Clipper sits BEFORE the limiter in new sessions. 4x active oversampling (original StandardCLIP used 8x); stronger settings add saturation and a lower knee. Older states retain their original path."
             : juce::String(labels[i]) + " - " + sub +
               " | drag to adjust, double-click to reset, right-click for menu");
         addAndMakeVisible(s);
@@ -566,20 +566,22 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     presetSelector.addSeparator();
     presetSelector.addItem("USE REFERENCE CLIP",7);
     presetSelector.addItem("USE LEGACY CLIP",8);
+    presetSelector.addItem("USE 35% CHAIN CLIP",9);
     presetSelector.setItemEnabled(6,false);
     presetSelector.setSelectedId(processor.getFactoryPresetId(),juce::dontSendNotification);
     // ID 0 remains the old neutral state, not a changed factory ID.
     presetSelector.setTextWhenNothingSelected({});
     presetSelector.setJustificationType(juce::Justification::centred);
-    presetSelector.setTooltip("Factory: * means modified. REAPPLY CURRENT restores values. Use REFERENCE CLIP to enable modern 4x post-limiter drive; LEGACY CLIP preserves old sessions.");
+    presetSelector.setTooltip("Factory identities stay unchanged. New CLIP: 35% Soft Clip Pro reference before L2-style limiter. Older v6 Reference CLIP remains post-limit until explicitly switched. 4x active oversampling; target reference is 8x.");
     presetSelector.onChange=[this] {
         const int selected=presetSelector.getSelectedId();
         if(selected==6) {
             const int previous=processor.getFactoryPresetId();
             if(previous>=1 && previous<=5) applyFactoryPreset(previous);
             presetSelector.setSelectedId(previous,juce::dontSendNotification);
-        } else if(selected==7 || selected==8) {
-            processor.setReferenceClipEnabled(selected==7);
+        } else if(selected==7 || selected==8 || selected==9) {
+            processor.setReferenceClipEnabled(selected!=8);
+            if(selected!=8) processor.setChainOrderedClipEnabled(true);
             presetSelector.setSelectedId(processor.getFactoryPresetId(),
                                          juce::dontSendNotification);
         } else applyFactoryPreset(selected);
@@ -723,6 +725,9 @@ void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
     const bool modern=processor.usesReferenceClip();
     presetSelector.setItemEnabled(7,!modern);
     presetSelector.setItemEnabled(8,modern);
+    // A saved v6 Reference CLIP is still post-limiter. Offer an explicit
+    // opt-in to chain order without changing its recall automatically.
+    presetSelector.setItemEnabled(9,modern && !processor.usesChainOrderedClip());
 }
 
 void SkellyMasterAudioProcessorEditor::clearMeterHolds() {

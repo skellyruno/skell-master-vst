@@ -303,20 +303,24 @@ int main() {
         clear->onClick();
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
               "passive output monitoring modified audio");
-        check(preset->getNumItems()==8 && preset->getItemId(5)==6
-              && preset->getItemId(6)==7 && preset->getItemId(7)==8,
-              "keep factory 1..5 identities and three non-parameter menu actions");
+        check(preset->getNumItems()==9 && preset->getItemId(5)==6
+              && preset->getItemId(6)==7 && preset->getItemId(7)==8
+              && preset->getItemId(8)==9,
+              "keep factory 1..5 IDs and four non-parameter menu actions");
         check(preset->getSelectedId()==0 && preset->getText().isEmpty()
               && !static_cast<bool>(preset->getProperties().getWithDefault(
                   "skellMasterPresetModified",false)),
               "fresh neutral startup must retain saved ID 0 without edit marker");
         check(processor.usesReferenceClip(),"fresh instance must enable new CLIP sound");
+        check(processor.usesChainOrderedClip(),
+              "fresh instance must place Soft Clip Pro before L2-style limiter");
         preset->setSelectedId(8,juce::sendNotificationSync);
         check(!processor.usesReferenceClip() && preset->getSelectedId()==0,
               "menu must switch to legacy CLIP without changing factory identity");
         preset->setSelectedId(7,juce::sendNotificationSync);
-        check(processor.usesReferenceClip() && preset->getSelectedId()==0,
-              "menu must return to reference CLIP without changing factory identity");
+        check(processor.usesReferenceClip() && preset->getSelectedId()==0
+              && processor.usesChainOrderedClip(),
+              "menu must return to chain-ordered CLIP without changing factory");
         preset->setSelectedId(2,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-15.0f)<.12f,
               "WARM factory preset must apply its real DSP drive setting");
@@ -402,7 +406,9 @@ int main() {
         check(restoredState.getFactoryPresetId()==5,
               "factory preset identity did not survive host state save/reload");
         check(restoredState.usesReferenceClip(),
-              "clip algorithm v6 state did not survive save/reload");
+              "clip algorithm state did not survive save/reload");
+        check(restoredState.usesChainOrderedClip(),
+              "v7 chain placement did not survive state save/reload");
         check(restoredState.parameters.getRawParameterValue("bypass")->load()<0.5f,
               "SKELL MASTER factory state unexpectedly restored bypass");
         for (const auto& value : matched)
@@ -417,6 +423,35 @@ int main() {
                     if(combo->getComponentID()=="skell-master-preset") restoredPreset=combo;
             check(restoredPreset && restoredPreset->getSelectedId()==5,
                   "restored editor did not display the saved SKELL MASTER factory name");
+        }
+
+        // v6 hosted sessions published a REFERENCE CLIP sound *after* the
+        // mastering limiter. Recalling those states must keep the old clip
+        // order even if the knob is at 35% or higher.
+        auto v6State=processor.parameters.copyState();
+        v6State.setProperty("skellMasterStateVersion",6,nullptr);
+        v6State.setProperty("skellMasterClipAlgorithm",1,nullptr);
+        v6State.removeProperty("skellMasterClipPlacement",nullptr);
+        auto v6Xml=v6State.createXml();
+        check(static_cast<bool>(v6Xml),"v6 reference clip host XML exists");
+        juce::MemoryBlock v6Blob;
+        if(v6Xml)juce::AudioProcessor::copyXmlToBinary(*v6Xml,v6Blob);
+        SkellyMasterAudioProcessor oldV6;
+        oldV6.setStateInformation(v6Blob.getData(),static_cast<int>(v6Blob.getSize()));
+        check(oldV6.usesReferenceClip() && !oldV6.usesChainOrderedClip(),
+              "v6 Reference CLIP must keep post-limiter topology");
+        {
+            SkellyMasterAudioProcessorEditor oldV6Editor(oldV6);
+            juce::ComboBox* v6Menu=nullptr;
+            for(int i=0;i<oldV6Editor.getNumChildComponents();++i)
+                if(auto* combo=dynamic_cast<juce::ComboBox*>(oldV6Editor.getChildComponent(i)))
+                    if(combo->getComponentID()=="skell-master-preset") v6Menu=combo;
+            check(v6Menu!=nullptr,"v6 mode switching menu must be accessible");
+            if(v6Menu) {
+                v6Menu->setSelectedId(9,juce::sendNotificationSync);
+                check(oldV6.usesReferenceClip() && oldV6.usesChainOrderedClip(),
+                      "v6 user must explicitly opt into 35% chain-ordered CLIP");
+            }
         }
 
         // Legacy v4 sessions predate the non-automatable factory identity and must restore neutral SELECT.
@@ -437,8 +472,9 @@ int main() {
               "legacy project without Deuce Match must default to OFF");
         check(restoredLegacyState.getFactoryPresetId()==0,
               "legacy host state without factory identity must restore SELECT");
-        check(!restoredLegacyState.usesReferenceClip(),
-              "v1-5 project must retain the exact old CLIP algorithm");
+        check(!restoredLegacyState.usesReferenceClip()
+              && !restoredLegacyState.usesChainOrderedClip(),
+              "v1-5 project must retain both old CLIP algorithm and topology");
 
         // XML numeric properties are text after deserialization; clamp invalid positive IDs.
         auto malformedFactoryState=processor.parameters.copyState();

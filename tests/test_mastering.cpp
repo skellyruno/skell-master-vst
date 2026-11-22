@@ -733,6 +733,59 @@ int main() {
             "35% reference CLIP must add audible-band saturation, not only volume");
     std::cout << "PASS: 35% nonlinear reference tone, progressive clip, ceiling and stereo symmetry\\n";
 
+    // 35% owner snapshot is NOT +2.23dB input drive. Verify v7
+    // Soft Clip Pro approximation actually clips peak transients ahead of
+    // the L2-style lookahead limiter and keeps the old engine's latency.
+    MasteringEngine beforeL2Clean, beforeL235, beforeL270, beforeL2Swapped;
+    for(auto* e : {&beforeL2Clean,&beforeL235,&beforeL270,&beforeL2Swapped})
+        e->prepare(rate,2,lookahead);
+    MasterParameters beforeParams;
+    beforeParams.referenceClip=true;
+    beforeParams.clipBeforeLimiter=true;
+    MasterParameters before35=beforeParams, before70=beforeParams;
+    before35.clipper=.35;
+    before70.clipper=.70;
+    beforeL2Clean.setParameters(beforeParams);
+    beforeL235.setParameters(before35);
+    beforeL270.setParameters(before70);
+    beforeL2Swapped.setParameters(before70);
+    double curveDelta35=0.0, curveDelta70=0.0, swapDelta=0.0;
+    double cleanPower35=0.0, clippedPower35=0.0;
+    int compared=0;
+    for(int i=0;i<static_cast<int>(rate*.65);++i) {
+        const double t=static_cast<double>(i)/rate;
+        const float value=static_cast<float>(
+            .77*std::sin(2*detail::pi*1213.0*t)
+            +.10*std::sin(2*detail::pi*67.0*t));
+        const auto dry=beforeL2Clean.processFrame(value,value*.73f);
+        const auto snap=beforeL235.processFrame(value,value*.73f);
+        const auto hard=beforeL270.processFrame(value,value*.73f);
+        const auto rev=beforeL2Swapped.processFrame(value*.73f,value);
+        require(std::isfinite(snap.left)&&std::isfinite(hard.left),
+                "chain-ordered clip must remain finite");
+        if(i>static_cast<int>(rate*.25)) {
+            curveDelta35+=std::abs(static_cast<double>(snap.left-dry.left));
+            curveDelta70+=std::abs(static_cast<double>(hard.left-dry.left));
+            cleanPower35+=dry.left*dry.left;
+            clippedPower35+=snap.left*snap.left;
+            swapDelta=std::max(swapDelta,std::max(
+                std::abs(static_cast<double>(hard.left-rev.right)),
+                std::abs(static_cast<double>(hard.right-rev.left))));
+            ++compared;
+        }
+    }
+    require(curveDelta35/compared>.0001,
+            "v7 CLIP at 35% must make actual nonlinear shape, not fake wet gain");
+    require(curveDelta70>curveDelta35*1.02,
+            "v7 CLIP must develop progressively more peak shaping above 35%");
+    require(clippedPower35<cleanPower35*1.02,
+            "35% StandardCLIP input 0dB must not invent large pre-L2 makeup");
+    require(swapDelta<1.e-6,
+            "v7 per-channel clip must preserve channel-swap symmetry");
+    require(beforeL235.getLookaheadSamples()==beforeL2Clean.getLookaheadSamples(),
+            "v7 pre-L2 clip must retain original fixed plugin latency");
+    std::cout << "PASS: v7 pre-L2 35% shape, stronger 70%, symmetry, no extra PDC\\n";
+
     // A restored pre-v6 project uses the original CLIP engine. No new
     // algorithm may alter its 14% SKELL MASTER or other old CLIP automation.
     require(!MasterParameters{}.referenceClip,
