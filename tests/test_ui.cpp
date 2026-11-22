@@ -377,6 +377,9 @@ int main() {
                   "new preset name must render correctly after host state restore");
         }
         clipper->setValue(70.0,juce::sendNotificationSync);
+        check(static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "5-PLUGIN MATCH * must update immediately on knob interaction");
         juce::Thread::sleep(70);
         juce::Timer::callPendingTimersSynchronously();
         check(static_cast<bool>(preset->getProperties().getWithDefault(
@@ -393,6 +396,9 @@ int main() {
               "new reference preset must not overwrite published SKELL MASTER factory");
         // Editing factory #5 is a custom variant, not the original published sound.
         clipper->setValue(43.0,juce::sendNotificationSync);
+        check(static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "published factory * must update immediately without a 30Hz timer");
         juce::Thread::sleep(70);
         juce::Timer::callPendingTimersSynchronously();
         check(static_cast<bool>(preset->getProperties().getWithDefault(

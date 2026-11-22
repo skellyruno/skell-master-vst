@@ -547,6 +547,28 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         attachments[static_cast<size_t>(i)] =
             std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
                 processor.parameters, ids[i], s);
+        // Explicit user knob/text changes must mark the selected factory
+        // as modified *immediately*. The APVTS SliderAttachment callback
+        // may still be queued when this message-thread hook fires; the
+        // regular 30Hz timer remains the source of truth for host automation
+        // and project restores. Never infer DSP state from UI on audio.
+        s.onValueChange=[this,i] {
+            refreshPresetDisplay();
+            const int factory=processor.getFactoryPresetId();
+            const float expected=factory>=1 && factory<=6
+                ? factoryValues[factory-1][i] : 0.0f;
+            if(std::abs(knobs[static_cast<size_t>(i)].getValue()-expected)>.01) {
+                auto& properties=presetSelector.getProperties();
+                if(!static_cast<bool>(properties.getWithDefault(
+                        "skellMasterPresetModified",false))) {
+                    properties.set("skellMasterPresetModified",true);
+                    presetSelector.repaint();
+                    for(int c=0;c<presetSelector.getNumChildComponents();++c)
+                        if(auto* child=presetSelector.getChildComponent(c))
+                            child->repaint();
+                }
+            }
+        };
     }
     bypass.setClickingTogglesState(true);
     bypass.setTooltip("Toggle the latency-aligned mastering bypass");
