@@ -101,9 +101,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Neutral DEFAULT render failed" }
           & $runner.FullName $plugin.FullName $inputWavPath $dryWavPath --factory 1 --bool 'Bypass=1'
           if ($LASTEXITCODE -ne 0) { throw "Explicit dry bypass render failed" }
-          if ((Get-FileHash $neutralWavPath -Algorithm SHA256).Hash -ne
-              (Get-FileHash $dryWavPath -Algorithm SHA256).Hash) {
-            throw "DEFAULT is not exactly equal to dry bypass"
+          python tests/check_transparent_default.py $neutralWavPath $dryWavPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "DEFAULT native-host transparency test failed"
           }
           @'
           import sys, wave
@@ -307,10 +307,11 @@ jobs:
           # zero knobs; earlier builds silently limited it by ~1.5dB.
           dry_default="$RUNNER_TEMP/skell-master-factory-1-explicit-bypass.wav"
           "$runner" "$plugin" "$input" "$dry_default" --factory 1 --bool 'Bypass=1'
-          if ! cmp -s "$RUNNER_TEMP/skell-master-factory-1.wav" "$dry_default"; then
-            echo "DEFAULT altered audio compared with dry bypass" >&2
-            exit 1
-          fi
+          # Host native bypass can skip the plugin's 4x polyphase/latency
+          # route, so exact PCM hashes are not the right host-level metric.
+          # The direct JUCE test independently checks sample-exact dry path.
+          python tests/check_transparent_default.py \
+            "$RUNNER_TEMP/skell-master-factory-1.wav" "$dry_default"
           if cmp -s "$RUNNER_TEMP/skell-master-factory-4.wav" \
                     "$RUNNER_TEMP/skell-master-factory-9.wav"; then
             echo "LOUD MASTER+ must be audibly distinct from original LOUD MASTER" >&2
