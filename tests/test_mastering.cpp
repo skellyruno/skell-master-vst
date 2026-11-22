@@ -503,7 +503,7 @@ int main() {
         }
     }
     const double toneDb=10.0*std::log10(correctedEnergy/originalEnergy);
-    require(toneDb>0.4 && toneDb<2.5,
+    require(toneDb>0.35 && toneDb<1.8,
             "reference tonal correction does not restore measurable mid presence");
     tone.setEnabled(false);
     double maxOffError=0.0;

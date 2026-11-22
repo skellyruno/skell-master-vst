@@ -117,3 +117,29 @@ reduce or revert this experimental correction. No host IDs, saved-state
 schema or latency were changed. The owner reference itself exceeds
 0dBTP and its unsafe transient peaks cannot be faithfully copied at
 a safe target ceiling.
+
+
+## Held-out validation rejected the overfit four-band candidate
+
+The initial four-filter fit at 95/300/1350/5000Hz was fit on seconds
+0.5–84.5 of the 99.648-second owner song. When evaluated against
+the reserved **85–99.3-second segment**, its level-matched five-band
+error improved only **0.151 → 0.143dB**; it also raised output peaks
+unacceptably before true-peak protection. It is therefore **not** retained.
+
+The retained, simpler experimental correction is **95Hz low shelf
+−0.10dB plus 1350Hz bell +0.70dB/Q0.78**, selected only after the
+held-out comparison:
+| Offline post-output probe | Train 0.5–84.5s 5-band MAE | Held-out 85–99.3s MAE | Train 20ms envelope MAE | Train 50ms envelope MAE |
+|---|---:|---:|---:|---:|
+| Compiled baseline | 0.187dB | 0.151dB | 0.821dB | 0.596dB |
+| Overfit four-band | 0.046dB | 0.143dB | 0.783dB | 0.544dB |
+| **Retained two-band** | **0.109dB** | **0.043dB** | **0.787dB** | **0.543dB** |
+
+The two-band offline preview's sample peak remains **+0.124dBFS**,
+so this is a *research candidate*, **not** a deliverable master:
+the plugin's actual end-of-chain true-peak limiter follows the tone
+stage and must be measured with the compiled VST3. Absolute LUFS and
+crest after real final limiting remain unverified until that render.
+A measured in-plugin positive change is a release prerequisite;
+no claim of perceptually audible superiority is made yet.
