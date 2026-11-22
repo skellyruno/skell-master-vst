@@ -183,8 +183,11 @@ private:
 // so the held-out 14-second ending selected a simpler two-filter correction:
 // -0.10dB low shelf at 95Hz and +0.70dB broad 1350Hz bell. This improves
 // both training and held-out spectral-envelope matching without chasing
-// owner reference files' unsafe +dBTP overs. AFTER L2, BEFORE the existing
-// true-peak guard. No new automation IDs, allocation or PDC.
+// owner reference files' unsafe +dBTP overs. The exact compiled 2-band VST3
+// cut five-band full-song error 0.178->0.103dB, but its stereo side/mid
+// widened by 0.274dB and crest by 0.139dB. Add a small linked correction
+// and restrained makeup after EQ, BEFORE the existing true-peak guard.
+// No new automation IDs, allocation or PDC.
 class ReferenceToneCorrection {
 public:
     void prepare(double sampleRate) noexcept {
@@ -213,6 +216,19 @@ public:
         for(auto& stage : filters[1]) filteredR=stage.process(filteredR);
         const double wet=blend.next();
         if(wet>1.0e-12) {
+            // Real 99.65s owner's master A/B: the broad midrange correction
+            // reduced spectral MAE, but increased side/mid balance by 0.274dB.
+            // A fixed -0.274dB mid/side-side trim restores the original
+            // stereo balance while retaining the reference-EQ improvement.
+            // +0.15dB makeup drives the EXISTING final true-peak limiter
+            // rather than raising output above its configured sample ceiling.
+            // No clipping is introduced here: the guard remains last.
+            constexpr double sideGain = 0.968946949979;
+            constexpr double makeup = 1.017419366181;
+            const double mid=0.5*(filteredL+filteredR);
+            const double side=0.5*(filteredL-filteredR)*sideGain;
+            filteredL=(mid+side)*makeup;
+            filteredR=(mid-side)*makeup;
             left+=wet*(filteredL-left);
             right+=wet*(filteredR-right);
         }

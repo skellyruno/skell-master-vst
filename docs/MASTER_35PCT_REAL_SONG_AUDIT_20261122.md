@@ -143,3 +143,31 @@ stage and must be measured with the compiled VST3. Absolute LUFS and
 crest after real final limiting remain unverified until that render.
 A measured in-plugin positive change is a release prerequisite;
 no claim of perceptually audible superiority is made yet.
+
+## Compiled two-band + constrained stereo/makeup follow-up
+
+The real Linux VST3 artifact from exact head `2f14809a`, workflow
+`45081842952`, was rendered on the full owner pre-master and measured
+*after* the 4x engine and actual reconstructed final true-peak guard.
+The prior `f606ffd` and new renders are aligned to the same 105-sample
+host latency; owner's clipped reference is aligned to its 31-sample offset.
+
+| Exact hosted full-song | v8 original f606ffd | Two-band 2f14809 |
+|---|---:|---:|
+| Integrated LUFS | -6.233 | -6.261 |
+| Five-band MAE after loudness matching | 0.178dB | 0.103dB |
+| 20ms envelope MAE | 0.821dB | 0.804dB |
+| 50ms envelope MAE | 0.584dB | 0.565dB |
+| Stereo side/mid error vs owner's reference | -0.008dB | **+0.274dB** |
+| Crest factor error vs owner's reference | +0.011dB | **+0.150dB** |
+| Independent 16x true peak | -0.386dBTP | -0.426dBTP |
+
+To restore the reference's overall stereo width without reverting the
+spectral improvement, next experimental commit adds only **-0.274dB
+side trim** to the active factory5 post-L2 tonal module. It also adds
+**+0.15dB pre-guard makeup** to attempt to reduce excessive crest while
+retaining the configured true-peak protection. These numbers are
+constrained candidate parameters, **not verified better** until actual
+compiled VST3 full-song render, cross-rate tests, and CPU benchmarks.
+Bypass, other factory IDs, and all automation parameter IDs remain
+unchanged. Never imitate the owner's +2.58dBTP output overs.
