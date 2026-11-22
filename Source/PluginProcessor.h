@@ -40,7 +40,7 @@ public:
 
     // Factory selector identity is UI state, not an automatable parameter.
     void setFactoryPresetId(int presetId) noexcept {
-        factoryPresetId.store(juce::jlimit(0, 6, presetId), std::memory_order_relaxed);
+        factoryPresetId.store(juce::jlimit(0, 9, presetId), std::memory_order_relaxed);
     }
     int getFactoryPresetId() const noexcept {
         return factoryPresetId.load(std::memory_order_relaxed);

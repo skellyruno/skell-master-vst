@@ -85,6 +85,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "VST3 WAV render smoke test failed with exit code $LASTEXITCODE" }
           & $runner.FullName $plugin.FullName $inputWavPath $overrideWavPath --set 'Input=5' --set 'Glue=18' --bool 'Deuce Match=1'
           if ($LASTEXITCODE -ne 0) { throw "VST3 parameter-override render failed with exit code $LASTEXITCODE" }
+          $newLoudWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-v8-loud-plus.wav'
+          & $runner.FullName $plugin.FullName $inputWavPath $newLoudWavPath --factory 9
+          if ($LASTEXITCODE -ne 0) { throw "New v8 LOUD MASTER+ VST3 state render failed" }
+          if (-not (Test-Path $newLoudWavPath)) { throw "New v8 LOUD MASTER+ output WAV missing" }
+          if ((Get-FileHash $newLoudWavPath -Algorithm SHA256).Hash -eq
+              (Get-FileHash $outputWavPath -Algorithm SHA256).Hash) {
+            throw "New LOUD MASTER+ factory has no distinct audio"
+          }
           @'
           import sys, wave
           with wave.open(sys.argv[1], "rb") as w:
@@ -276,6 +284,35 @@ jobs:
             echo "New five-plugin preset did not change rendered audio" >&2
             exit 1
           fi
+          # All nine factory identities must render through the actual
+          # VST3 state stream, not a fake GUI number or helper DSP mock.
+          for factory_id in 1 2 3 4 5 6 7 8 9; do
+            factory_wav="$RUNNER_TEMP/skell-master-factory-$factory_id.wav"
+            "$runner" "$plugin" "$input" "$factory_wav" --factory "$factory_id"
+            test -s "$factory_wav"
+          done
+          if cmp -s "$RUNNER_TEMP/skell-master-factory-4.wav" \
+                    "$RUNNER_TEMP/skell-master-factory-9.wav"; then
+            echo "LOUD MASTER+ must be audibly distinct from original LOUD MASTER" >&2
+            exit 1
+          fi
+          # Named existing automation IDs: every physical mastering knob
+          # must change the actual VST3 output, not only its readout.
+          knob_index=0
+          for assignment in 'Input=5' 'Drive=18' 'Glue=28' \
+                            'Dynamics=25' 'Lows=2' 'Highs=4' \
+                            'Sauce=35' 'Transients=42' 'Output Trim=-6' \
+                            'Ceiling Adjust=-2' 'Clip=40'; do
+            knob_index=$((knob_index+1))
+            knob_wav="$RUNNER_TEMP/skell-master-knob-$knob_index.wav"
+            "$runner" "$plugin" "$input" "$knob_wav" \
+              --factory 5 --set "$assignment"
+            test -s "$knob_wav"
+            if cmp -s "$default" "$knob_wav"; then
+              echo "No actual DSP response for mastering $assignment" >&2
+              exit 1
+            fi
+          done
           if "$runner" "$plugin" "$input" "$invalid_range" --set 'Input=1000'; then
             echo "Out-of-range numeric override was silently accepted" >&2
             exit 1

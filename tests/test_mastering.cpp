@@ -210,6 +210,89 @@ int main() {
             "previous saved limiter threshold is preserved");
     std::cout << "PASS: centred ceiling map and preset migration\n";
 
+    // Functional coverage of ALL 11 published host control identities.
+    // Every knob must produce a measurable *native DSP* change on a
+    // transient-rich stereo fixture, while remaining finite/stereo safe.
+    // This is deliberately independent of the GUI number readout.
+    struct KnobDspCase {
+        const char* name;
+        double MasterParameters::*field;
+        double extreme;
+    };
+    const std::array<KnobDspCase,11> knobDspCases {{
+        {"INPUT",&MasterParameters::inputDb,6.0},
+        {"DRIVE",&MasterParameters::drive,0.75},
+        {"GLUE",&MasterParameters::glue,0.65},
+        {"DYNAMICS",&MasterParameters::dynamics,0.65},
+        {"LOWS",&MasterParameters::lowsDb,3.0},
+        {"HIGHS",&MasterParameters::highsDb,3.0},
+        {"SAUCE",&MasterParameters::sauce,0.75},
+        {"TRANSIENTS",&MasterParameters::transients,0.75},
+        {"OUTPUT",&MasterParameters::outputDb,-6.0},
+        {"CEILING",&MasterParameters::ceilingDb,-3.0},
+        {"CLIP",&MasterParameters::clipper,0.35}
+    }};
+    constexpr int fixtureFrames=76000;
+    const auto fixtureFrame=[&](int frame) {
+        const double t=static_cast<double>(frame)/rate;
+        const int offset=frame%static_cast<int>(rate*.11);
+        const double kick=offset<180
+            ? .33*std::exp(-static_cast<double>(offset)/37.0) : 0.0;
+        const double bass=std::sin(2.0*detail::pi*73.0*t);
+        const double mids=std::sin(2.0*detail::pi*730.0*t);
+        const double highs=std::sin(2.0*detail::pi*10200.0*t);
+        return StereoFrame {
+            static_cast<float>(.53*bass+.21*mids+.10*highs+kick),
+            static_cast<float>(.43*bass+.14*mids-.08*highs+.71*kick)
+        };
+    };
+    MasterParameters knobNeutral;
+    knobNeutral.referenceClip=true;
+    knobNeutral.clipBeforeLimiter=true;
+    MasteringEngine knobBaseEngine;
+    knobBaseEngine.prepare(rate,2,lookahead);
+    knobBaseEngine.setParameters(knobNeutral);
+    std::vector<StereoFrame> knobBaseline;
+    knobBaseline.reserve(fixtureFrames);
+    for(int i=0;i<fixtureFrames;++i) {
+        const auto inputFrame=fixtureFrame(i);
+        knobBaseline.push_back(knobBaseEngine.processFrame(
+            inputFrame.left,inputFrame.right));
+    }
+    for(const auto& knob : knobDspCases) {
+        auto setting=knobNeutral;
+        setting.*(knob.field)=knob.extreme;
+        MasteringEngine testedKnob;
+        testedKnob.prepare(rate,2,lookahead);
+        testedKnob.setParameters(setting);
+        double differenceEnergy=0.0;
+        double baselineEnergy=0.0;
+        for(int i=0;i<fixtureFrames;++i) {
+            const auto inputFrame=fixtureFrame(i);
+            const auto outputFrame=testedKnob.processFrame(
+                inputFrame.left,inputFrame.right);
+            require(std::isfinite(outputFrame.left)&&std::isfinite(outputFrame.right),
+                    "knob sweep produced non-finite audio");
+            if(i>18000) {
+                const double diffL=static_cast<double>(outputFrame.left)-
+                    knobBaseline[static_cast<size_t>(i)].left;
+                const double diffR=static_cast<double>(outputFrame.right)-
+                    knobBaseline[static_cast<size_t>(i)].right;
+                differenceEnergy+=diffL*diffL+diffR*diffR;
+                baselineEnergy+=
+                    knobBaseline[static_cast<size_t>(i)].left*
+                    knobBaseline[static_cast<size_t>(i)].left+
+                    knobBaseline[static_cast<size_t>(i)].right*
+                    knobBaseline[static_cast<size_t>(i)].right;
+            }
+        }
+        require(baselineEnergy>1.0 && differenceEnergy/baselineEnergy>1.e-8,
+                "published knob has no measurable DSP response");
+        std::cout << "PASS: host knob " << knob.name
+                  << " native 4x DSP signal response (relative rms "
+                  << std::sqrt(differenceEnergy/baselineEnergy) << ")\\n";
+    }
+
     // The new clip amount is a genuine 4x audio process; zero retains
     // all earlier sessions' transparent limiting behavior by default.
     require(MasterParameters{}.clipper == 0.0, "legacy clipper default must be zero");

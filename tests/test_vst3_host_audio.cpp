@@ -1,6 +1,6 @@
 // Windows VST3 host audio regression. Loads the INSTALLED/BUNDLE VST3 through
 // JUCE's standard VST3 format instead of linking a processor directly.
-// Optional command: SkellyVST3HostAudioTests <bundle.vst3> <input.wav> <output.wav> [--set "Parameter=VALUE"] [--bool "Parameter=0|1"]
+// Optional command: SkellyVST3HostAudioTests <bundle.vst3> <input.wav> <output.wav> [--factory 1..9] [--set "Parameter=VALUE"] [--bool "Parameter=0|1"]
 // With no WAV, deterministic independent stereo noise and a transient/bass program are used.
 // Never commit private user's recordings; local WAV comparisons stay local.
 #include <JuceHeader.h>
@@ -246,30 +246,50 @@ static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, i
 
 static int applyCommandLineOverrides(juce::AudioPluginInstance& instance,
                                       int argc, char** argv, int firstOption) {
-    // The VST3 identity is non-automatable. Explicit --factory 6 selects
-    // the newly added five-plugin preset by its *real* serialized state,
-    // not by an invented APVTS parameter. Two passes make command-line
-    // override order irrelevant. Existing default is frozen factory5.
+    // The host fixture uses exact published factory value snapshots to
+    // verify every preset's real VST3 output. '--factory' is NON-automatable
+    // and must be restored through the real saved plugin state. Overrides
+    // are applied after selecting a factory, regardless of CLI option order.
     int factoryId=5;
     for(int i=firstOption;i<argc;i+=2) {
         require(i+1<argc,"Expected complete flag/value pair");
         const std::string option=argv[i];
         if(option=="--factory") {
             const std::string value=argv[i+1];
-            require(value=="5" || value=="6",
-                    "Hosted source presets are --factory 5 or --factory 6");
-            factoryId=value=="6" ? 6 : 5;
+            require(value.size()==1 && value[0]>='1' && value[0]<='9',
+                    "Hosted factory identity must be an integer 1..9");
+            factoryId=static_cast<int>(value[0]-'0');
         }
     }
-    if(factoryId==6) {
-        setParameterByName(instance,"Highs",3.0f);
-        setParameterByName(instance,"Clip",35.0f);
+    // Frozen published 1..5 and opt-in v7/v8 additions. Keep this fixture
+    // independent of the UI constants: host and UI regressions detect drift.
+    static constexpr float factoryValues[9][11]={
+        {0,0,0,0,0,0,0,0,0,0,0},
+        {0,15,18,10,0,0,12,0,0,0,0},
+        {0,8,12,7,0,0,0,22,0,0,0},
+        {0,10,24,18,0,0,8,8,0,0,12},
+        {4,8,17,11,-1,2,20,0,0,0,14},
+        {4,8,17,11,-1,3,20,0,0,0,35},
+        {0,15,15,8,2,-1,20,0,0,0,0},
+        {-2,8,6,4,0,1,0,60,0,0,0},
+        {0,12,14,11,0,1,8,8,3,0,25}
+    };
+    static constexpr const char* factoryNames[11]={
+        "Input","Drive","Glue","Dynamics","Lows","Highs",
+        "Sauce","Transients","Output Trim","Ceiling Adjust","Clip"
+    };
+    if(factoryId!=5) {
+        for(int k=0;k<11;++k)
+            setParameterByName(instance,factoryNames[k],
+                               factoryValues[factoryId-1][k]);
+        setBoolParameterByName(instance,"Deuce Match",
+                               factoryId==5 || factoryId==6);
     }
     for (int i = firstOption; i < argc;) {
         const std::string option = argv[i++];
         require((option == "--set" || option == "--bool" ||
                  option == "--factory") && i < argc,
-                "Expected --factory 5|6, --set NAME=VALUE or --bool NAME=0|1");
+                "Expected --factory 1..9, --set NAME=VALUE or --bool NAME=0|1");
         if(option=="--factory") { ++i; continue; }
         const std::string assignment = argv[i++];
         const auto separator = assignment.find('=');
@@ -501,9 +521,9 @@ int main(int argc, char** argv) {
         setParameterByName(*plugin,"Ceiling Adjust",0.0f);
         setParameterByName(*plugin,"Clip",14.0f);
         setBoolParameterByName(*plugin,"Deuce Match",true);
-        // Optional offline-render overrides are applied after the documented
-        // SKELL MASTER factory values. With no flags, the reference render is
-        // unchanged. This enables reproducible, non-destructive parameter sweeps.
+        // Opt-in factory identity and values override this frozen factory5
+        // baseline. With no flags, the existing render remains identical.
+        // Explicit --set/--bool always supersedes the chosen factory value.
         const int requestedFactory=externalWav
             ? applyCommandLineOverrides(*plugin, argc, argv, 4) : 5;
         // Factory identity is deliberately non-automatable and is not present

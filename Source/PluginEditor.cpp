@@ -79,17 +79,29 @@ constexpr const char* ids[11] = {
     "sauce", "transients", "output", "ceiling", "clipper"
 };
 // Frozen published factory values (in the existing APVTS ID order).
-constexpr float factoryValues[6][11] = {
+constexpr float factoryValues[9][11] = {
+    // PUBLISHED: frozen forever; existing projects and automation unchanged.
     {0,0,0,0,0,0,0,0,0,0,0},
     {0,15,18,10,0,0,12,0,0,0,0},
     {0,8,12,7,0,0,0,22,0,0,0},
     {0,10,24,18,0,0,8,8,0,0,12},
     {4,8,17,11,-1,2,20,0,0,0,14},
-    // New opt-in five-plugin reference: 35% Soft Clip Pro ahead of L2;
-    // +1 dB HIGHS improvement from private level-matched full-song A/B.
-    // The measured final API-style mid EQ is enabled only on factory ID6.
-    {4,8,17,11,-1,3,20,0,0,0,35}
+    // Existing v7 opt-in five-plugin source-matched factory.
+    {4,8,17,11,-1,3,20,0,0,0,35},
+    // New v8 alternatives tested by actual hosted VST3 WAV render:
+    // warmer tonal balance, stronger attack preservation, louder density.
+    {0,15,15,8,2,-1,20,0,0,0,0},   // 7 WARM MASTER+
+    {-2,8,6,4,0,1,0,60,0,0,0},    // 8 PUNCH MASTER+
+    {0,12,14,11,0,1,8,8,3,0,25}   // 9 LOUD MASTER+
 };
+// Factory internal IDs 6..9 are intentionally different from their menu
+// IDs 10..13; menu IDs 6..9 are already published ACTIONS.
+constexpr int menuForFactory(int factory) noexcept {
+    return factory>=6 && factory<=9 ? factory+4 : factory;
+}
+constexpr int factoryFromMenu(int menu) noexcept {
+    return menu>=10 && menu<=13 ? menu-4 : menu;
+}
 constexpr const char* subtitles[8] = {
     "GAIN STAGE", "HARMONIC DRIVE", "BUS COMPRESSION", "LEVEL CONTROL",
     "115 Hz SHELF", "8.2 kHz SHELF", "ANALOG ENHANCE", "ATTACK SHAPE"
@@ -555,7 +567,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         s.onValueChange=[this,i] {
             refreshPresetDisplay();
             const int factory=processor.getFactoryPresetId();
-            const float expected=factory>=1 && factory<=6
+            const float expected=factory>=1 && factory<=9
                 ? factoryValues[factory-1][i] : 0.0f;
             // APVTS attachments may synchronously initialize slider ranges
             // before the editor's neutral state has settled. A neutral ID0
@@ -596,6 +608,9 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     // Menu item ID 10 maps to *new* saved factory identity 6; published
     // selector identities 1..5 and action IDs 6..9 remain untouched.
     presetSelector.addItem("5-PLUGIN MATCH",10);
+    presetSelector.addItem("WARM MASTER+",11);
+    presetSelector.addItem("PUNCH MASTER+",12);
+    presetSelector.addItem("LOUD MASTER+",13);
     presetSelector.addSeparator();
     presetSelector.addItem("REAPPLY CURRENT",6);
     presetSelector.addSeparator();
@@ -603,29 +618,28 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     presetSelector.addItem("USE LEGACY CLIP",8);
     presetSelector.addItem("USE 35% CHAIN CLIP",9);
     presetSelector.setItemEnabled(6,false);
-    presetSelector.setSelectedId(processor.getFactoryPresetId()==6 ? 10
-                                 : processor.getFactoryPresetId(),juce::dontSendNotification);
+    presetSelector.setSelectedId(menuForFactory(processor.getFactoryPresetId()),
+                                 juce::dontSendNotification);
     // ID 0 remains the old neutral state, not a changed factory ID.
     presetSelector.setTextWhenNothingSelected({});
     presetSelector.setJustificationType(juce::Justification::centred);
-    presetSelector.setTooltip("5-PLUGIN MATCH = new opt-in source-matched preset: clip at 35% BEFORE L2, 4x processing, API-like final mid EQ. Factory 1-5 remain unchanged. Prior v6 sessions keep their old clip topology.");
+    presetSelector.setTooltip("Original factories 1-5 remain frozen. 5-PLUGIN MATCH targets the five-plugin reference. New WARM+, PUNCH+, LOUD+ offer opt-in measured voicing: warmer bass, more crest/punch, or stronger density. CLIP stays 4x oversampled and state recall is versioned.");
     presetSelector.onChange=[this] {
         const int selected=presetSelector.getSelectedId();
         if(selected==6) {
             const int previous=processor.getFactoryPresetId();
-            if(previous>=1 && previous<=6) applyFactoryPreset(previous);
-            presetSelector.setSelectedId(previous==6 ? 10 : previous,
+            if(previous>=1 && previous<=9) applyFactoryPreset(previous);
+            presetSelector.setSelectedId(menuForFactory(previous),
                                          juce::dontSendNotification);
         } else if(selected==7 || selected==8 || selected==9) {
             processor.setReferenceClipEnabled(selected!=8);
             if(selected!=8) processor.setChainOrderedClipEnabled(true);
             const int currentFactory=processor.getFactoryPresetId();
-            // Factory6 is represented by *menu item 10*, because ID6 is
-            // the existing REAPPLY CURRENT action. Never display the
-            // action itself as the selected preset when switching modes.
-            presetSelector.setSelectedId(currentFactory==6 ? 10 : currentFactory,
+            // All new factory identities 6..9 map to menu IDs 10..13;
+            // never select the existing action items 6..9.
+            presetSelector.setSelectedId(menuForFactory(currentFactory),
                                          juce::dontSendNotification);
-        } else applyFactoryPreset(selected==10 ? 6 : selected);
+        } else applyFactoryPreset(factoryFromMenu(selected));
         refreshPresetDisplay();
     };
     addAndMakeVisible(presetSelector);
@@ -710,8 +724,8 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
 }
 
 void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
-    if(presetId<1 || presetId>6) return;
-    if(presetId==6) {
+    if(presetId<1 || presetId>9) return;
+    if(presetId>=6) {
         // The newly added preset requires the exact v7 clip-before-L2 path.
         // Explicit selection opts in; restoring an old saved preset does not.
         processor.setReferenceClipEnabled(true);
@@ -743,7 +757,7 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
 
 void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
     const int factory=processor.getFactoryPresetId();
-    const bool hasFactory=factory>=1 && factory<=6;
+    const bool hasFactory=factory>=1 && factory<=9;
     bool modified=false;
     for(int i=0;i<knobCount;++i) {
         const auto* raw=processor.parameters.getRawParameterValue(ids[i]);
@@ -756,7 +770,7 @@ void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
     const auto* deuce=processor.parameters.getRawParameterValue("deuceMatch");
     if(!deuce || (deuce->load(std::memory_order_relaxed)>=0.5f)!=(factory==5 || factory==6))
         modified=true;
-    if(factory==6 && (!processor.usesReferenceClip() ||
+    if(factory>=6 && (!processor.usesReferenceClip() ||
                       !processor.usesChainOrderedClip()))
         modified=true;
     auto& properties=presetSelector.getProperties();
@@ -793,7 +807,7 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
     // A host may restore state while the editor is already open. Keep the
     // non-automatable factory label synchronized without reapplying DSP values.
     const int restoredPreset=processor.getFactoryPresetId();
-    const int wantedMenuId=restoredPreset==6 ? 10 : restoredPreset;
+    const int wantedMenuId=menuForFactory(restoredPreset);
     if(presetSelector.getSelectedId()!=wantedMenuId)
         presetSelector.setSelectedId(wantedMenuId,juce::dontSendNotification);
     refreshPresetDisplay();

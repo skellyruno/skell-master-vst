@@ -331,10 +331,13 @@ int main() {
         clear->onClick();
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
               "passive output monitoring modified audio");
-        check(preset->getNumItems()==10 && preset->getItemId(5)==10
-              && preset->getItemId(6)==6 && preset->getItemId(7)==7
-              && preset->getItemId(8)==8 && preset->getItemId(9)==9,
-              "published factory 1..5 and menu 6..9 IDs stable; new factory ID10 appended");
+        check(preset->getNumItems()==13
+              && preset->getItemId(0)==1 && preset->getItemId(4)==5
+              && preset->getItemId(5)==10 && preset->getItemId(6)==11
+              && preset->getItemId(7)==12 && preset->getItemId(8)==13
+              && preset->getItemId(9)==6 && preset->getItemId(10)==7
+              && preset->getItemId(11)==8 && preset->getItemId(12)==9,
+              "frozen old factory IDs 1..5 and action IDs6..9; new factory menu IDs10..13");
         check(preset->getSelectedId()==0 && preset->getText().isEmpty()
               && !static_cast<bool>(preset->getProperties().getWithDefault(
                   "skellMasterPresetModified",false)),
@@ -358,6 +361,34 @@ int main() {
         preset->setSelectedId(1,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load())<.12f,
               "INIT factory preset must restore zero drive");
+        // Exercise *every* original published factory value, not only a
+        // handful of characteristic knobs. These snapshots must never be
+        // retuned or silently migrated when adding stronger new variants.
+        static constexpr float frozenOriginals[5][11]={
+            {0,0,0,0,0,0,0,0,0,0,0},
+            {0,15,18,10,0,0,12,0,0,0,0},
+            {0,8,12,7,0,0,0,22,0,0,0},
+            {0,10,24,18,0,0,8,8,0,0,12},
+            {4,8,17,11,-1,2,20,0,0,0,14}
+        };
+        const char* frozenKnobs[]={
+            "input","drive","glue","dynamics","lows","highs",
+            "sauce","transients","output","ceiling","clipper"
+        };
+        for(int oldId=1;oldId<=5;++oldId) {
+            preset->setSelectedId(oldId,juce::sendNotificationSync);
+            check(processor.getFactoryPresetId()==oldId &&
+                  preset->getSelectedId()==oldId,
+                  "published factory identity or selector ID was renumbered");
+            for(int k=0;k<11;++k)
+                check(std::abs(
+                    processor.parameters.getRawParameterValue(frozenKnobs[k])->load()
+                    -frozenOriginals[oldId-1][k])<.12f,
+                    "published old factory control setting changed");
+            check((processor.parameters.getRawParameterValue("deuceMatch")->load()>=.5f)
+                  ==(oldId==5),
+                  "published Deuce Match factory state changed");
+        }
         // User-reference-matched starting point: deliberately uses only the
         // existing 11 stable APVTS parameter IDs; old presets stay unchanged.
         preset->setSelectedId(5,juce::sendNotificationSync);
@@ -435,11 +466,89 @@ int main() {
         check(processor.getFactoryPresetId()==6 && preset->getSelectedId()==10 &&
               std::abs(processor.parameters.getRawParameterValue("clipper")->load()-35.0f)<.12f,
               "new preset REAPPLY CURRENT must restore 35% without changing identity");
+        // Original five factory values are immutable. The new Warm/Punch/
+        // Loud+ alternatives opt in with *new IDs* 7..9, preserving the
+        // existing 6/7/8/9 menu actions and the five-plugin factory ID6.
+        struct AdditiveFactory {
+            int menu, internal;
+            const char* label;
+            std::array<float,11> values;
+        };
+        const std::array<AdditiveFactory,3> addedFactories {{
+            {11,7,"WARM MASTER+", {0,15,15,8,2,-1,20,0,0,0,0}},
+            {12,8,"PUNCH MASTER+",{-2,8,6,4,0,1,0,60,0,0,0}},
+            {13,9,"LOUD MASTER+", {0,12,14,11,0,1,8,8,3,0,25}}
+        }};
+        const char* knobIds[] = {"input","drive","glue","dynamics",
+            "lows","highs","sauce","transients","output","ceiling","clipper"};
+        for(const auto& variant : addedFactories) {
+            preset->setSelectedId(variant.menu,juce::sendNotificationSync);
+            check(processor.getFactoryPresetId()==variant.internal
+                    && preset->getSelectedId()==variant.menu
+                    && preset->getText()==variant.label,
+                  "opt-in factory name and internal saved ID mismatch");
+            check(processor.usesReferenceClip() && processor.usesChainOrderedClip()
+                  && processor.parameters.getRawParameterValue("deuceMatch")->load()<.5f,
+                  "additive factory must select chain-ordered native clip without Deuce");
+            for(size_t k=0;k<variant.values.size();++k)
+                check(std::abs(processor.parameters.getRawParameterValue(knobIds[k])->load()
+                               -variant.values[k])<.12f,
+                      "opt-in factory knob values differ from verified reference snapshot");
+            juce::MemoryBlock variantState;
+            processor.getStateInformation(variantState);
+            SkellyMasterAudioProcessor restoredVariant;
+            restoredVariant.setStateInformation(variantState.getData(),
+                                               static_cast<int>(variantState.getSize()));
+            check(restoredVariant.getFactoryPresetId()==variant.internal
+                  && restoredVariant.usesReferenceClip()
+                  && restoredVariant.usesChainOrderedClip(),
+                  "v8 preset identity and clip topology must survive DAW state recall");
+            {
+                SkellyMasterAudioProcessorEditor restoredVariantEditor(restoredVariant);
+                juce::ComboBox* restoredMenu=nullptr;
+                for(int c=0;c<restoredVariantEditor.getNumChildComponents();++c)
+                    if(auto* combo=dynamic_cast<juce::ComboBox*>(
+                           restoredVariantEditor.getChildComponent(c)))
+                        if(combo->getComponentID()=="skell-master-preset")
+                            restoredMenu=combo;
+                check(restoredMenu && restoredMenu->getSelectedId()==variant.menu
+                      && restoredMenu->getText()==variant.label,
+                      "v8 restored preset must display exact original name");
+            }
+            clipper->setValue(variant.values[10]+1.0f,juce::sendNotificationSync);
+            check(static_cast<bool>(preset->getProperties().getWithDefault(
+                      "skellMasterPresetModified",false)),
+                  "new variant must indicate edited CLIP immediately");
+            preset->setSelectedId(6,juce::sendNotificationSync);
+            check(processor.getFactoryPresetId()==variant.internal
+                  && preset->getSelectedId()==variant.menu
+                  && std::abs(processor.parameters.getRawParameterValue("clipper")->load()
+                              -variant.values[10])<.12f,
+                  "REAPPLY CURRENT must restore each new factory knob and identity");
+            check(!static_cast<bool>(preset->getProperties().getWithDefault(
+                      "skellMasterPresetModified",false)),
+                  "REAPPLY CURRENT must clear new factory edited status");
+        }
+        // v7 projects knew ID6, but never IDs7..9; malformed v7 ID9
+        // must saturate to ID6 without enabling an unintended new factory.
+        auto oldV7=processor.parameters.copyState();
+        oldV7.setProperty("skellMasterStateVersion",7,nullptr);
+        oldV7.setProperty("skellMasterFactoryPreset",9,nullptr);
+        auto oldV7Xml=oldV7.createXml();
+        check(static_cast<bool>(oldV7Xml),"legacy v7 XML exists");
+        juce::MemoryBlock oldV7Blob;
+        if(oldV7Xml)juce::AudioProcessor::copyXmlToBinary(*oldV7Xml,oldV7Blob);
+        SkellyMasterAudioProcessor v7Restored;
+        v7Restored.setStateInformation(oldV7Blob.getData(),
+                                    static_cast<int>(oldV7Blob.getSize()));
+        check(v7Restored.getFactoryPresetId()==6,
+              "old v7 projects must not resolve malformed IDs7..9 as new variants");
+
         preset->setSelectedId(5,juce::sendNotificationSync);
         check(processor.getFactoryPresetId()==5 &&
               std::abs(processor.parameters.getRawParameterValue("clipper")->load()-14.0f)<.12f
               && std::abs(processor.parameters.getRawParameterValue("highs")->load()-2.0f)<.12f,
-              "new reference preset must not overwrite published SKELL MASTER factory");
+              "new variants must not overwrite published SKELL MASTER factory");
         // Editing factory #5 is a custom variant, not the original published sound.
         clipper->setValue(43.0,juce::sendNotificationSync);
         check(static_cast<bool>(preset->getProperties().getWithDefault(

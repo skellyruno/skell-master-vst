@@ -311,10 +311,56 @@ overwriting the old factory; the final API-like bell is the separate
 mid-band correction hypothesis. Audition and independent final-WAV
 spectral measurement still determine its suitability.
 
-Older saved state: v1-v6 factory IDs remain capped at 5 in migration
-so malformed historical ID6 values cannot accidentally activate the
-new EQ. State v7 explicitly supports factory ID6, preserving selection,
-settings and clip topology across host project reloads.
+Older saved state: v1-v6 factory IDs remain capped at 5, and
+v7 at 6, so malformed historical values cannot accidentally enable new
+factories. State v8 supports factory IDs7..9 while preserving the v7
+reference-clip placement property, selections and parameter automation.
+
+### Additive factory voicing: WARM MASTER+, PUNCH MASTER+, LOUD MASTER+ (v8)
+
+**No changes** to the existing published factory IDs 1..5, the existing
+5-PLUGIN MATCH factory ID6, any APVTS automation IDs, any parameter ranges,
+or the previous v6/v7 saved-session sounds. Three additional, opt-in
+factories have internal saved IDs **7, 8, 9** and menu IDs **11, 12, 13**.
+The menu action IDs 6..9 remain reserved and unchanged.
+
+- **WARM MASTER+** (ID7): INPUT0, DRIVE15, GLUE15, DYNAMICS8,
+  LOWS+2dB, HIGHS-1dB, SAUCE20, TRANSIENTS0, OUTPUT0, CEILING0, CLIP0.
+  On an eight-second source excerpt it adds ~1.69dB of low/mid energy
+  relative to the published WARM, for a fuller, darker character.
+- **PUNCH MASTER+** (ID8): INPUT-2dB, DRIVE8, GLUE6, DYNAMICS4,
+  LOWS0, HIGHS+1dB, SAUCE0, TRANSIENTS60, OUTPUT0, CEILING0, CLIP0.
+  It preserves ~0.46dB more crest factor than original PUNCH on the
+  same exact source excerpt while sacrificing ~0.45dB of RMS level.
+- **LOUD MASTER+** (ID9): INPUT0, DRIVE12, GLUE14, DYNAMICS11,
+  LOWS0, HIGHS+1dB, SAUCE8, TRANSIENTS8, OUTPUT+3dB,
+  CEILING0, CLIP25. This version provides ~2.75dB more RMS than the
+  published LOUD on the same excerpt, but with **stronger peak shaving**
+  (crest ~3.79dB vs 6.54dB). Use deliberately for density rather
+  than transparent mastering; match levels when auditioning.
+
+Measurements use the actual **compiled PR35 Linux VST3**, the owner's
+8s private unmastered excerpt and the same sample-rate/clip region for
+all settings. They are **not** general loudness guarantees or a claim
+that any preset exactly recreates a proprietary processor. The owner
+audio remains local/private and off GitHub.
+
+State version **8** supports IDs7..9. Loading an older v7 session
+still caps its factory identity at6; v1-v6 identities still cap at5,
+even if malformed data says otherwise. Selecting the new v8 factories
+explicitly enables the modern 4x chain-ordered clipping topology.
+Individual controls remain exposed under their original 11 automation
+IDs; no extra parameter/CPU or host PDC is added simply by adding
+factory choices. Host regression runs all 9 factory states, checks all
+11 knob names produce a real VST3 audio change, and validates
+selection/edit-marker/reapply/host-state recall.
+
+*Engineering note:* the 11-knob extreme-value sweep on this reference
+excerpt verified live DSP for every control, but full 100% GLUE and
+DYNAMICS are intentionally very aggressive compressor settings.
+Their nonlinear loudness behavior should be auditioned, not mistaken
+for a linear 0..100% makeup knob. Preserve the existing control mappings
+in old projects until an explicit versioned alternative is A/B tested.
 
 ### Owner's five-plugin master reference and compatibility
 
