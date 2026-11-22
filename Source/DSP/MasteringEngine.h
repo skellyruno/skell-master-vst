@@ -880,7 +880,10 @@ public:
                 const double excess=peak-knee;
                 rounded=knee+width*excess/(width+excess);
             }
-            const double shapeGain=peak>1.0e-24 ? rounded/peak : 1.0;
+            // Continuously fade the knee from neutral at 0%; otherwise even
+            // a 1% CLIP setting could engage full-strength distortion.
+            const double gentlyRounded=peak+modernClip*(rounded-peak);
+            const double shapeGain=peak>1.0e-24 ? gentlyRounded/peak : 1.0;
             wetL*=push*shapeGain;
             wetR*=push*shapeGain;
             clipGain*=shapeGain;

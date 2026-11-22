@@ -628,6 +628,30 @@ int main() {
     }
     require(nullError<1.e-7,"Reference CLIP at zero must be identical to legacy neutral");
 
+    // Very low knob values should be a small continuous change, not
+    // full-strength clipping abruptly enabled after a zero setting.
+    MasteringEngine refOnePercent, refOnePercentDry;
+    refOnePercent.prepare(rate,2,lookahead);
+    refOnePercentDry.prepare(rate,2,lookahead);
+    MasterParameters pOne;
+    pOne.referenceClip=true;
+    pOne.clipper=.01;
+    MasterParameters pZero;
+    pZero.referenceClip=true;
+    refOnePercent.setParameters(pOne);
+    refOnePercentDry.setParameters(pZero);
+    double maxLowKnobDiff=0.0;
+    for(int i=0;i<16000;++i) {
+        const float x=static_cast<float>(.85*std::sin(2*detail::pi*630*i/rate));
+        const auto a=refOnePercent.processFrame(x,x*.79f);
+        const auto b=refOnePercentDry.processFrame(x,x*.79f);
+        if(i>8000)
+            maxLowKnobDiff=std::max(maxLowKnobDiff,
+                std::abs(static_cast<double>(a.left)-b.left));
+    }
+    require(maxLowKnobDiff<.03,
+            "Reference CLIP 1% must not suddenly engage its full nonlinear knee");
+
     MasteringEngine refClean,refMedium,refHard;
     for(auto* e : {&refClean,&refMedium,&refHard})
         e->prepare(rate,2,lookahead);
