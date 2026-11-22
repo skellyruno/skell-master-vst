@@ -272,7 +272,7 @@ static int applyCommandLineOverrides(juce::AudioPluginInstance& instance,
         {4,8,17,11,-1,3,20,0,0,0,35},
         {0,15,15,8,2,-1,20,0,0,0,0},
         {-2,8,6,4,0,1,0,60,0,0,0},
-        {0,12,14,11,0,1,8,8,3,0,25}
+        {0,12,14,11,0,1,8,8,2,0,20}
     };
     static constexpr const char* factoryNames[11]={
         "Input","Drive","Glue","Dynamics","Lows","Highs",
@@ -656,7 +656,12 @@ int main(int argc, char** argv) {
         if (!bypassEnabled) {
             require(metrics.samplePeak<=configuredSampleCeiling+3.e-4,
                     "Hosted VST3 escaped the configured sample-peak ceiling");
-            if (deuceMatchEnabled || referenceClipEnabled) {
+            // New v8 Warm+/Punch+/Loud+ all opt into reconstructed
+            // true-peak safety even when CLIP=0 and Deuce Match is OFF.
+            // Original published factories retain their legacy sample
+            // guard for saved-project parity.
+            if (deuceMatchEnabled || referenceClipEnabled ||
+                (requestedFactory>=7 && requestedFactory<=9)) {
                 // The production guard uses a rate-adaptive 0.5/0.45/0.4dB margin at 44.1/48/96kHz. The hosted
                 // 48-tap monitor must remain 0.1dB below the configured
                 // true-peak target; portable tests also check an independent 16x oracle.

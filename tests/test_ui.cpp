@@ -479,7 +479,7 @@ int main() {
         const std::array<AdditiveFactory,3> addedFactories {{
             {11,7,"WARM MASTER+", {0,15,15,8,2,-1,20,0,0,0,0}},
             {12,8,"PUNCH MASTER+",{-2,8,6,4,0,1,0,60,0,0,0}},
-            {13,9,"LOUD MASTER+", {0,12,14,11,0,1,8,8,3,0,25}}
+            {13,9,"LOUD MASTER+", {0,12,14,11,0,1,8,8,2,0,20}}
         }};
         const char* knobIds[] = {"input","drive","glue","dynamics",
             "lows","highs","sauce","transients","output","ceiling","clipper"};

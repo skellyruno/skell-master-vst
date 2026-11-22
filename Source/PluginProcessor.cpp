@@ -143,7 +143,13 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     if(p.referenceClip && p.clipper>0.0 && !p.bypass)
         referenceClipGuardHold=static_cast<int>(std::ceil(getSampleRate()*.12));
     else referenceClipGuardHold=std::max(0,referenceClipGuardHold-samples);
-    const bool requireTruePeak=deuceMatch || (referenceClipGuardHold>0 && !p.bypass);
+    // Fresh v8 voicings explicitly opt into the reconstructed true-peak
+    // guard even at CLIP=0. Previously published factory IDs 0..6 keep
+    // exactly their historical protection and legacy project behavior.
+    const int selectedFactory=getFactoryPresetId();
+    const bool newV8Voicing=selectedFactory>=7 && selectedFactory<=9;
+    const bool requireTruePeak=!p.bypass && (
+        deuceMatch || referenceClipGuardHold>0 || newV8Voicing);
     // A sixth, additive factory preset alone enables this API-like post-L2
     // bell. Existing SKELL MASTER and all v1-v7 saved presets stay the same.
     referenceFinalEq.setEnabled(getFactoryPresetId()==6 && !p.bypass);

@@ -333,17 +333,32 @@ The menu action IDs 6..9 remain reserved and unchanged.
   It preserves ~0.46dB more crest factor than original PUNCH on the
   same exact source excerpt while sacrificing ~0.45dB of RMS level.
 - **LOUD MASTER+** (ID9): INPUT0, DRIVE12, GLUE14, DYNAMICS11,
-  LOWS0, HIGHS+1dB, SAUCE8, TRANSIENTS8, OUTPUT+3dB,
-  CEILING0, CLIP25. This version provides ~2.75dB more RMS than the
-  published LOUD on the same excerpt, but with **stronger peak shaving**
-  (crest ~3.79dB vs 6.54dB). Use deliberately for density rather
-  than transparent mastering; match levels when auditioning.
+  LOWS0, HIGHS+1dB, SAUCE8, TRANSIENTS8, OUTPUT+2dB,
+  CEILING0, CLIP20. An updated *whole-song* A/B preferred this balanced
+  variant over the former +3dB/CLIP25 proposal, which flattened too many
+  transients. On the owner's 99.648s stereo source, the earlier compiled
+  VST3's tested +2dB/CLIP20 candidate measured **-8.24 LUFS / 5.69dB
+  crest**, versus the original LOUD at -10.05 LUFS / 7.56dB crest.
+  This is stronger density but less peak shaving than the discarded
+  initial +3dB/CLIP25 candidate (-7.42 LUFS / 4.80dB crest).
+  Recheck numbers on the exact-head compiled v8 build before treating
+  these as release measurements.
 
 Measurements use the actual **compiled PR35 Linux VST3**, the owner's
 8s private unmastered excerpt and the same sample-rate/clip region for
 all settings. They are **not** general loudness guarantees or a claim
 that any preset exactly recreates a proprietary processor. The owner
 audio remains local/private and off GitHub.
+
+**True-peak correction:** ID7 Warm+, ID8 Punch+, and ID9 Loud+
+explicitly activate the existing reconstructed true-peak guard even with
+CLIP at 0% and Deuce Match OFF. Full-song stress analysis caught
+unsafe intersample peaks on the initial new Warm+/Punch+ proposals
+despite their legal sample peaks. The guard is already present at a
+constant reported latency, so this change requires **no new PDC**.
+Earlier published factory IDs0..6 retain their original legacy/Deuce
+guard selection. Latest compiled true-peak measurements remain a
+mandatory verification gate before approving these new variants.
 
 State version **8** supports IDs7..9. Loading an older v7 session
 still caps its factory identity at6; v1-v6 identities still cap at5,
