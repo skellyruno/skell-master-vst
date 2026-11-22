@@ -43,6 +43,7 @@ private:
     void drawScrew(juce::Graphics&, float, float) const;
     void resetToDefaults();
     void applyFactoryPreset(int presetId);
+    void refreshPresetDisplay();
     void clearMeterHolds();
     void switchSkin();
     static skellcore::ui::SkullSkin loadSkin();
@@ -75,6 +76,7 @@ private:
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, knobCount> attachments;
     juce::TextButton bypass { "BYPASS" }, reset { "RESET" };
     juce::ComboBox presetSelector;
+    bool reapplyEnabled = false;
     std::array<juce::TextButton,3> monitorButtons {juce::TextButton("PEAK"), juce::TextButton("TRUE"), juce::TextButton("CLEAR")};
     bool monitorTruePeak = true;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
