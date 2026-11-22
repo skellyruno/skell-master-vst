@@ -507,13 +507,19 @@ int main() {
             "reference tonal correction does not restore measurable mid presence");
     tone.setEnabled(false);
     double maxOffError=0.0;
-    for(int i=0;i<6000;++i) {
+    for(int i=0;i<18000;++i) {
         const double dry=0.06*std::sin(i*2.0*detail::pi*439.0/44100.0);
         double l=dry,r=-0.61*dry;
         tone.process(l,r);
         if(i>5500) maxOffError=std::max(maxOffError,std::abs(l-dry));
+        // The explicit wet==0 threshold eventually gives a literal null.
+        // One-pole 12ms smoothing cannot be bit-exact after only 136ms.
+        if(i>17500)
+            require(l==dry && r==-0.61*dry,
+                    "settled tonal-correction bypass must return exactly dry");
     }
-    require(maxOffError<1.e-9,"tonal correction must smoothly return to exact neutral");
+    require(maxOffError<2.e-7,
+            "tone disable must reach inaudible residual within 125ms");
     std::cout << "PASS: factory5 reference tone, neutral bypass, stereo link, smooth disable\\n";
 
     // Host-rate final sample-peak guard regression:
