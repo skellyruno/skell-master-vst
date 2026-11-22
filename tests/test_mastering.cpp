@@ -857,9 +857,9 @@ int main() {
     // Existing factory paths process at wet=0 and must remain exact.
     detail::ReferenceFinalEq neutralFinal;
     neutralFinal.prepare(44100.0);
-    double neutralL=.34, neutralR=-.13;
-    neutralFinal.process(neutralL,neutralR);
-    require(neutralL==.34 && neutralR==-.13,
+    double eqNeutralLeft=.34, eqNeutralRight=-.13;
+    neutralFinal.process(eqNeutralLeft,eqNeutralRight);
+    require(eqNeutralLeft==.34 && eqNeutralRight==-.13,
             "disabled final EQ must be bit-identical, not alter old presets");
     const auto measureEqGain=[](double hz) {
         detail::ReferenceFinalEq finalTone;
