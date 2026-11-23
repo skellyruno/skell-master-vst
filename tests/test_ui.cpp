@@ -443,14 +443,14 @@ int main() {
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load())<.12f,
               "DEFAULT factory preset must restore zero drive");
         // Exercise *every* original published factory value, not only a
-        // handful of characteristic knobs. These snapshots must never be
-        // retuned or silently migrated when adding stronger new variants.
+        // handful of characteristic knobs. Factory5 includes the owner's
+        // approved full-song calibration. IDs and other factories stay stable.
         static constexpr float frozenOriginals[5][11]={
             {0,0,0,0,0,0,0,0,0,0,0},
             {0,15,18,10,0,0,12,0,0,0,0},
             {0,8,12,7,0,0,0,22,0,0,0},
             {0,10,24,18,0,0,8,8,0,0,12},
-            {4,8,17,11,-1,3,20,0,0,3,35}
+            {5,8,20,11,-1,3,12,0,0,3,35}
         };
         const char* frozenKnobs[]={
             "input","drive","glue","dynamics","lows","highs",
