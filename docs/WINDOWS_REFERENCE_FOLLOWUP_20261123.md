@@ -1,5 +1,11 @@
 # Windows reference follow-up
 
+## Integrated factory build
+
+Source `fb94d12d99bf3a4fbb15e6fab19a54507dca2068` promotes Input +5 dB, Glue 20%, Sauce 12% into SKELL MASTER factory5. [Run 45168346154](https://github.com/skellyruno/skell-master-vst/actions/runs/45168346154) passed Windows 9/9 tests, external WAV smoke tests, strictness-5 pluginval, and Linux 8/8 plus automation checks. The tested PR merge is `48e5aff4901ce08a2bfddd5f8679c3ae68e1c558`.
+
+[Integrated Windows VST3 artifact](https://github.com/skellyruno/skell-master-vst/actions/runs/45168346154/artifacts/14815029227), archive SHA256 `04f645212e6879608d365884b39d186a7563334e5ea22aff471c93baeafa8ddb`. CLI downloads of this artifact failed with network connection errors. Full-song equivalence was verified using the local compiled integrated VST3. An additional full-song render of this CI artifact remains pending download access.
+
 ## Verified Windows build
 
 Source `9ac29ec25ca9720412294bd02935346aae9b18bd` fixes neutral DEFAULT transient overshoot with an allocated-in-prepare host-rate dry delay and a 12 ms transition. Audio processing uses fixed storage. Automation IDs, factory numbering and reported latency are retained.
@@ -14,7 +20,9 @@ The previous Windows smoke test failed with +1.644759 dB DEFAULT transient overs
 
 Private source and references were extracted locally from the owner's ZIP. Measurements use committed `tools/reference_compare.py`, 44.1 kHz, 0.25–98.75 seconds, reference delay 31 samples and candidate delay 105 samples. Every candidate was rendered through the downloaded Windows VST3. No audio is included in this repository.
 
-The listening candidate changes existing controls to Input +5 dB, Glue 20%, Sauce 12%. All other factory5 controls retain their current values. These are experimental settings for listening. Factory5's saved defaults retain their existing values pending the owner's comparison.
+The owner approved integrating the listening candidate into factory5. SKELL MASTER now loads Input +5 dB, Glue 20%, Sauce 12%. All other factory5 controls retain their current values. Selection, reapply, and serialized host-state tests cover the revised values. Existing projects restore their saved parameters. Selecting SKELL MASTER or REAPPLY CURRENT loads the revised factory values. The renderer seed and factory table are synchronized.
+
+The locally compiled integrated factory5 rendered all 4395625 output frames byte-identically to the measured candidate, including latency and tail. The comparison table below records the previous and revised sounds. Linux's automation fixture now uses Input +6 dB to exercise a change away from the new +5 dB default.
 
 | Metric | Owner five-plugin target | Current factory5 | Listening candidate |
 |---|---:|---:|---:|
