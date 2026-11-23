@@ -2,6 +2,8 @@
 
 ## Continuation on 2026-11-23
 
+The owner subsequently requested a presets-only menu. Source `262b9b8` removes extra menu entries and fixes timer/ComboBox selection races and same-preset reselection after edits. Core preset IDs1–5 remain visible. Historical factory identities remain supported in processor state. See `docs/PRESET_MENU_AND_NO_CLIP_20261123.md` for actual mouse inspection and full-song Clip0 versus four-plugin-reference measurements.
+
 The owner approved promoting the listening candidate into factory5. Commit `d7b31d6` changes SKELL MASTER to Input +5 dB, Glue 20%, Sauce 12%, and synchronizes hosted renderer values and preset/state tests. Existing serialized parameter values continue to restore directly. Select SKELL MASTER or REAPPLY CURRENT to load the revised factory values.
 
 Read `docs/WINDOWS_REFERENCE_FOLLOWUP_20261123.md` for the Windows DEFAULT transient fix and real Windows full-song comparisons. Factory5 now uses the owner-approved Input +5 dB, Glue 20%, Sauce 12%, with all other factory5 controls retained. It improves whole-song band/envelope/crest errors with a small held-out ending envelope regression. The integrated factory5 full-song PCM is byte-identical to the measured listening candidate. Private WAVs and listening previews stay outside the repository. The local stationary-knob pixel assertion failure and FL Studio save/reopen remain open.
