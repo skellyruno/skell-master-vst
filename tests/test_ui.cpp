@@ -407,13 +407,9 @@ int main() {
         clear->onClick();
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
               "passive output monitoring modified audio");
-        check(preset->getNumItems()==13
-              && preset->getItemId(0)==1 && preset->getItemId(4)==5
-              && preset->getItemId(5)==10 && preset->getItemId(6)==11
-              && preset->getItemId(7)==12 && preset->getItemId(8)==13
-              && preset->getItemId(9)==6 && preset->getItemId(10)==7
-              && preset->getItemId(11)==8 && preset->getItemId(12)==9,
-              "frozen old factory IDs 1..5 and action IDs6..9; new factory menu IDs10..13");
+        check(preset->getNumItems()==5
+              && preset->getItemId(0)==1 && preset->getItemId(4)==5,
+              "preset menu must contain only the five core presets");
         check(preset->getSelectedId()==0 && preset->getText().isEmpty()
               && !static_cast<bool>(preset->getProperties().getWithDefault(
                   "skellMasterPresetModified",false)),
@@ -423,13 +419,15 @@ int main() {
               "fresh instance must place Soft Clip Pro before L2-style limiter");
         check(processor.usesRefinedControlCurves(),
               "fresh v8 instances must use the refined compressor controls");
-        preset->setSelectedId(8,juce::sendNotificationSync);
-        check(!processor.usesReferenceClip() && preset->getSelectedId()==0,
-              "menu must switch to legacy CLIP without changing factory identity");
-        preset->setSelectedId(7,juce::sendNotificationSync);
-        check(processor.usesReferenceClip() && preset->getSelectedId()==0
-              && processor.usesChainOrderedClip(),
-              "menu must return to chain-ordered CLIP without changing factory");
+        // Reproduce a timer tick before ComboBox's asynchronous notification.
+        preset->setSelectedId(2,juce::sendNotificationAsync);
+        juce::Thread::sleep(50);
+        juce::Timer::callPendingTimersSynchronously();
+        check(preset->getSelectedId()==2,
+              "timer must preserve a pending user preset selection");
+        preset->onChange();
+        check(processor.getFactoryPresetId()==2,
+              "asynchronous preset selection must reach the processor");
         preset->setSelectedId(2,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-15.0f)<.12f,
               "WARM factory preset must apply its real DSP drive setting");
@@ -487,130 +485,6 @@ int main() {
                   "SKELL MASTER factory parameter snapshot is incorrect");
         check(processor.parameters.getRawParameterValue("deuceMatch")->load()>=0.5f,
               "SKELL MASTER must enable the real Deuce DSP stages");
-        // New factory ID6 is an opt-in *addition*, not a mutation of any
-        // published factory values or host parameter IDs.
-        preset->setSelectedId(10,juce::sendNotificationSync);
-        check(processor.getFactoryPresetId()==6 && preset->getSelectedId()==10 &&
-              preset->getText()=="5-PLUGIN MATCH",
-              "new reference preset must have correct saved ID and visible menu name");
-        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-35.0f)<.12f
-              && std::abs(processor.parameters.getRawParameterValue("highs")->load()-3.0f)<.12f
-              && processor.parameters.getRawParameterValue("deuceMatch")->load()>=.5f
-              && processor.usesReferenceClip() && processor.usesChainOrderedClip(),
-              "new preset must select source-calibrated 35%, highs and v7 chain mode");
-        // Mode actions must preserve the new preset's visible menu ID10.
-        // Item ID6 is an ACTION (REAPPLY), not a factory identity.
-        preset->setSelectedId(8,juce::sendNotificationSync);
-        check(processor.getFactoryPresetId()==6 &&
-              preset->getSelectedId()==10 &&
-              !processor.usesReferenceClip(),
-              "legacy CLIP mode must retain visible 5-PLUGIN MATCH, never select REAPPLY");
-        check(static_cast<bool>(preset->getProperties().getWithDefault(
-                  "skellMasterPresetModified",false)),
-              "changing a factory6 clip algorithm must mark it edited");
-        preset->setSelectedId(7,juce::sendNotificationSync);
-        check(processor.getFactoryPresetId()==6 &&
-              preset->getSelectedId()==10 &&
-              processor.usesReferenceClip() && processor.usesChainOrderedClip(),
-              "reference CLIP mode must retain factory6 ID10 and restore the chain");
-        check(!static_cast<bool>(preset->getProperties().getWithDefault(
-                  "skellMasterPresetModified",false)),
-              "returning to factory6 clip mode must clear edited state");
-        juce::MemoryBlock matchState;
-        processor.getStateInformation(matchState);
-        SkellyMasterAudioProcessor referenceRestored;
-        referenceRestored.setStateInformation(matchState.getData(),
-                                              static_cast<int>(matchState.getSize()));
-        check(referenceRestored.getFactoryPresetId()==6
-              && referenceRestored.parameters.getRawParameterValue("clipper")->load()>34.9f,
-              "new preset ID6 and settings must survive host project recall");
-        {
-            SkellyMasterAudioProcessorEditor referenceEditor(referenceRestored);
-            juce::ComboBox* referenceMenu=nullptr;
-            for(int i=0;i<referenceEditor.getNumChildComponents();++i)
-                if(auto* combo=dynamic_cast<juce::ComboBox*>(referenceEditor.getChildComponent(i)))
-                    if(combo->getComponentID()=="skell-master-preset") referenceMenu=combo;
-            check(referenceMenu && referenceMenu->getSelectedId()==10 &&
-                  referenceMenu->getText()=="5-PLUGIN MATCH",
-                  "new preset name must render correctly after host state restore");
-        }
-        clipper->setValue(70.0,juce::sendNotificationSync);
-        check(static_cast<bool>(preset->getProperties().getWithDefault(
-                  "skellMasterPresetModified",false)),
-              "5-PLUGIN MATCH * must update immediately on knob interaction");
-        juce::Thread::sleep(70);
-        juce::Timer::callPendingTimersSynchronously();
-        check(static_cast<bool>(preset->getProperties().getWithDefault(
-                  "skellMasterPresetModified",false)),
-              "new 5-PLUGIN MATCH must mark user-edited settings");
-        preset->setSelectedId(6,juce::sendNotificationSync);
-        check(processor.getFactoryPresetId()==6 && preset->getSelectedId()==10 &&
-              std::abs(processor.parameters.getRawParameterValue("clipper")->load()-35.0f)<.12f,
-              "new preset REAPPLY CURRENT must restore 35% without changing identity");
-        // Original five factory values are immutable. The new Warm/Punch/
-        // Loud+ alternatives opt in with *new IDs* 7..9, preserving the
-        // existing 6/7/8/9 menu actions and the five-plugin factory ID6.
-        struct AdditiveFactory {
-            int menu, internal;
-            const char* label;
-            std::array<float,11> values;
-        };
-        const std::array<AdditiveFactory,3> addedFactories {{
-            {11,7,"WARM MASTER+", {0,15,15,8,2,-1,20,0,0,0,0}},
-            {12,8,"PUNCH MASTER+",{-2,8,6,4,0,1,0,60,0,0,0}},
-            {13,9,"LOUD MASTER+", {0,12,14,11,0,1,8,8,2,0,20}}
-        }};
-        const char* knobIds[] = {"input","drive","glue","dynamics",
-            "lows","highs","sauce","transients","output","ceiling","clipper"};
-        for(const auto& variant : addedFactories) {
-            preset->setSelectedId(variant.menu,juce::sendNotificationSync);
-            check(processor.getFactoryPresetId()==variant.internal
-                    && preset->getSelectedId()==variant.menu
-                    && preset->getText()==variant.label,
-                  "opt-in factory name and internal saved ID mismatch");
-            check(processor.usesReferenceClip() && processor.usesChainOrderedClip()
-                  && processor.parameters.getRawParameterValue("deuceMatch")->load()<.5f,
-                  "additive factory must select chain-ordered native clip without Deuce");
-            for(size_t k=0;k<variant.values.size();++k)
-                check(std::abs(processor.parameters.getRawParameterValue(knobIds[k])->load()
-                               -variant.values[k])<.12f,
-                      "opt-in factory knob values differ from verified reference snapshot");
-            juce::MemoryBlock variantState;
-            processor.getStateInformation(variantState);
-            SkellyMasterAudioProcessor restoredVariant;
-            restoredVariant.setStateInformation(variantState.getData(),
-                                               static_cast<int>(variantState.getSize()));
-            check(restoredVariant.getFactoryPresetId()==variant.internal
-                  && restoredVariant.usesReferenceClip()
-                  && restoredVariant.usesChainOrderedClip()
-                  && restoredVariant.usesRefinedControlCurves(),
-                  "v8 identity, clip topology and knob map must survive DAW state recall");
-            {
-                SkellyMasterAudioProcessorEditor restoredVariantEditor(restoredVariant);
-                juce::ComboBox* restoredMenu=nullptr;
-                for(int c=0;c<restoredVariantEditor.getNumChildComponents();++c)
-                    if(auto* combo=dynamic_cast<juce::ComboBox*>(
-                           restoredVariantEditor.getChildComponent(c)))
-                        if(combo->getComponentID()=="skell-master-preset")
-                            restoredMenu=combo;
-                check(restoredMenu && restoredMenu->getSelectedId()==variant.menu
-                      && restoredMenu->getText()==variant.label,
-                      "v8 restored preset must display exact original name");
-            }
-            clipper->setValue(variant.values[10]+1.0f,juce::sendNotificationSync);
-            check(static_cast<bool>(preset->getProperties().getWithDefault(
-                      "skellMasterPresetModified",false)),
-                  "new variant must indicate edited CLIP immediately");
-            preset->setSelectedId(6,juce::sendNotificationSync);
-            check(processor.getFactoryPresetId()==variant.internal
-                  && preset->getSelectedId()==variant.menu
-                  && std::abs(processor.parameters.getRawParameterValue("clipper")->load()
-                              -variant.values[10])<.12f,
-                  "REAPPLY CURRENT must restore each new factory knob and identity");
-            check(!static_cast<bool>(preset->getProperties().getWithDefault(
-                      "skellMasterPresetModified",false)),
-                  "REAPPLY CURRENT must clear new factory edited status");
-        }
         // v7 projects knew ID6, but never IDs7..9; malformed v7 ID9
         // must saturate to ID6 without enabling an unintended new factory.
         auto oldV7=processor.parameters.copyState();
@@ -626,24 +500,6 @@ int main() {
         check(v7Restored.getFactoryPresetId()==6
               && !v7Restored.usesRefinedControlCurves(),
               "old v7 states must cap identities and keep the old 100% compressor DSP");
-        // Selecting a new v8 factory from an old project is explicit
-        // consent to the modern *factory* voicing; merely restoring the
-        // v7 state must not change its compressor automation sound.
-        {
-            SkellyMasterAudioProcessorEditor legacyChoice(v7Restored);
-            juce::ComboBox* legacyMenu=nullptr;
-            for(int c=0;c<legacyChoice.getNumChildComponents();++c)
-                if(auto* combo=dynamic_cast<juce::ComboBox*>(
-                       legacyChoice.getChildComponent(c)))
-                    if(combo->getComponentID()=="skell-master-preset")
-                        legacyMenu=combo;
-            check(legacyMenu!=nullptr,"v7 legacy option menu is accessible");
-            if(legacyMenu)legacyMenu->setSelectedId(12,juce::sendNotificationSync);
-            check(v7Restored.getFactoryPresetId()==8
-                  && v7Restored.usesRefinedControlCurves(),
-                  "explicit PUNCH+ selection should opt the legacy session into v8 curves");
-        }
-
         preset->setSelectedId(5,juce::sendNotificationSync);
         // v8 intentionally recalibrates only the primary factory #5 to the
         // owner's five-plugin reference. The old 14%/2dB assertions became
@@ -665,18 +521,20 @@ int main() {
               "edited factory should display modified status");
         check(processor.getFactoryPresetId()==5,
               "customization must preserve saved base factory identity");
-        preset->setSelectedId(6,juce::sendNotificationSync);
+        check(preset->getSelectedId()==0,
+              "editing a preset must allow choosing that same preset again");
+        preset->setSelectedId(5,juce::sendNotificationSync);
         check(preset->getSelectedId()==5 && processor.getFactoryPresetId()==5,
-              "REAPPLY CURRENT must restore the same selected identity");
+              "reselecting SKELL MASTER must restore the same selected identity");
         check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-35.0f)<.12f,
-              "REAPPLY CURRENT must restore SKELL MASTER 35% clip setting");
+              "reselecting SKELL MASTER must restore SKELL MASTER 35% clip setting");
         check(!static_cast<bool>(preset->getProperties().getWithDefault(
                   "skellMasterPresetModified",false)),
               "reapplying a factory must clear edited status");
         for (const auto& value : matched)
             check(std::abs(processor.parameters.getRawParameterValue(value.id)->load()
                            -value.expected)<.12f,
-                  "REAPPLY CURRENT must restore the measured SKELL MASTER settings");
+                  "reselecting SKELL MASTER must restore the measured SKELL MASTER settings");
         preset->setSelectedId(1,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("input")->load())<.12f &&
               std::abs(processor.parameters.getRawParameterValue("highs")->load())<.12f &&
@@ -710,7 +568,7 @@ int main() {
         // Regression: RESET must clear hidden legacy choices too. Previously
         // DEFAULT showed zero knobs but kept the old post-limiter CLIP mode,
         // making the next CLIP automation sound different from a fresh v8.
-        preset->setSelectedId(8,juce::sendNotificationSync);
+        processor.setReferenceClipEnabled(false);
         processor.setRefinedControlCurvesEnabled(false);
         check(!processor.usesReferenceClip() && !processor.usesRefinedControlCurves(),
               "legacy CLIP / compressor mode test precondition failed");
@@ -790,9 +648,9 @@ int main() {
                     if(combo->getComponentID()=="skell-master-preset") v6Menu=combo;
             check(v6Menu!=nullptr,"v6 mode switching menu must be accessible");
             if(v6Menu) {
-                v6Menu->setSelectedId(9,juce::sendNotificationSync);
-                check(oldV6.usesReferenceClip() && oldV6.usesChainOrderedClip(),
-                      "v6 user must explicitly opt into 35% chain-ordered CLIP");
+                check(v6Menu->getNumItems()==5
+                      && oldV6.usesReferenceClip() && !oldV6.usesChainOrderedClip(),
+                      "opening the simplified menu must retain v6 clip topology");
             }
         }
 

@@ -100,13 +100,9 @@ constexpr float factoryValues[9][11] = {
     {-2,8,6,4,0,1,0,60,0,0,0},    // 8 PUNCH MASTER+
     {0,12,14,11,0,1,8,8,2,0,20}   // 9 LOUD MASTER+
 };
-// Factory internal IDs 6..9 are intentionally different from their menu
-// IDs 10..13; menu IDs 6..9 are already published ACTIONS.
+// Retired factory identities remain loadable through saved host state.
 constexpr int menuForFactory(int factory) noexcept {
-    return factory>=6 && factory<=9 ? factory+4 : factory;
-}
-constexpr int factoryFromMenu(int menu) noexcept {
-    return menu>=10 && menu<=13 ? menu-4 : menu;
+    return factory>=1 && factory<=5 ? factory : 0;
 }
 constexpr const char* subtitles[8] = {
     "GAIN STAGE", "HARMONIC DRIVE", "BUS COMPRESSION", "LEVEL CONTROL",
@@ -636,6 +632,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
                 if(!static_cast<bool>(properties.getWithDefault(
                         "skellMasterPresetModified",false))) {
                     properties.set("skellMasterPresetModified",true);
+                    presetSelector.setSelectedId(0,juce::dontSendNotification);
                     presetSelector.repaint();
                     for(int c=0;c<presetSelector.getNumChildComponents();++c)
                         if(auto* child=presetSelector.getChildComponent(c))
@@ -666,41 +663,15 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     presetSelector.addItem("PUNCH MASTER",3);
     presetSelector.addItem("LOUD MASTER",4);
     presetSelector.addItem("SKELL MASTER",5);
-    // Menu item ID 10 maps to *new* saved factory identity 6; published
-    // selector identities 1..5 and action IDs 6..9 remain untouched.
-    presetSelector.addItem("5-PLUGIN MATCH",10);
-    presetSelector.addItem("WARM MASTER+",11);
-    presetSelector.addItem("PUNCH MASTER+",12);
-    presetSelector.addItem("LOUD MASTER+",13);
-    presetSelector.addSeparator();
-    presetSelector.addItem("REAPPLY CURRENT",6);
-    presetSelector.addSeparator();
-    presetSelector.addItem("USE REFERENCE CLIP",7);
-    presetSelector.addItem("USE LEGACY CLIP",8);
-    presetSelector.addItem("USE 35% CHAIN CLIP",9);
-    presetSelector.setItemEnabled(6,false);
+    displayedFactory=processor.getFactoryPresetId();
     presetSelector.setSelectedId(menuForFactory(processor.getFactoryPresetId()),
                                  juce::dontSendNotification);
     // ID 0 remains the old neutral state, not a changed factory ID.
     presetSelector.setTextWhenNothingSelected({});
     presetSelector.setJustificationType(juce::Justification::centred);
-    presetSelector.setTooltip("Original factories 1-5 remain frozen. 5-PLUGIN MATCH targets the five-plugin reference. New WARM+, PUNCH+, LOUD+ offer opt-in measured voicing: warmer bass, more crest/punch, or stronger density. CLIP stays 4x oversampled and state recall is versioned.");
+    presetSelector.setTooltip("Choose a mastering preset");
     presetSelector.onChange=[this] {
-        const int selected=presetSelector.getSelectedId();
-        if(selected==6) {
-            const int previous=processor.getFactoryPresetId();
-            if(previous>=1 && previous<=9) applyFactoryPreset(previous);
-            presetSelector.setSelectedId(menuForFactory(previous),
-                                         juce::dontSendNotification);
-        } else if(selected==7 || selected==8 || selected==9) {
-            processor.setReferenceClipEnabled(selected!=8);
-            if(selected!=8) processor.setChainOrderedClipEnabled(true);
-            const int currentFactory=processor.getFactoryPresetId();
-            // All new factory identities 6..9 map to menu IDs 10..13;
-            // never select the existing action items 6..9.
-            presetSelector.setSelectedId(menuForFactory(currentFactory),
-                                         juce::dontSendNotification);
-        } else applyFactoryPreset(factoryFromMenu(selected));
+        applyFactoryPreset(presetSelector.getSelectedId());
         refreshPresetDisplay();
     };
     addAndMakeVisible(presetSelector);
@@ -779,6 +750,7 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     processor.setRefinedControlCurvesEnabled(true);
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     processor.setFactoryPresetId(0);
+    displayedFactory=0;
     for (const char* id : ids)
         if (auto* param = processor.parameters.getParameter(id)) {
             param->beginChangeGesture();
@@ -829,13 +801,14 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
         p->endChangeGesture();
     }
     processor.setFactoryPresetId(presetId);
+    displayedFactory=presetId;
     refreshPresetDisplay();
 }
 
 void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
     const int factory=processor.getFactoryPresetId();
     const bool hasFactory=factory>=1 && factory<=9;
-    bool modified=false;
+    bool modified=factory>=6;
     for(int i=0;i<knobCount;++i) {
         const auto* raw=processor.parameters.getRawParameterValue(ids[i]);
         const float expected=hasFactory ? factoryValues[factory-1][i] : 0.0f;
@@ -857,27 +830,15 @@ void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
         "skellMasterPresetModified",false));
     if(previous!=modified) {
         properties.set("skellMasterPresetModified",modified);
+        // Clearing the selection after an edit lets the same factory be chosen
+        // again. ComboBox otherwise suppresses onChange for its selected item.
+        presetSelector.setSelectedId(modified ? 0 : menuForFactory(factory),
+                                     juce::dontSendNotification);
         presetSelector.repaint();
         for(int i=0;i<presetSelector.getNumChildComponents();++i)
             if(auto* child=presetSelector.getChildComponent(i)) child->repaint();
     }
-    if(reapplyEnabled!=hasFactory && !presetSelector.isPopupActive()) {
-        // JUCE popup menus must not be rebuilt during mouse selection.
-        reapplyEnabled=hasFactory;
-        presetSelector.setItemEnabled(6,hasFactory);
-    }
-    // The 30 Hz UI timer must not rebuild item states while FL Studio's
-    // dropdown is open. Repeated setItemEnabled caused intermittent lost
-    // click selection. Update only when mode actually changes.
-    const int clipMenuMode=!processor.usesReferenceClip() ? 0
-        : (processor.usesChainOrderedClip() ? 2 : 1);
-    if(!presetSelector.isPopupActive() && clipMenuMode!=lastClipMenuMode) {
-        const bool modern=clipMenuMode!=0;
-        presetSelector.setItemEnabled(7,!modern);
-        presetSelector.setItemEnabled(8,modern);
-        presetSelector.setItemEnabled(9,clipMenuMode==1);
-        lastClipMenuMode=clipMenuMode;
-    }
+
 }
 
 void SkellyMasterAudioProcessorEditor::clearMeterHolds() {
@@ -893,9 +854,12 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
     // A host may restore state while the editor is already open. Keep the
     // non-automatable factory label synchronized without reapplying DSP values.
     const int restoredPreset=processor.getFactoryPresetId();
-    const int wantedMenuId=menuForFactory(restoredPreset);
-    if(presetSelector.getSelectedId()!=wantedMenuId)
-        presetSelector.setSelectedId(wantedMenuId,juce::dontSendNotification);
+    // ComboBox delivers onChange asynchronously. Do not replace a pending
+    // user selection just because the processor still holds the previous ID.
+    if(restoredPreset!=displayedFactory && !presetSelector.isPopupActive()) {
+        displayedFactory=restoredPreset;
+        presetSelector.setSelectedId(menuForFactory(restoredPreset),juce::dontSendNotification);
+    }
     refreshPresetDisplay();
     const std::array<float, 2> peaks {processor.consumePeakLeft(), processor.consumePeakRight()};
     for (size_t channel = 0; channel < meterValues.size(); ++channel) {
