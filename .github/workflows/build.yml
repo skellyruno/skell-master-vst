@@ -320,7 +320,7 @@ jobs:
           # Named existing automation IDs: every physical mastering knob
           # must change the actual VST3 output, not only its readout.
           knob_index=0
-          for assignment in 'Input=5' 'Drive=18' 'Glue=28' \
+          for assignment in 'Input=6' 'Drive=18' 'Glue=28' \
                             'Dynamics=25' 'Lows=2' 'Highs=4' \
                             'Sauce=35' 'Transients=42' 'Output Trim=-6' \
                             'Ceiling Adjust=-2' 'Clip=40'; do
