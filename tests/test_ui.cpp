@@ -673,6 +673,10 @@ int main() {
         check(!static_cast<bool>(preset->getProperties().getWithDefault(
                   "skellMasterPresetModified",false)),
               "reapplying a factory must clear edited status");
+        for (const auto& value : matched)
+            check(std::abs(processor.parameters.getRawParameterValue(value.id)->load()
+                           -value.expected)<.12f,
+                  "REAPPLY CURRENT must restore the measured SKELL MASTER settings");
         preset->setSelectedId(1,juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("input")->load())<.12f &&
               std::abs(processor.parameters.getRawParameterValue("highs")->load())<.12f &&

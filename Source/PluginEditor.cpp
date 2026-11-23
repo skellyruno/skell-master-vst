@@ -90,7 +90,7 @@ constexpr float factoryValues[9][11] = {
     {0,8,12,7,0,0,0,22,0,0,0},
     {0,10,24,18,0,0,8,8,0,0,12},
     // Principal reference sound: clip35, full 5-plugin coloration,
-    // slightly higher final ceiling without extra compression.
+    // Measured full-song gain staging: Input +5, Glue 20%, Sauce 12%.
     {5,8,20,11,-1,3,12,0,0,3,35},
     // Existing v7 opt-in five-plugin source-matched factory.
     {4,8,17,11,-1,3,20,0,0,0,35},
