@@ -476,9 +476,9 @@ int main() {
         check(preset->getText()=="SKELL MASTER",
               "reference preset label must be visible in the real selector");
         const struct {const char* id; float expected;} matched[]={
-            {"input",4.0f},{"drive",8.0f},{"glue",17.0f},
+            {"input",5.0f},{"drive",8.0f},{"glue",20.0f},
             {"dynamics",11.0f},{"lows",-1.0f},{"highs",3.0f},
-            {"sauce",20.0f},{"transients",0.0f},{"output",0.0f},
+            {"sauce",12.0f},{"transients",0.0f},{"output",0.0f},
             {"ceiling",3.0f},{"clipper",35.0f}
         };
         for (const auto& value : matched)

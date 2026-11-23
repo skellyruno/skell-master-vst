@@ -91,7 +91,7 @@ constexpr float factoryValues[9][11] = {
     {0,10,24,18,0,0,8,8,0,0,12},
     // Principal reference sound: clip35, full 5-plugin coloration,
     // slightly higher final ceiling without extra compression.
-    {4,8,17,11,-1,3,20,0,0,3,35},
+    {5,8,20,11,-1,3,12,0,0,3,35},
     // Existing v7 opt-in five-plugin source-matched factory.
     {4,8,17,11,-1,3,20,0,0,0,35},
     // New v8 alternatives tested by actual hosted VST3 WAV render:

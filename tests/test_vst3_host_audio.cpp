@@ -268,7 +268,7 @@ static int applyCommandLineOverrides(juce::AudioPluginInstance& instance,
         {0,15,18,10,0,0,12,0,0,0,0},
         {0,8,12,7,0,0,0,22,0,0,0},
         {0,10,24,18,0,0,8,8,0,0,12},
-        {4,8,17,11,-1,3,20,0,0,3,35},
+        {5,8,20,11,-1,3,12,0,0,3,35},
         {4,8,17,11,-1,3,20,0,0,0,35},
         {0,15,15,8,2,-1,20,0,0,0,0},
         {-2,8,6,4,0,1,0,60,0,0,0},
@@ -552,13 +552,13 @@ int main(int argc, char** argv) {
         // Real hosted VST3 automation, no private/mutable factory preset data.
         // These are the already-public values of the current SKELL MASTER
         // reference preset. Existing preset identities/IDs are untouched.
-        setParameterByName(*plugin,"Input",4.0f);
+        setParameterByName(*plugin,"Input",5.0f);
         setParameterByName(*plugin,"Drive",8.0f);
-        setParameterByName(*plugin,"Glue",17.0f);
+        setParameterByName(*plugin,"Glue",20.0f);
         setParameterByName(*plugin,"Dynamics",11.0f);
         setParameterByName(*plugin,"Lows",-1.0f);
         setParameterByName(*plugin,"Highs",3.0f); // Keep host render seed in sync with factory preset 5.
-        setParameterByName(*plugin,"Sauce",20.0f);
+        setParameterByName(*plugin,"Sauce",12.0f);
         setParameterByName(*plugin,"Transients",0.0f);
         setParameterByName(*plugin,"Output Trim",0.0f);
         setParameterByName(*plugin,"Ceiling Adjust",3.0f);
