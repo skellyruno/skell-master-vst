@@ -1,5 +1,9 @@
 # Skell Master — Codex engineering handoff (2026-11-22)
 
+## Continuation on 2026-11-23
+
+Read `docs/WINDOWS_REFERENCE_FOLLOWUP_20261123.md` for the verified Windows build at `9ac29ec`, the DEFAULT transient fix, and new real Windows full-song comparisons. Existing factory5 remains the baseline. A measured listening candidate uses Input +5 dB, Glue 20%, Sauce 12%, with all other factory5 controls retained. It improves whole-song band/envelope/crest errors with a small held-out ending envelope regression. Private WAVs and listening previews stay outside the repository. The local stationary-knob pixel assertion failure and FL Studio save/reopen remain open.
+
 > **Start from the existing project. Do not recreate it.** This is an active, **draft/unmerged** 4×-oversampled JUCE mastering plugin. The user wants **measured sound matching** to their own five-plugin FL Studio master, additional DSP/error fixes, and a verified Windows VST3. Do not publish their WAVs, FST, or song excerpts to GitHub.
 
 ## Entry points — read these before editing
