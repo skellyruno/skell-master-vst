@@ -498,10 +498,10 @@ int main() {
         if(i>22050) {
             originalEnergy+=original*original;
             correctedEnergy+=l*l;
-            // The factory5 match intentionally narrows sides by -0.274dB,
+            // The factory5 match intentionally narrows sides by -0.38dB,
             // rather than retaining the pre-correction r/l ratio. Both
             // channels must still be phase-coherent after linked M/S trim.
-            constexpr double sideGain = 0.968946949979;
+            constexpr double sideGain = 0.957194071294;
             constexpr double expectedStereoRatio =
                 (0.195 - 0.805*sideGain)/(0.195 + 0.805*sideGain);
             require(std::abs(r-expectedStereoRatio*l)<1.e-6,

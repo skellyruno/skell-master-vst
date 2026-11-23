@@ -218,12 +218,12 @@ public:
         if(wet>1.0e-12) {
             // Real 99.65s owner's master A/B: the broad midrange correction
             // reduced spectral MAE, but increased side/mid balance by 0.274dB.
-            // A fixed -0.274dB mid/side-side trim restores the original
-            // stereo balance while retaining the reference-EQ improvement.
+            // Full-song comparisons at CLIP0 and CLIP35 selected -0.38dB
+            // side trim to reduce the remaining shared stereo-width error.
             // +0.15dB makeup drives the EXISTING final true-peak limiter
             // rather than raising output above its configured sample ceiling.
             // No clipping is introduced here: the guard remains last.
-            constexpr double sideGain = 0.968946949979;
+            constexpr double sideGain = 0.957194071294;
             constexpr double makeup = 1.017419366181;
             const double mid=0.5*(filteredL+filteredR);
             const double side=0.5*(filteredL-filteredR)*sideGain;
