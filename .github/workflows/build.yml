@@ -2,8 +2,7 @@ name: Build Windows VST3
 on:
   workflow_dispatch:
   push:
-    # Validate this active DSP development branch without screenshot workflows.
-    branches: [main, 'dsp/true-peak-ceiling-diagnostics-20261114']
+    branches: [main]
   pull_request:
     paths:
       - '.github/workflows/build.yml'
@@ -16,11 +15,13 @@ on:
 
 # During rapid UI/DSP iterations, do not waste Windows runners compiling
 # superseded snapshots. Always compile and publish the most recent commit.
+permissions:
+  contents: read
+
 concurrency:
   group: skell-master-${{ github.ref }}
-  # Only supersede outdated PR checks. Preserve main, manually dispatched,
-  # release and production builds even when new commits arrive.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main') }}
+  # Preserve main/manual builds; supersede only outdated PR checks.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -40,20 +41,9 @@ jobs:
           $metadata = Join-Path $plugin.FullName 'Contents/Resources/moduleinfo.json'
           if (-not (Test-Path $metadata)) { throw 'VST3 moduleinfo.json missing' }
           python tools/normalize_vst3_moduleinfo.py "$metadata"
-      # The SkellyUITests create genuine offscreen JUCE render screenshots.
-      # Preserve screenshots even on failure for direct visual inspection.
+      # Keep DSP/editor regressions. Visual captures stay local; no CI screenshot uploads.
       - name: Test mastering DSP
         run: ctest --test-dir build -C Release --output-on-failure --verbose
-      - name: Upload real Windows JUCE UI screenshots
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: SkellMaster-Real-Windows-UI-${{ github.sha }}
-          path: |
-            build/ui-snapshots/*.png
-            build/**/ui-snapshots/*.png
-          if-no-files-found: warn
-          retention-days: 14
       - name: Smoke-test external WAV render path
         shell: pwsh
         run: |
@@ -162,9 +152,21 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $plugin = Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Select-Object -First 1
+          $ErrorActionPreference = 'Stop'
+          $bundles = @(Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Where-Object { $_.FullName -match '[\\/]Release[\\/]' -and $_.Name -eq 'Skelly Master.vst3' })
+          if ($bundles.Count -ne 1) { throw "Expected one Release Skelly Master.vst3 bundle, found $($bundles.Count)" }
+          $plugin = $bundles[0]
+          $binary = Join-Path $plugin.FullName 'Contents/x86_64-win/Skelly Master.vst3'
+          $bytes = [System.IO.File]::ReadAllBytes($binary)
+          if ($bytes.Length -lt 512 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'Invalid Windows PE DOS signature' }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          if ($peOffset -lt 0x40 -or $peOffset -gt ($bytes.Length - 24) -or
+              [Text.Encoding]::ASCII.GetString($bytes, $peOffset, 4) -ne "PE" + [char]0 + [char]0) { throw 'Invalid Windows PE signature' }
+          if ([BitConverter]::ToUInt16($bytes, $peOffset + 4) -ne 0x8664) { throw 'Expected AMD64 VST3 module' }
+          $metadata = Get-Content (Join-Path $plugin.FullName 'Contents/Resources/moduleinfo.json') -Raw | ConvertFrom-Json
+          if ($metadata.Name -ne 'Skelly Master' -or -not $metadata.Classes) { throw 'Incorrect VST3 metadata identity' }
+          Write-Host "VST3 binary SHA256: $((Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash)"
           $runner = Get-ChildItem -Path build -File -Recurse -Filter 'SkellyVST3HostAudioTests.exe' | Select-Object -First 1
-          if (-not $plugin) { throw 'VST3 bundle missing' }
           if (-not $runner) { throw 'VST3 host render executable missing' }
           $package = Join-Path $PWD 'Skell-Master-Windows-VST3'
           New-Item -ItemType Directory -Force -Path $package | Out-Null
@@ -214,7 +216,7 @@ jobs:
           path: Skell-Master-Windows-VST3
           if-no-files-found: error
   reference-audio-linux-renderer:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (github.event.pull_request.head.ref == 'test/deuce-vst3-state-roundtrip-20261117' || github.event.pull_request.head.ref == 'test/deuce-master-param-sweep-linux-20261118' || github.event.pull_request.head.ref == 'fix/deuce-override-range-validation-20261118' || github.event.pull_request.head.ref == 'fix/deuce-renderer-ceiling-boundary-20261118' || github.event.pull_request.head.ref == 'fix/deuce-truepeak-margin-extreme-20261118' || github.event.pull_request.head.ref == 'tune/skell-master-deuce-highs2-20261118' || github.event.pull_request.head.ref == 'fix/deuce-truepeak-margin-20261119' || github.event.pull_request.head.ref == 'fix/deuce-truepeak-29db-margin-20261119' || github.event.pull_request.head.ref == 'tune/deuce-mid-presence-65cents-20261119' || github.event.pull_request.head.ref == 'fix/deuce-independent-noise-truepeak-20261119' || github.event.pull_request.head.ref == 'fix/deuce-truepeak-target-0p1margin-20261120' || github.event.pull_request.head.ref == 'tune/deuce-truepeak-margin-1p5-20261120' || github.event.pull_request.head.ref == 'fix/deuce-96k-broadband-guard-20261120' || github.event.pull_request.head.ref == 'tune/deuce-post-limiter-makeup-2p4db-20261120' || github.event.pull_request.head.ref == 'tune/master-reference-postlimit-clip-20261122')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -238,16 +240,6 @@ jobs:
           python tools/normalize_vst3_moduleinfo.py "$metadata"
       - name: Run portable DSP and hosted Linux VST3 tests
         run: xvfb-run -a ctest --test-dir build-linux --output-on-failure --verbose
-      - name: Upload real Linux JUCE UI screenshots
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: SkellMaster-Real-Linux-UI-${{ github.sha }}
-          path: |
-            build-linux/ui-snapshots/*.png
-            build-linux/**/ui-snapshots/*.png
-          if-no-files-found: warn
-          retention-days: 14
       - name: Smoke-test Linux VST3 parameter override validation
         shell: bash
         run: |

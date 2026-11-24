@@ -1,5 +1,9 @@
 # Skell Master — Codex engineering handoff (2026-11-22)
 
+## Consolidation on 2026-11-24
+
+The owner now explicitly authorized audit, consolidation and merge of verified work, superseding historical draft-only instructions below. PR35 is being integrated directly into main with unchanged tested DSP/editor source. See `docs/CONSOLIDATION_AUDIT_20261124.md` for the branch audit and packaging/CI decisions. Source b3574b7 passed Windows 9/9, strictness-5 pluginval and Linux validation in run 45324465511. Real local four-scene editor captures were rebuilt and inspected. FL Studio interactive recall and owner listening remain separate unverified release checks.
+
 ## Continuation on 2026-11-23
 
 The latest candidate adds v9 factory5-only 40/150 ms limiter recovery and a Clip-dependent causal allpass profile, with full private-song comparison at Clip 0/35 and intermediate 7/14/21/28. See `docs/REFERENCE_RECOVERY_PHASE_20261123.md` for exact measurements, tradeoffs, rejected safety experiments and verification status. Clip 35's 20 ms envelope MAE improves from 0.763518 to 0.5298 dB; its band MAE worsens from 0.098377 to 0.1270 dB and loudness is 0.048 LU lower. Clip zero improves loudness/crest and whole-song band/envelope errors. Existing v8 states retain previous processing through the serialized opt-in flag. No width knob was added. Local Windows 9/9 now passes after fixing a large test-fixture stack allocation and a rotary mask that included the moving shadow; exact-commit CI/pluginval must be checked separately.
