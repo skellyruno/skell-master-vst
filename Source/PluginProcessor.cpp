@@ -147,6 +147,8 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     // dry path; the wrapper's post-limiter presence and safety stages stay gated.
     p.deuceMatch = parameters.getRawParameterValue("deuceMatch")
         ->load(std::memory_order_relaxed) >= 0.5f;
+    p.referenceCalibration=usesReferenceCalibration()
+        && getFactoryPresetId()==5 && p.deuceMatch && p.clipBeforeLimiter;
 
     // The pre-release DEFAULT was not actually neutral: the always-on
     // -1dB limiter reduced loud incoming audio by ~1.5dB RMS.
@@ -196,6 +198,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     // Only primary factory5 takes the measured current five-plugin tone fit.
     // All other presets and dry bypass remain sample-for-sample unchanged.
     referenceToneCorrection.setEnabled(selectedFactory==5 && !p.bypass);
+    referenceToneCorrection.setClipAmount(p.clipper,p.referenceCalibration);
 
     // Reject malformed input BEFORE JUCE's oversampling filter stages.
     // Sanitizing only the oversampled samples is too late: NaN or Inf can
@@ -305,7 +308,8 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",8,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",9,nullptr);
+    snapshot.setProperty("skellMasterReferenceCalibration",usesReferenceCalibration() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterFactoryPreset",getFactoryPresetId(),nullptr);
     snapshot.setProperty("skellMasterClipAlgorithm",usesReferenceClip() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterClipPlacement",usesChainOrderedClip() ? 1 : 0,nullptr);
@@ -323,6 +327,10 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         // Retain their old sound, even when CLIP automation is nonzero.
         const int previousVersion=static_cast<int>(
             snapshot.getProperty("skellMasterStateVersion",1));
+        const bool calibrated=previousVersion>=9
+            && snapshot.getProperty("skellMasterReferenceCalibration",0).toString()=="1";
+        setReferenceCalibrationEnabled(calibrated);
+        snapshot.setProperty("skellMasterReferenceCalibration",calibrated ? 1 : 0,nullptr);
         const juce::String clipMode=snapshot.getProperty(
             "skellMasterClipAlgorithm",{}).toString().trim();
         const bool useReference=previousVersion>=6 && clipMode=="1";
@@ -416,7 +424,7 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             deuceMatchState.setProperty("value",0.0f,nullptr);
             snapshot.appendChild(deuceMatchState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",8,nullptr);
+        snapshot.setProperty("skellMasterStateVersion",9,nullptr);
         parameters.replaceState(snapshot);
     }
 }

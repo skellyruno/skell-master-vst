@@ -511,6 +511,20 @@ int main() {
     const double toneDb=10.0*std::log10(correctedEnergy/originalEnergy);
     require(toneDb>0.35 && toneDb<1.8,
             "reference tonal correction does not restore measurable mid presence");
+    detail::ReferenceToneCorrection monoLowClip,monoHighClip;
+    monoLowClip.prepare(44100.0); monoHighClip.prepare(44100.0);
+    monoLowClip.setEnabled(true); monoHighClip.setEnabled(true);
+    monoLowClip.setClipAmount(0.0,true);
+    monoHighClip.setClipAmount(0.35,true);
+    for(int i=0;i<12000;++i) {
+        if(i==6000) monoLowClip.setClipAmount(0.35,true);
+        if(i==8000) monoHighClip.setClipAmount(std::numeric_limits<double>::quiet_NaN(),true);
+        const double input=.2*std::sin(i*2.0*detail::pi*733.0/44100.0);
+        double a=input,b=input,c=input,d=input;
+        monoLowClip.process(a,b); monoHighClip.process(c,d);
+        require(std::isfinite(a) && a==b && a==c && c==d,
+                "reference stereo calibration must preserve centered mono through CLIP automation");
+    }
     tone.setEnabled(false);
     double maxOffError=0.0;
     for(int i=0;i<18000;++i) {
@@ -527,6 +541,40 @@ int main() {
     require(maxOffError<2.e-7,
             "tone disable must reach inaudible residual within 125ms");
     std::cout << "PASS: factory5 reference tone, neutral bypass, stereo link, smooth disable\\n";
+
+    // The v9 phase/recovery profile must remain stereo-linked and bounded
+    // through fast Clip automation, including invalid host values. Exercise
+    // the actual engine at each oversampled Windows host rate.
+    for(double hostRate : {44100.0,48000.0,96000.0}) {
+        auto automated=std::make_unique<MasteringEngine>();
+        automated->prepare(hostRate*4.0,2,static_cast<int>(hostRate*4.0*.0015));
+        MasterParameters calibrated;
+        calibrated.referenceCalibration=true;
+        calibrated.referenceClip=true;
+        calibrated.clipBeforeLimiter=true;
+        calibrated.deuceMatch=true;
+        calibrated.inputDb=5.0;
+        calibrated.glue=.20;
+        calibrated.sauce=.12;
+        double peak=0.0;
+        for(int n=0;n<90000;++n) {
+            if(n%257==0) {
+                constexpr double amounts[] {0.0,.07,.14,.21,.28,.35,1.0,
+                    std::numeric_limits<double>::quiet_NaN()};
+                calibrated.clipper=amounts[(n/257)%8];
+                automated->setParameters(calibrated);
+            }
+            const float x=static_cast<float>(.8*std::sin(n*2.0*detail::pi*67.0/(hostRate*4.0))
+                +.15*std::sin(n*2.0*detail::pi*13000.0/(hostRate*4.0)));
+            const auto result=automated->processFrame(x,x);
+            require(std::isfinite(result.left) && result.left==result.right,
+                    "calibrated Clip automation must preserve finite centered mono");
+            peak=std::max(peak,static_cast<double>(std::abs(result.left)));
+        }
+        require(peak<=detail::dbToLinear(-1.0)+2.e-5,
+                "calibrated Clip automation escaped the existing sample ceiling");
+    }
+    std::cout<<"PASS: calibrated Clip automation, mono and rate safety\n";
 
     // Host-rate final sample-peak guard regression:
     // both channels must share one gain to preserve image and phase.
@@ -622,7 +670,10 @@ int main() {
             "zero-percent sauce is exactly transparent");
     std::cout << "PASS: bass-safe mid-side imaging, anti-phase protection, neutral signal\n";
 
-    MasteringEngine dsp;
+    // main retains many independent engine fixtures. Keep this long-lived
+    // engine on the heap so nested response probes fit Windows' 1 MB stack.
+    auto dspStorage=std::make_unique<MasteringEngine>();
+    auto& dsp=*dspStorage;
     dsp.prepare(rate, 2, lookahead);
     MasterParameters p;
     dsp.setParameters(p);

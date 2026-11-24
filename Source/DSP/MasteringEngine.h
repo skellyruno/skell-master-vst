@@ -136,6 +136,10 @@ public:
         b0 = nb0 * invA0; b1 = nb1 * invA0; b2 = nb2 * invA0;
         a1 = na1 * invA0; a2 = na2 * invA0;
     }
+    void setAllPassCoefficients(double first, double second) noexcept {
+        a1=first; a2=second;
+        b0=a2; b1=a1; b2=1.0;
+    }
 private:
     double b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
     double z1 = 0.0, z2 = 0.0;
@@ -197,12 +201,20 @@ public:
             channel[1].setPeak(rate,1350.0,0.70,0.78);
         }
         blend.prepare(rate,12.0,0.0);
+        sideTrim.prepare(rate,12.0,0.957194071294);
         reset();
     }
     void reset() noexcept {
         for(auto& channel : filters)
             for(auto& stage : channel) stage.reset();
         blend.snap(0.0);
+        sideTrim.snap(0.957194071294);
+    }
+    void setClipAmount(double amount, bool calibrated) noexcept {
+        const double mix=clamp(finiteSample(amount)/0.35,0.0,1.0);
+        const double gain=0.941889596523
+            +(0.954992586021-0.941889596523)*mix;
+        sideTrim.setTarget(calibrated ? gain : 0.957194071294);
     }
     void setEnabled(bool enabled) noexcept {
         blend.setTarget(enabled?1.0:0.0);
@@ -212,6 +224,7 @@ public:
         // a reference factory never produces a stale-state pop. At wet=0 the
         // audio is bit-exact dry. No coefficient work or allocation here.
         double filteredL=left, filteredR=right;
+        const double sideGain=sideTrim.next();
         for(auto& stage : filters[0]) filteredL=stage.process(filteredL);
         for(auto& stage : filters[1]) filteredR=stage.process(filteredR);
         const double wet=blend.next();
@@ -223,7 +236,6 @@ public:
             // +0.15dB makeup drives the EXISTING final true-peak limiter
             // rather than raising output above its configured sample ceiling.
             // No clipping is introduced here: the guard remains last.
-            constexpr double sideGain = 0.957194071294;
             constexpr double makeup = 1.017419366181;
             const double mid=0.5*(filteredL+filteredR);
             const double side=0.5*(filteredL-filteredR)*sideGain;
@@ -236,6 +248,7 @@ public:
 private:
     std::array<std::array<Biquad,2>,2> filters {};
     Smoother blend;
+    Smoother sideTrim;
 };
 
 // New v8-only response curve: direct, bit-identical mapping through the
@@ -329,6 +342,7 @@ struct MasterParameters {
     bool referenceClip = false; // v6 post-limit or v7 chain-ordered clip
     bool clipBeforeLimiter = false; // false preserves exact v6 topology
     bool refinedControlCurves = false; // v8 new-instance only; old states exact
+    bool referenceCalibration = false; // v9 factory5 recovery/phase profile
     double ceilingDb = -1.0;
     bool bypass = false;
     bool deuceMatch = false; // opt-in pre-limiter five-band reference coloration
@@ -761,6 +775,32 @@ public:
         bypassMix.prepare(rate, 12, 0);
         deuceMatchMakeup.prepare(rate, 12, 1.0);
         chainL2InputMakeup.prepare(rate, 12, 1.0);
+        // Owner-reference phase fit used only the 20--85s main section;
+        // intro/ending were held out. Causal allpasses preserve static gain.
+        // Morph their analog frequencies with Clip, avoiding a permanent
+        // parallel phase mix (and its comb filtering) at intermediate values.
+        // This adds no delay buffer or reported-latency adjustment. All costly
+        // coefficient work and storage allocation happen here, not in audio.
+        referencePhaseBlend.prepare(rate,12,0.0);
+        referencePhaseTable.resize(1025);
+        constexpr std::array<double,4> frequencies {90.0,500.0,2594.0,9310.0};
+        constexpr std::array<double,4> qualities {
+            0.495856529115,0.617989725037,0.856550120135,1.298156850978};
+        constexpr double referenceRate=176400.0;
+        for(std::size_t point=0;point<referencePhaseTable.size();++point) {
+            const double amount=static_cast<double>(point)/(referencePhaseTable.size()-1);
+            for(std::size_t stage=0;stage<frequencies.size();++stage) {
+                const double analogFrequency=referenceRate/detail::pi
+                    *std::tan(detail::pi*frequencies[stage]/referenceRate);
+                const double frequency=std::exp(std::log(2000000.0)*(1.0-amount)
+                    +std::log(analogFrequency)*amount);
+                const double omega=2.0*std::atan(detail::pi*frequency/rate);
+                const double alpha=std::sin(omega)/(2.0*qualities[stage]);
+                const double norm=1.0/(1.0+alpha);
+                referencePhaseTable[point][stage]={-2.0*std::cos(omega)*norm,
+                                                  (1.0-alpha)*norm};
+            }
+        }
         glueComp.prepare(rate, 27, 220);
         dynamicsComp.prepare(rate, 8, 110);
         hf[0].prepare(rate, 2400); hf[1].prepare(rate, 2400);
@@ -794,6 +834,8 @@ public:
         // after severe attenuation to prevent bass-induced pumping.
         limiterReleaseFast = std::exp(-1.0 / (rate * 0.065));
         limiterReleaseSlow = std::exp(-1.0 / (rate * 0.220));
+        referenceReleaseFast = std::exp(-1.0 / (rate * 0.040));
+        referenceReleaseSlow = std::exp(-1.0 / (rate * 0.150));
         reset();
     }
 
@@ -807,6 +849,11 @@ public:
         fiveBandColor.reset();
         deuceMatchMakeup.snap(1.0);
         chainL2InputMakeup.snap(1.0);
+        referencePhaseBlend.snap(0.0);
+        for(auto& channel : referencePhase)
+            for(auto& filter : channel) filter.reset();
+        referencePhaseActive=false;
+        lastPhasePosition=-1.0;
         referenceClipDrive.snap(0.0);
         glueComp.reset(); dynamicsComp.reset();
         dcInput.fill(0.0); dcOutput.fill(0.0);
@@ -816,6 +863,7 @@ public:
     }
 
     void setParameters(const MasterParameters& p) noexcept {
+        referenceCalibration=p.referenceCalibration;
         // Unexpected non-finite host automation must never become an active
         // effect. std::min/std::max on NaN used to select the upper bound,
         // e.g. accidentally setting DRIVE/GLUE to 100% and INPUT to +18dB.
@@ -842,6 +890,8 @@ public:
         // Switch clip topology with two smoothly crossfading controls.
         // Old saved sessions still use their original pre-limiter soft clip.
         const double clipPosition=safe(p.clipper,0,1);
+        referencePhaseBlend.setTarget(referenceCalibration && clipPosition>1.e-6
+                                     && !p.bypass ? 1.0 : 0.0);
         clipperMix.setTarget(!p.referenceClip ? clipPosition : 0.0);
         referenceClipDrive.setTarget(p.referenceClip && !p.bypass ? clipPosition : 0.0);
         referenceClipBeforeLimiter=p.referenceClip && p.clipBeforeLimiter;
@@ -966,11 +1016,41 @@ public:
         colorSettings.intensity = {0.38, 0.55, 0.64, 0.72, 0.84};
         fiveBandColor.process(l, r, colorSettings);
 
-        l *= outGain; r *= outGain;
-        // Exactly one 4x-rate smoother tick per sample, regardless of the
-        // v6 post-limiter or v7 pre-limiter clip topology.
+        // Exactly one 4x-rate smoother tick, shared by phase and both clip
+        // placements. Legacy calibration=false never enters the phase bank.
         const double modernClip=referenceClipDrive.next();
+        const double phaseWet=referencePhaseBlend.next();
+        if(phaseWet>1.e-12) {
+            referencePhaseActive=true;
+            const double position=clamp(modernClip/.35,0.0,1.0)
+                *static_cast<double>(referencePhaseTable.size()-1);
+            if(std::abs(position-lastPhasePosition)>1.e-8) {
+                const auto lower=static_cast<std::size_t>(position);
+                const auto upper=std::min(lower+1,referencePhaseTable.size()-1);
+                const double fraction=position-static_cast<double>(lower);
+                for(std::size_t stage=0;stage<4;++stage) {
+                    const auto& a=referencePhaseTable[lower][stage];
+                    const auto& b=referencePhaseTable[upper][stage];
+                    const double first=a[0]+fraction*(b[0]-a[0]);
+                    const double second=a[1]+fraction*(b[1]-a[1]);
+                    for(auto& channel : referencePhase)
+                        channel[stage].setAllPassCoefficients(first,second);
+                }
+                lastPhasePosition=position;
+            }
+            double phaseL=l,phaseR=r;
+            for(auto& filter : referencePhase[0]) phaseL=filter.process(phaseL);
+            for(auto& filter : referencePhase[1]) phaseR=filter.process(phaseR);
+            l+=phaseWet*(phaseL-l);
+            r+=phaseWet*(phaseR-r);
+        } else if(referencePhaseActive) {
+            for(auto& channel : referencePhase)
+                for(auto& filter : channel) filter.reset();
+            referencePhaseActive=false;
+            lastPhasePosition=-1.0;
+        }
 
+        l *= outGain; r *= outGain;
         // The actual FL mixer routes StandardCLIP BEFORE Waves L2.
         // User snapshot at the CLIP knob's 35% anchor:
         // Soft Clip Pro, 11% saturator, -1.20 dB clip, 0 dB input/output.
@@ -1054,8 +1134,9 @@ public:
         const double peak = std::max(std::abs(l), std::abs(r));
         const double wanted = peak > targetCeiling ? targetCeiling / peak : 1.0;
         const double recovery = detail::clamp((1.0 - limiterGain) * 3.0, 0.0, 1.0);
-        const double release = limiterReleaseFast
-                             + (limiterReleaseSlow - limiterReleaseFast) * recovery;
+        const double fast=referenceCalibration ? referenceReleaseFast : limiterReleaseFast;
+        const double slow=referenceCalibration ? referenceReleaseSlow : limiterReleaseSlow;
+        const double release = fast + (slow - fast) * recovery;
         // A peak is detected ahead of the delayed programme. Hold the
         // attenuation until that peak has actually cleared the output;
         // otherwise the release starts while the transient is still queued.
@@ -1182,6 +1263,11 @@ private:
     std::array<detail::OnePole, 2> hf;
     StereoImager stereoImager;
     experimental::FiveBandColorPrototype fiveBandColor;
+    std::array<std::array<detail::Biquad,4>,2> referencePhase;
+    std::vector<std::array<std::array<double,2>,4>> referencePhaseTable;
+    detail::Smoother referencePhaseBlend;
+    bool referencePhaseActive=false;
+    double lastPhasePosition=-1.0;
     bool deuceMatch = false;
     bool referenceClipBeforeLimiter = false;
     detail::DriveShaper driveShaper;
@@ -1189,6 +1275,8 @@ private:
     std::array<double, 2> dcInput{}, dcOutput{};
     double fastEnv = 0, slowEnv = 0, fastAtk = 0, slowAtk = 0;
     double limiterGain = 1, limiterReleaseFast = 0, limiterReleaseSlow = 0;
+    double referenceReleaseFast = 0, referenceReleaseSlow = 0;
+    bool referenceCalibration = false;
     int limiterHold = 0;
     double lastEqLows = 1.0e9, lastEqHighs = 1.0e9;
     double gainReduction = 1, outputPeak = 0;

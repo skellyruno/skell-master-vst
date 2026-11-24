@@ -64,6 +64,12 @@ public:
     void setRefinedControlCurvesEnabled(bool enabled) noexcept {
         refinedControlCurvesEnabled.store(enabled,std::memory_order_relaxed);
     }
+    bool usesReferenceCalibration() const noexcept {
+        return referenceCalibrationEnabled.load(std::memory_order_relaxed);
+    }
+    void setReferenceCalibrationEnabled(bool enabled) noexcept {
+        referenceCalibrationEnabled.store(enabled,std::memory_order_relaxed);
+    }
 
     // Lock-free peak accumulation. GUI calls exchange(0) once per frame.
     float consumePeakLeft() noexcept { return peakLeft.exchange(0.0f, std::memory_order_relaxed); }
@@ -97,6 +103,7 @@ private:
     // V8 new sessions taper extreme compressor settings; v1-v7 restore
     // the original, exact unmodified GLUE / DYNAMICS response.
     std::atomic<bool> refinedControlCurvesEnabled { true };
+    std::atomic<bool> referenceCalibrationEnabled { true };
     int referenceClipGuardHold = 0;
     int activeChannels = 2;
     int lookaheadSamples = 0;

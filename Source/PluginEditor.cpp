@@ -748,6 +748,7 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     processor.setReferenceClipEnabled(true);
     processor.setChainOrderedClipEnabled(true);
     processor.setRefinedControlCurvesEnabled(true);
+    processor.setReferenceCalibrationEnabled(true);
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     processor.setFactoryPresetId(0);
     displayedFactory=0;
@@ -772,6 +773,7 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
 
 void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     if(presetId<1 || presetId>9) return;
+    if(presetId==5) processor.setReferenceCalibrationEnabled(true);
     if(presetId>=6) {
         // Fresh opt-in factory sounds use the 4x clip-before-L2 topology.
         // Never rewrite an older saved project merely by loading it.
@@ -808,7 +810,7 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
 void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
     const int factory=processor.getFactoryPresetId();
     const bool hasFactory=factory>=1 && factory<=9;
-    bool modified=factory>=6;
+    bool modified=factory>=6 || (factory==5 && !processor.usesReferenceCalibration());
     for(int i=0;i<knobCount;++i) {
         const auto* raw=processor.parameters.getRawParameterValue(ids[i]);
         const float expected=hasFactory ? factoryValues[factory-1][i] : 0.0f;

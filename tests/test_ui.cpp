@@ -341,16 +341,19 @@ int main() {
 
         // A true hardware rotary has a motionless bezel, barrel, lighting
         // and machined scale. The ivory pointer extends to 0.94 * face radius
-        // (face = 0.755 * outer radius), and its antialias/shadow can reach
-        // beyond 0.72 * outer radius. Test the fixed barrel/knurl annulus
+        // (face = 0.755 * outer radius). The 3.35px shadow, its (0.7,1.0)
+        // offset and raster antialiasing reach beyond 0.80 at this size.
+        // Test the fixed retaining-ring annulus outside that shadow
         // safely outside that moving geometry, then separately verify that
         // the pointer itself changes. Never suppress actual hardware motion.
         editor.setSize(1200,760);
-        const int rotaryWidth=input->getWidth()-95; // 1200-design textbox
-        const float knobCx=static_cast<float>(input->getX())+rotaryWidth*0.5f;
-        const float knobCy=static_cast<float>(input->getY())+input->getHeight()*0.5f;
-        const float knobRadius=juce::jmin(static_cast<float>(rotaryWidth),
-                                         static_cast<float>(input->getHeight()))*0.431f;
+        const auto rotaryBounds=input->getLookAndFeel().getSliderLayout(*input).sliderBounds;
+        const float knobCx=static_cast<float>(input->getX()+rotaryBounds.getX())
+            +rotaryBounds.getWidth()*0.5f;
+        const float knobCy=static_cast<float>(input->getY()+rotaryBounds.getY())
+            +rotaryBounds.getHeight()*0.5f;
+        const float knobRadius=juce::jmin(static_cast<float>(rotaryBounds.getWidth()),
+                                         static_cast<float>(rotaryBounds.getHeight()))*0.431f;
         const auto renderPosition=[&](double value) {
             input->setValue(value,juce::sendNotificationSync);
             juce::Image screenshot(juce::Image::ARGB,1200,760,true);
@@ -363,6 +366,14 @@ int main() {
         const auto lowKnob=renderPosition(-18.0);
         const auto zeroKnob=renderPosition(0.0);
         const auto highKnob=renderPosition(18.0);
+        for(const auto& entry : std::array<std::pair<const char*,juce::Image>,3> {{
+                {"knob-low.png",lowKnob},{"knob-zero.png",zeroKnob},{"knob-high.png",highKnob}}}) {
+            auto output=juce::File::getCurrentWorkingDirectory().getChildFile("ui-snapshots")
+                .getChildFile(entry.first).createOutputStream();
+            check(output && output->openedOk(),"cannot save rotary regression evidence");
+            check(juce::PNGImageFormat().writeImageToStream(entry.second,*output),
+                  "cannot encode rotary regression evidence");
+        }
         int movingPointerPixels=0, fixedRingPixels=0;
         for(int y=juce::roundToInt(knobCy-knobRadius);
                 y<juce::roundToInt(knobCy+knobRadius);++y)
@@ -373,8 +384,12 @@ int main() {
                 const auto a=lowKnob.getPixelAt(x,y).getARGB();
                 const auto b=zeroKnob.getPixelAt(x,y).getARGB();
                 const auto c=highKnob.getPixelAt(x,y).getARGB();
-                if(radial>=0.80f && radial<=0.88f) {
+                if(radial>=0.86f && radial<=0.90f) {
                     ++fixedRingPixels;
+                    if(a!=b || b!=c)
+                        std::cerr<<"Fixed rotary mismatch at "<<x<<","<<y
+                            <<" radius="<<radial<<" center="<<knobCx<<","<<knobCy
+                            <<" colors="<<a<<","<<b<<","<<c<<"\n";
                     check(a==b && b==c,
                           "machined knob bezel/knurl/lighting moved during rotation");
                 }
@@ -485,6 +500,51 @@ int main() {
                   "SKELL MASTER factory parameter snapshot is incorrect");
         check(processor.parameters.getRawParameterValue("deuceMatch")->load()>=0.5f,
               "SKELL MASTER must enable the real Deuce DSP stages");
+        check(processor.usesReferenceCalibration(),
+              "selecting SKELL MASTER must enable the current reference calibration");
+        {
+            auto legacy=processor.parameters.copyState();
+            legacy.setProperty("skellMasterStateVersion",8,nullptr);
+            legacy.setProperty("skellMasterFactoryPreset",5,nullptr);
+            legacy.setProperty("skellMasterClipAlgorithm",1,nullptr);
+            legacy.setProperty("skellMasterClipPlacement",1,nullptr);
+            legacy.setProperty("skellMasterRefinedControlCurves",1,nullptr);
+            legacy.setProperty("skellMasterReferenceCalibration",1,nullptr);
+            auto xml=legacy.createXml();
+            juce::MemoryBlock blob;
+            juce::AudioProcessor::copyXmlToBinary(*xml,blob);
+            SkellyMasterAudioProcessor oldSession;
+            oldSession.setStateInformation(blob.getData(),static_cast<int>(blob.getSize()));
+            check(!oldSession.usesReferenceCalibration(),
+                  "v8 host states must retain their previous limiter recovery");
+            legacy.setProperty("skellMasterStateVersion",9,nullptr);
+            legacy.setProperty("skellMasterReferenceCalibration",0,nullptr);
+            xml=legacy.createXml();
+            juce::AudioProcessor::copyXmlToBinary(*xml,blob);
+            SkellyMasterAudioProcessor explicitLegacy;
+            explicitLegacy.setStateInformation(blob.getData(),static_cast<int>(blob.getSize()));
+            oldSession.prepareToPlay(44100,256);
+            explicitLegacy.prepareToPlay(44100,256);
+            juce::AudioBuffer<float> a(2,256),b(2,256);
+            juce::MidiBuffer midi;
+            for(int block=0;block<96;++block) {
+                for(int i=0;i<256;++i) {
+                    const int n=block*256+i;
+                    const float sample=static_cast<float>(
+                        .9*std::sin(n*2.0*juce::MathConstants<double>::pi*61.0/44100.0)
+                        *(n%4410<900 ? 1.0 : .12));
+                    a.setSample(0,i,sample); a.setSample(1,i,sample*.63f);
+                    b.setSample(0,i,sample); b.setSample(1,i,sample*.63f);
+                }
+                oldSession.processBlock(a,midi);
+                explicitLegacy.processBlock(b,midi);
+                for(int c=0;c<2;++c)
+                    for(int i=0;i<256;++i)
+                        check(a.getSample(c,i)==b.getSample(c,i),
+                              "v8 migration changed legacy reference audio");
+            }
+            std::cout<<"PASS: v8 reference calibration migration preserves exact audio\n";
+        }
         // v7 projects knew ID6, but never IDs7..9; malformed v7 ID9
         // must saturate to ID6 without enabling an unintended new factory.
         auto oldV7=processor.parameters.copyState();
@@ -605,6 +665,8 @@ int main() {
               "Deuce Match did not survive host state save/reload");
         check(restoredState.getFactoryPresetId()==5,
               "factory preset identity did not survive host state save/reload");
+        check(restoredState.usesReferenceCalibration(),
+              "current reference calibration must survive host state save/reload");
         check(restoredState.usesReferenceClip(),
               "clip algorithm state did not survive save/reload");
         check(restoredState.usesChainOrderedClip(),
