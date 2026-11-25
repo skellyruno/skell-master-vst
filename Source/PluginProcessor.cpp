@@ -48,17 +48,19 @@ bool SkellyMasterAudioProcessor::isBusesLayoutSupported(const BusesLayout& layou
 
 void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) {
     activeChannels = juce::jlimit(1, 2, getTotalNumInputChannels());
+    const int factor=getRequestedOversampling();
+    const size_t stages=factor==2 ? 1u : factor==8 ? 3u : 2u;
     oversampler = std::make_unique<juce::dsp::Oversampling<float>>(
-        static_cast<size_t>(activeChannels), 2,
+        static_cast<size_t>(activeChannels), stages,
         juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
         true, true);
     const int blockCapacity = juce::jmax(16384, maxBlock);
     oversampler->initProcessing(static_cast<size_t>(blockCapacity));
     oversampler->reset();
 
-    // 1.5 ms of lookahead, exactly divisible by 4 to keep host latency integral.
-    const double highRate = sampleRate * static_cast<double>(oversamplingFactor);
-    lookaheadSamples = juce::jmax(4, static_cast<int>(std::ceil(sampleRate * 0.0015)) * oversamplingFactor);
+    // Keep the same physical lookahead at each rate and integral host PDC.
+    const double highRate = sampleRate * static_cast<double>(factor);
+    lookaheadSamples = juce::jmax(factor, static_cast<int>(std::ceil(sampleRate * 0.0015)) * factor);
     engine.prepare(highRate, activeChannels, lookaheadSamples);
     referenceClipGuardHold=0;
     postLimiterPresence.prepare(sampleRate);
@@ -68,7 +70,7 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     legacySafetyGuard.prepare(sampleRate);
     safetyGuard.prepare(sampleRate);
     setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
-                      + lookaheadSamples / oversamplingFactor
+                      + lookaheadSamples / factor
                       + safetyGuard.getLatencySamples());
     defaultDry.setSize(activeChannels, blockCapacity);
     defaultDryDelay.setMaximumDelayInSamples(getLatencySamples());
@@ -81,6 +83,7 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     loudnessMonitor.prepare(sampleRate,activeChannels);
     peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
     momentaryLufs.store(-100.0f); shortTermLufs.store(-100.0f);
+    activeOversampling.store(factor,std::memory_order_release);
 }
 
 void SkellyMasterAudioProcessor::releaseResources() {
@@ -93,6 +96,7 @@ void SkellyMasterAudioProcessor::releaseResources() {
     truePeakMonitor.reset();
     loudnessMonitor.reset();
     oversampler.reset();
+    activeOversampling.store(0,std::memory_order_release);
     setLatencySamples(0);
 }
 
@@ -325,7 +329,8 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",13,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",14,nullptr);
+    snapshot.setProperty("skellMasterOversampling",getRequestedOversampling(),nullptr);
     snapshot.setProperty("skellMasterAnalogSauce",usesAnalogSauce() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterDepthWidth",usesDepthWidth() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterEnhancedSauce",usesEnhancedSauce() ? 1 : 0,nullptr);
@@ -347,6 +352,12 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         // Retain their old sound, even when CLIP automation is nonzero.
         const int previousVersion=static_cast<int>(
             snapshot.getProperty("skellMasterStateVersion",1));
+        // Strictly accept only the three supported settings; legacy and
+        // malformed states use the original 4x path. Host prepare applies it.
+        const auto quality=snapshot.getProperty("skellMasterOversampling",4).toString();
+        requestOversampling(previousVersion>=14 && quality=="2" ? 2 :
+                            previousVersion>=14 && quality=="8" ? 8 : 4);
+        snapshot.setProperty("skellMasterOversampling",getRequestedOversampling(),nullptr);
         setAnalogSauceEnabled(previousVersion>=13 && snapshot.getProperty("skellMasterAnalogSauce",0).toString()=="1");
         snapshot.setProperty("skellMasterAnalogSauce",usesAnalogSauce() ? 1 : 0,nullptr);
         setDepthWidthEnabled(previousVersion>=11 && snapshot.getProperty("skellMasterDepthWidth",0).toString()=="1");
@@ -480,7 +491,7 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             spatialState.setProperty("value",0.0f,nullptr);
             snapshot.appendChild(spatialState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",13,nullptr);
+        snapshot.setProperty("skellMasterStateVersion",14,nullptr);
         parameters.replaceState(snapshot);
     }
 }

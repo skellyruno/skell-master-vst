@@ -151,6 +151,12 @@ if(WIN32)
     add_test(NAME SkellyVST3HostAudioTests COMMAND SkellyVST3HostAudioTests)
     add_test(NAME SkellyVST3HostAudio48k COMMAND SkellyVST3HostAudioTests --rate 48000)
     add_test(NAME SkellyVST3HostAudio96k COMMAND SkellyVST3HostAudioTests --rate 96000)
+    foreach(os 2 8)
+        foreach(sr 44100 48000 96000)
+            add_test(NAME SkellyVST3Quality${os}x${sr}
+                     COMMAND SkellyVST3HostAudioTests --rate ${sr} --oversampling ${os})
+        endforeach()
+    endforeach()
     set_tests_properties(SkellyVST3HostAudioTests
         SkellyVST3HostAudio48k SkellyVST3HostAudio96k PROPERTIES TIMEOUT 180)
 endif()
@@ -178,6 +184,12 @@ if(UNIX AND NOT APPLE)
         COMMAND SkellyVST3HostAudioTestsLinux --rate 48000)
     add_test(NAME SkellyVST3HostAudio96kLinux
         COMMAND SkellyVST3HostAudioTestsLinux --rate 96000)
+    foreach(os 2 8)
+        foreach(sr 44100 48000 96000)
+            add_test(NAME SkellyVST3Quality${os}x${sr}Linux
+                     COMMAND SkellyVST3HostAudioTestsLinux --rate ${sr} --oversampling ${os})
+        endforeach()
+    endforeach()
     set_tests_properties(SkellyVST3HostAudioTestsLinux
         SkellyVST3HostAudio48kLinux SkellyVST3HostAudio96kLinux
         PROPERTIES TIMEOUT 180)

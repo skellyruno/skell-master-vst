@@ -221,10 +221,11 @@ static int getFactoryIdentityFromHostState(juce::AudioPluginInstance& instance) 
     return componentXml->getIntAttribute("skellMasterFactoryPreset", -1);
 }
 
-static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, int presetId) {
+static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, int presetId, int factor=4) {
     std::unique_ptr<juce::XmlElement> wrapper;
     auto componentXml = getComponentStateXml(instance, wrapper);
     componentXml->setAttribute("skellMasterFactoryPreset", presetId);
+    componentXml->setAttribute("skellMasterOversampling",factor);
 
     juce::MemoryBlock updatedComponentState;
     juce::AudioProcessor::copyXmlToBinary(*componentXml, updatedComponentState);
@@ -242,6 +243,9 @@ static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, i
                                   static_cast<int>(updatedHostState.getSize()));
     require(getFactoryIdentityFromHostState(instance) == presetId,
             "VST3 host could not restore the non-automatable factory identity");
+    std::unique_ptr<juce::XmlElement> restoredWrapper;
+    require(getComponentStateXml(instance,restoredWrapper)->getIntAttribute("skellMasterOversampling",0)==factor,
+            "VST3 host did not restore requested oversampling");
 }
 
 static int applyCommandLineOverrides(juce::AudioPluginInstance& instance,
@@ -288,9 +292,9 @@ static int applyCommandLineOverrides(juce::AudioPluginInstance& instance,
     for (int i = firstOption; i < argc;) {
         const std::string option = argv[i++];
         require((option == "--set" || option == "--bool" ||
-                 option == "--factory") && i < argc,
-                "Expected --factory 1..9, --set NAME=VALUE or --bool NAME=0|1");
-        if(option=="--factory") { ++i; continue; }
+                 option == "--factory" || option=="--oversampling") && i < argc,
+                "Expected --factory 1..9, --set NAME=VALUE, --bool NAME=0|1 or --oversampling 2|4|8");
+        if(option=="--factory" || option=="--oversampling") { ++i; continue; }
         const std::string assignment = argv[i++];
         const auto separator = assignment.find('=');
         require(separator != std::string::npos && separator > 0
@@ -547,7 +551,18 @@ int main(int argc, char** argv) {
         plugin->setPlayConfigDetails(2,2,sampleRate,blockSize);
         plugin->prepareToPlay(sampleRate,blockSize);
         require(plugin->getLatencySamples()>=32,"VST3 latency omitted the 32-sample true-peak lookahead");
-        const int reportedLatency=plugin->getLatencySamples();
+        const int defaultLatency=plugin->getLatencySamples();
+        int requestedFactor=4;
+        if(rateMode || externalWav) {
+            for(int i=rateMode ? 3 : 4;i<argc;i+=2) {
+                require(i+1<argc,"Incomplete quality/parameter option");
+                if(std::string(argv[i])=="--oversampling") {
+                    const std::string value=argv[i+1];
+                    require(value=="2" || value=="4" || value=="8","Oversampling must be 2, 4 or 8");
+                    requestedFactor=value[0]-'0';
+                } else if(rateMode) require(false,"Unknown rate-mode option");
+            }
+        }
 
         // Real hosted VST3 automation, no private/mutable factory preset data.
         // These are the already-public values of the current SKELL MASTER
@@ -573,7 +588,17 @@ int main(int argc, char** argv) {
         // in getParameters(). Seed the named SKELL MASTER identity through the
         // real serialized host-state path so the following VST3 roundtrip
         // verifies it separately from the exposed APVTS parameters.
-        setFactoryIdentityForHostTest(*plugin, requestedFactory);
+        setFactoryIdentityForHostTest(*plugin, requestedFactory, requestedFactor);
+        if(requestedFactor!=4) {
+            plugin->releaseResources();
+            plugin->prepareToPlay(sampleRate,blockSize);
+        }
+        const int reportedLatency=plugin->getLatencySamples();
+        // JUCE half-band IIR integer latency grows with stage count. Check
+        // actual host PDC against default; no claim of a fixed universal PDC.
+        require(reportedLatency>=32 && (requestedFactor==4 ? reportedLatency==defaultLatency :
+            requestedFactor==2 ? reportedLatency<=defaultLatency : reportedLatency>=defaultLatency),
+            "Hosted oversampling PDC is inconsistent");
 
         // Exercise the actual hosted VST3 component-state path, not only the
         // processor/UI fixture. Every public parameter must survive a fresh
@@ -586,6 +611,11 @@ int main(int argc, char** argv) {
         restoredPlugin->prepareToPlay(sampleRate, blockSize);
         requireHostStateRoundTrip(*plugin, *restoredPlugin,
             "VST3 host state did not preserve all factory parameter values");
+        if(requestedFactor!=4) {
+            restoredPlugin->releaseResources();
+            restoredPlugin->prepareToPlay(sampleRate,blockSize);
+        }
+        require(restoredPlugin->getLatencySamples()==reportedLatency,"Restored quality PDC mismatch");
         requireHostRenderedStateMatch(*plugin, *restoredPlugin, sampleRate, blockSize,
             "Deuce Match host-state reload changed the rendered audio");
 
@@ -733,6 +763,7 @@ int main(int argc, char** argv) {
                  <<" input="<<(externalWav?"private_wav":"synthetic")
                  <<" sample_rate="<<sampleRate
                  <<" frames="<<inputFrames
+                 <<" oversampling="<<requestedFactor
                  <<" latency_samples="<<reportedLatency
                  <<" sample_peak_dbfs="<<dB(metrics.samplePeak)
                  <<" reconstructed_peak_dbtp="<<dB(metrics.reconstructedPeak)

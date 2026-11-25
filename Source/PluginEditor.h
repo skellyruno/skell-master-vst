@@ -44,6 +44,7 @@ private:
     void resetToDefaults();
     void applyFactoryPreset(int presetId);
     void refreshPresetDisplay();
+    void refreshQualityDisplay();
     void clearMeterHolds();
     void switchSkin();
     static skellcore::ui::SkullSkin loadSkin();
@@ -74,7 +75,7 @@ private:
     static constexpr int knobCount = 11;
     std::array<juce::Slider, knobCount> knobs;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, knobCount> attachments;
-    juce::TextButton bypass { "BYPASS" }, reset { "RESET" };
+    juce::TextButton bypass { "BYPASS" }, reset { "RESET" }, qualityButton { "4x" };
     juce::ComboBox presetSelector;
     int displayedFactory=0;
     std::array<juce::TextButton,3> monitorButtons {juce::TextButton("PEAK"), juce::TextButton("TRUE"), juce::TextButton("CLEAR")};

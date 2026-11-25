@@ -607,8 +607,8 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
          s.setTooltip(i==9
             ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Deuce Match uses the 257-tap reconstruction guard with a 0.5/0.45/0.4 dB margin at 44.1/48/96 kHz and 32-sample lookahead; legacy factories retain sample-peak limiting. Drag, type, or double-click to reset."
             : i==3 ? "WIDTH: 0% unchanged; 100% full adaptive multiband stereo separation. Center, bass and anti-phase protection. Legacy Width automation remains separate."
-            : i==6 ? "SAUCE: factory tone unchanged through 20%; higher amounts add 4x parallel even/odd harmonic color and dynamic headroom protection in new sessions. Older projects retain their original response."
-            : i==10 ? "CLIP: 35% matches the supplied Soft Clip Pro 11% saturator/-1.2dB clip reference. Clipper sits BEFORE the limiter in new sessions. 4x active oversampling (original StandardCLIP used 8x); stronger settings add saturation and a lower knee. Older states retain their original path."
+            : i==6 ? "SAUCE: factory tone unchanged through 20%; higher amounts add oversampled parallel even/odd harmonic color and dynamic headroom protection in new sessions. Older projects retain their original response."
+            : i==10 ? "CLIP: 35% matches the supplied Soft Clip Pro 11% saturator/-1.2dB clip reference. Clipper sits BEFORE the limiter in new sessions. 4x standard oversampling (2x and 8x optional); stronger settings add saturation and a lower knee. Older states retain their original path."
             : juce::String(labels[i]) + " - " + sub +
               " | drag to adjust, double-click to reset, right-click for menu");
         addAndMakeVisible(s);
@@ -679,6 +679,24 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         refreshPresetDisplay();
     };
     addAndMakeVisible(presetSelector);
+    qualityButton.setComponentID("skell-master-quality");
+    qualityButton.onClick=[this] {
+        juce::PopupMenu menu;
+        const int requested=processor.getRequestedOversampling();
+        menu.addItem(2,"2x  /  ECO",true,requested==2);
+        menu.addItem(4,"4x  /  STANDARD",true,requested==4);
+        menu.addItem(8,"8x  /  HIGH",true,requested==8);
+        const auto safe=juce::Component::SafePointer<SkellyMasterAudioProcessorEditor>(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&qualityButton),
+            [safe](int factor) {
+                if(safe==nullptr || !SkellyMasterAudioProcessor::validOversampling(factor)) return;
+                safe->processor.requestOversampling(factor);
+                safe->refreshQualityDisplay();
+                // No synchronous reprepare: the host owns audio lifecycle.
+            });
+    };
+    addAndMakeVisible(qualityButton);
+    refreshQualityDisplay();
     for (int i=0;i<presetSelector.getNumChildComponents();++i)
         if (auto* label=dynamic_cast<juce::Label*>(
                 presetSelector.getChildComponent(i)))
@@ -876,7 +894,21 @@ void SkellyMasterAudioProcessorEditor::clearMeterHolds() {
     repaint();
 }
 
+void SkellyMasterAudioProcessorEditor::refreshQualityDisplay() {
+    const int requested=processor.getRequestedOversampling();
+    const int active=processor.getActiveOversampling();
+    const bool pending=active!=0 && active!=requested;
+    const auto label=juce::String(requested)+"x"+(pending ? "*" : "");
+    if(qualityButton.getButtonText()!=label) qualityButton.setButtonText(label);
+    const auto tip=pending
+        ? juce::String("Active ")+juce::String(active)+"x. Requested "+juce::String(requested)
+            +"x; save the project and reinitialize the host audio engine to apply."
+        : juce::String("Oversampling: ")+juce::String(requested)
+            +"x. 2x ECO, 4x STANDARD, 8x HIGH. Changes apply at the next host audio prepare.";
+    if(qualityButton.getTooltip()!=tip) qualityButton.setTooltip(tip);
+}
 void SkellyMasterAudioProcessorEditor::timerCallback() {
+    refreshQualityDisplay();
     // A host may restore state while the editor is already open. Keep the
     // non-automatable factory label synchronized without reapplying DSP values.
     const int restoredPreset=processor.getFactoryPresetId();
@@ -1232,7 +1264,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     font(g,12,true);g.setColour(hw::parchment);
     text(g,"PRECISION MASTER BUS / M-01",61,154,189,20);
     font(g,11,true);g.setColour(hw::parchment);
-    text(g,"4x OS  /  STEREO LINK  /  LIMIT",60,175,190,15);
+    text(g,"STEREO LINK  /  PEAK LIMIT",60,175,190,15);
     hw::divider(g,63,191,247,191);
     font(g,13,true);g.setColour(hw::gold);
     text(g,"OUTPUT MONITOR",65,193,178,18);
@@ -1358,6 +1390,7 @@ void SkellyMasterAudioProcessorEditor::resized() {
         const int rowY=row==0?315:485;
         place(knobs[static_cast<size_t>(i)],cellX+15,rowY+5,247,118);
     }
+    place(qualityButton,803,29,52,38);
     place(bypass,887,29,125,38);
     place(reset,1024,29,126,38);
     place(presetSelector,976,228,170,26);

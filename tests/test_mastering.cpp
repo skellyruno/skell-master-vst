@@ -370,7 +370,10 @@ int main() {
     // The new clip amount is a genuine 4x audio process; zero retains
     // all earlier sessions' transparent limiting behavior by default.
     require(MasterParameters{}.clipper == 0.0, "legacy clipper default must be zero");
-    MasteringEngine referenceEngine, clipperEngine;
+    auto referenceEngineStorage = std::make_unique<MasteringEngine>();
+    auto& referenceEngine = *referenceEngineStorage;
+    auto clipperEngineStorage = std::make_unique<MasteringEngine>();
+    auto& clipperEngine = *clipperEngineStorage;
     referenceEngine.prepare(rate, 2, lookahead);
     clipperEngine.prepare(rate, 2, lookahead);
     MasterParameters neutral, clipped;
@@ -391,7 +394,8 @@ int main() {
     std::cout << "PASS: 4x soft clipping, neutral default, ceiling safety\n";
     // CLIP must be stereo-linked, not two unrelated nonlinear curves.
     // Check a sustained asymmetric waveform after smoothing and lookahead.
-    MasteringEngine stereoClip;
+    auto stereoClipStorage = std::make_unique<MasteringEngine>();
+    auto& stereoClip = *stereoClipStorage;
     stereoClip.prepare(rate,2,lookahead);
     MasterParameters stereoClipParams;
     stereoClipParams.clipper=1.0;
@@ -413,7 +417,8 @@ int main() {
     // Combined DRIVE + CLIP + compressors through repeated hard hits and
     // sustained bass. Verify safe sample ceiling, finite recovery and the
     // same L/R ratio even when dynamics engage aggressively.
-    MasteringEngine masteringStress;
+    auto masteringStressStorage = std::make_unique<MasteringEngine>();
+    auto& masteringStress = *masteringStressStorage;
     masteringStress.prepare(rate, 2, lookahead);
     MasterParameters masteringP;
     masteringP.drive=.83; masteringP.clipper=.64;
@@ -454,7 +459,8 @@ int main() {
     require(std::isfinite(invalidGuardOut.left) && std::isfinite(invalidGuardOut.right),
             "final safety guard rejects non-finite input");
 
-    MasteringEngine invalidEngine;
+    auto invalidEngineStorage = std::make_unique<MasteringEngine>();
+    auto& invalidEngine = *invalidEngineStorage;
     invalidEngine.prepare(rate, 2, lookahead);
     MasterParameters nonneutral;
     nonneutral.drive = .7; nonneutral.glue = .4; nonneutral.dynamics = .4;
@@ -862,7 +868,8 @@ int main() {
 
     // Two musical 2nd-order shelves: measure *steady-state* response after smoothing.
     const auto shelfGain = [rate, lookahead](double hz, double lo, double hi) {
-        MasteringEngine filter;
+        auto filterStorage = std::make_unique<MasteringEngine>();
+        auto& filter = *filterStorage;
         filter.prepare(rate, 2, lookahead);
         MasterParameters eq;
         eq.lowsDb = lo; eq.highsDb = hi;
@@ -909,7 +916,8 @@ int main() {
     // attenuation of a continuous hot programme. The limiter may need to
     // protect a wet/dry transition, but once the dry mix has settled it must
     // never retain hidden release/hold gain from loud bypassed samples.
-    MasteringEngine reactivated;
+    auto reactivatedStorage = std::make_unique<MasteringEngine>();
+    auto& reactivated = *reactivatedStorage;
     reactivated.prepare(rate,2,lookahead);
     MasterParameters switchMode;
     switchMode.bypass=true;
@@ -967,7 +975,8 @@ int main() {
     // The user-reference SKELL MASTER factory values must be safe under a
     // dense stereo bass/transient train. This portable engine test does NOT
     // claim a perceptual match to the user's FL Studio render.
-    MasteringEngine skellMasterReference;
+    auto skellMasterReferenceStorage = std::make_unique<MasteringEngine>();
+    auto& skellMasterReference = *skellMasterReferenceStorage;
     skellMasterReference.prepare(rate, 2, lookahead);
     MasterParameters skellPreset;
     skellPreset.inputDb=4.0; skellPreset.drive=.08;
@@ -1003,7 +1012,10 @@ int main() {
     // Deuce Match makeup is deliberately after the engine's internal limiter.
     // At low level it should add the measured reference loudness offset without
     // changing the default/legacy path, and bypass must remain latency-aligned dry.
-    MasteringEngine deuceMatchOff, deuceMatchOn;
+    auto deuceMatchOffStorage = std::make_unique<MasteringEngine>();
+    auto& deuceMatchOff = *deuceMatchOffStorage;
+    auto deuceMatchOnStorage = std::make_unique<MasteringEngine>();
+    auto& deuceMatchOn = *deuceMatchOnStorage;
     deuceMatchOff.prepare(rate, 2, lookahead);
     deuceMatchOn.prepare(rate, 2, lookahead);
     MasterParameters deuceOff, deuceOn;
@@ -1034,7 +1046,10 @@ int main() {
     std::cout << "PASS: Deuce Match combined color + post-limiter makeup "
               << deuceMatchGainDb << " dB\\n";
 
-    MasteringEngine bypassWithDeuce, bypassNeutral;
+    auto bypassWithDeuceStorage = std::make_unique<MasteringEngine>();
+    auto& bypassWithDeuce = *bypassWithDeuceStorage;
+    auto bypassNeutralStorage = std::make_unique<MasteringEngine>();
+    auto& bypassNeutral = *bypassNeutralStorage;
     bypassWithDeuce.prepare(rate, 2, lookahead);
     bypassNeutral.prepare(rate, 2, lookahead);
     MasterParameters bypassDeuce, bypassPlain;
@@ -1061,7 +1076,10 @@ int main() {
     // The new owner-reference CLIP is a second, 4x oversampled signal path.
     // Its zero position must null with the old engine; 50/100 must actually
     // drive the output into soft clipping, not merely blend its wet fraction.
-    MasteringEngine modernZero, oldZero;
+    auto modernZeroStorage = std::make_unique<MasteringEngine>();
+    auto& modernZero = *modernZeroStorage;
+    auto oldZeroStorage = std::make_unique<MasteringEngine>();
+    auto& oldZero = *oldZeroStorage;
     modernZero.prepare(rate,2,lookahead);
     oldZero.prepare(rate,2,lookahead);
     MasterParameters modernZeroP;
@@ -1081,7 +1099,10 @@ int main() {
 
     // Very low knob values should be a small continuous change, not
     // full-strength clipping abruptly enabled after a zero setting.
-    MasteringEngine refOnePercent, refOnePercentDry;
+    auto refOnePercentStorage = std::make_unique<MasteringEngine>();
+    auto& refOnePercent = *refOnePercentStorage;
+    auto refOnePercentDryStorage = std::make_unique<MasteringEngine>();
+    auto& refOnePercentDry = *refOnePercentDryStorage;
     refOnePercent.prepare(rate,2,lookahead);
     refOnePercentDry.prepare(rate,2,lookahead);
     MasterParameters pOne;
@@ -1103,7 +1124,16 @@ int main() {
     require(maxLowKnobDiff<.03,
             "Reference CLIP 1% must not suddenly engage its full nonlinear knee");
 
-    MasteringEngine refClean,ref35,refMedium,refHard,refHardSwapped;
+    auto refCleanStorage = std::make_unique<MasteringEngine>();
+    auto& refClean = *refCleanStorage;
+    auto ref35Storage = std::make_unique<MasteringEngine>();
+    auto& ref35 = *ref35Storage;
+    auto refMediumStorage = std::make_unique<MasteringEngine>();
+    auto& refMedium = *refMediumStorage;
+    auto refHardStorage = std::make_unique<MasteringEngine>();
+    auto& refHard = *refHardStorage;
+    auto refHardSwappedStorage = std::make_unique<MasteringEngine>();
+    auto& refHardSwapped = *refHardSwappedStorage;
     for(auto* e : {&refClean,&ref35,&refMedium,&refHard,&refHardSwapped})
         e->prepare(rate,2,lookahead);
     MasterParameters baseClip;
@@ -1159,7 +1189,10 @@ int main() {
     // A 35% clip must make *new harmonics*, not just apply gain. Compare
     // the best level-matched linear waveform to the shaped waveform; a
     // nonzero residual proves nonlinear distortion at this reference point.
-    MasteringEngine toneDry, tone35;
+    auto toneDryStorage = std::make_unique<MasteringEngine>();
+    auto& toneDry = *toneDryStorage;
+    auto tone35Storage = std::make_unique<MasteringEngine>();
+    auto& tone35 = *tone35Storage;
     toneDry.prepare(rate,2,lookahead);
     tone35.prepare(rate,2,lookahead);
     toneDry.setParameters(baseClip);
@@ -1187,7 +1220,14 @@ int main() {
     // 35% owner snapshot is NOT +2.23dB input drive. Verify v7
     // Soft Clip Pro approximation actually clips peak transients ahead of
     // the L2-style lookahead limiter and keeps the old engine's latency.
-    MasteringEngine beforeL2Clean, beforeL235, beforeL270, beforeL2Swapped;
+    auto beforeL2CleanStorage = std::make_unique<MasteringEngine>();
+    auto& beforeL2Clean = *beforeL2CleanStorage;
+    auto beforeL235Storage = std::make_unique<MasteringEngine>();
+    auto& beforeL235 = *beforeL235Storage;
+    auto beforeL270Storage = std::make_unique<MasteringEngine>();
+    auto& beforeL270 = *beforeL270Storage;
+    auto beforeL2SwappedStorage = std::make_unique<MasteringEngine>();
+    auto& beforeL2Swapped = *beforeL2SwappedStorage;
     for(auto* e : {&beforeL2Clean,&beforeL235,&beforeL270,&beforeL2Swapped})
         e->prepare(rate,2,lookahead);
     MasterParameters beforeParams;
@@ -1231,7 +1271,8 @@ int main() {
             "v7 CLIP must develop progressively more peak shaping above 35%");
     // Silence must never report huge fake clip gain reduction when
     // CLIP is enabled. This is important for live UI GR metering.
-    MasteringEngine chainSilence;
+    auto chainSilenceStorage = std::make_unique<MasteringEngine>();
+    auto& chainSilence = *chainSilenceStorage;
     chainSilence.prepare(rate,2,lookahead);
     chainSilence.setParameters(before35);
     chainSilence.beginBlock();
@@ -1243,7 +1284,10 @@ int main() {
     // The screenshot has 0dB I/O gain, but harmonic saturation can
     // legitimately change RMS for loud material. Test near-linear low-level
     // gain directly instead of incorrectly requiring driven RMS to fall.
-    MasteringEngine low35,low0;
+    auto low35Storage = std::make_unique<MasteringEngine>();
+    auto& low35 = *low35Storage;
+    auto low0Storage = std::make_unique<MasteringEngine>();
+    auto& low0 = *low0Storage;
     low35.prepare(rate,2,lookahead);
     low0.prepare(rate,2,lookahead);
     low35.setParameters(before35);
@@ -1271,7 +1315,10 @@ int main() {
     // Owner L2 uses threshold -2.8dB / ceiling -1.1dB.
     // v7 places the +1.7dB makeup before limiting, while v6 stays on
     // its original opt-in +2.4dB post-limiter path.
-    MasteringEngine chainL2, historicDeuce;
+    auto chainL2Storage = std::make_unique<MasteringEngine>();
+    auto& chainL2 = *chainL2Storage;
+    auto historicDeuceStorage = std::make_unique<MasteringEngine>();
+    auto& historicDeuce = *historicDeuceStorage;
     chainL2.prepare(rate,2,lookahead);
     historicDeuce.prepare(rate,2,lookahead);
     MasterParameters chainP,historicP;
@@ -1347,7 +1394,10 @@ int main() {
     // algorithm may alter its 14% SKELL MASTER or other old CLIP automation.
     require(!MasterParameters{}.referenceClip,
             "Portable default must preserve legacy preset compatibility");
-    MasteringEngine old14,old14Again;
+    auto old14Storage = std::make_unique<MasteringEngine>();
+    auto& old14 = *old14Storage;
+    auto old14AgainStorage = std::make_unique<MasteringEngine>();
+    auto& old14Again = *old14AgainStorage;
     old14.prepare(rate,2,lookahead);
     old14Again.prepare(rate,2,lookahead);
     MasterParameters oldClip;
@@ -1369,7 +1419,10 @@ int main() {
     // Across the *entire* mastering chain, hostile NaN/Inf automation
     // should fall back to the old neutral settings, never unexpectedly
     // switch on maximum drive/compression/treble or an unsafe ceiling.
-    MasteringEngine safeHost, neutralHost;
+    auto safeHostStorage = std::make_unique<MasteringEngine>();
+    auto& safeHost = *safeHostStorage;
+    auto neutralHostStorage = std::make_unique<MasteringEngine>();
+    auto& neutralHost = *neutralHostStorage;
     safeHost.prepare(rate, 2, lookahead);
     neutralHost.prepare(rate, 2, lookahead);
     MasterParameters malformedParams;
@@ -1422,7 +1475,8 @@ int main() {
     // During aggressive LOWS and HIGHS automation, independent shelf
     // recalculation must preserve finite stereo audio and pre-existing
     // host-rate sample peaks.
-    MasteringEngine modulatedEq;
+    auto modulatedEqStorage = std::make_unique<MasteringEngine>();
+    auto& modulatedEq = *modulatedEqStorage;
     modulatedEq.prepare(rate, 2, lookahead);
     MasterParameters modulated;
     double modulatedPeak = 0.0;
@@ -1451,7 +1505,8 @@ int main() {
     // Offline CPU sanity probe (time is recorded, not treated as a universal
     // benchmark across shared CI runners). Real-time ratio uses 4x oversampling:
     // rate is the actual processing rate of processFrame(), not the host rate.
-    MasteringEngine bench;
+    auto benchStorage = std::make_unique<MasteringEngine>();
+    auto& bench = *benchStorage;
     bench.prepare(rate, 2, lookahead);
     MasterParameters busy;
     busy.drive=.8; busy.glue=.65; busy.dynamics=.55;

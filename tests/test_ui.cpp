@@ -215,11 +215,38 @@ int main() {
               "new Width parameter must be neutral at 100 percent");
         check(processor.usesDepthWidth(),"fresh instances retain legacy depth mode");
         check(processor.usesAnalogSauce(),"fresh instances use V13 analog Sauce");
+        {
+            check(processor.getRequestedOversampling()==4 && processor.getActiveOversampling()==4,
+                  "4x must remain the original default");
+            auto quality=std::make_unique<SkellyMasterAudioProcessor>();
+            quality->prepareToPlay(44100,257);
+            const int originalLatency=quality->getLatencySamples();
+            quality->requestOversampling(8);
+            check(quality->getRequestedOversampling()==8 && quality->getActiveOversampling()==4
+                  && quality->getLatencySamples()==originalLatency,
+                  "quality request must not rebuild an active audio path");
+            juce::MemoryBlock savedQuality;
+            quality->getStateInformation(savedQuality);
+            auto restoredQuality=std::make_unique<SkellyMasterAudioProcessor>();
+            restoredQuality->setStateInformation(savedQuality.getData(),static_cast<int>(savedQuality.getSize()));
+            check(restoredQuality->getRequestedOversampling()==8,"quality must persist");
+            restoredQuality->prepareToPlay(44100,257);
+            check(restoredQuality->getActiveOversampling()==8,"8x must be active on host prepare");
+            restoredQuality->releaseResources();
+            quality->releaseResources();
+            quality->requestOversampling(2);
+            quality->prepareToPlay(44100,257);
+            check(quality->getActiveOversampling()==2,"2x must be active on host prepare");
+            quality->requestOversampling(3);
+            check(quality->getRequestedOversampling()==2,"invalid quality request must be rejected");
+            quality->releaseResources();
+        }
         auto* spatialParam=processor.parameters.getParameter("spatialWidth");
         check(spatialParam && std::abs(spatialParam->convertFrom0to1(spatialParam->getDefaultValue()))<.0001f,"V12 spatial Width defaults to zero");
         {
             auto old=processor.parameters.copyState();
             old.setProperty("skellMasterStateVersion",10,nullptr);
+            old.setProperty("skellMasterOversampling",8,nullptr);
             old.setProperty("skellMasterDepthWidth",1,nullptr);
             for(int i=0;i<old.getNumChildren();++i) {
                 auto child=old.getChild(i);
@@ -230,6 +257,7 @@ int main() {
             SkellyMasterAudioProcessor legacy; legacy.setStateInformation(blob.getData(),static_cast<int>(blob.getSize()));
             check(!legacy.usesDepthWidth(),"V10 state must retain its old Width law");
             check(!legacy.usesAnalogSauce(),"old state must retain original Sauce");
+            check(legacy.getRequestedOversampling()==4,"legacy sessions must remain 4x");
             check(legacy.parameters.getRawParameterValue("spatialWidth")->load()==0.f,"old states must not activate spatial Width");
             check(std::abs(legacy.parameters.getRawParameterValue("width")->load()-145.f)<.01f,"V10 Width value survives migration");
             juce::MemoryBlock saved; legacy.getStateInformation(saved);
@@ -276,7 +304,7 @@ int main() {
                     ++presetCount; interactive.push_back(box);
                 }
             }
-            check(sliderCount==11 && buttonCount==5 && presetCount==1,
+            check(sliderCount==11 && buttonCount==6 && presetCount==1,
                   "missing mastering controls, monitor buttons or preset dropdown");
             for (size_t i=0;i<interactive.size();++i)
                 for (size_t j=i+1;j<interactive.size();++j)

@@ -85,11 +85,23 @@ public:
     float consumeTruePeak() noexcept { return truePeak.exchange(0.0f, std::memory_order_relaxed); }
     float getMomentaryLufs() const noexcept { return momentaryLufs.load(std::memory_order_relaxed); }
     float getShortTermLufs() const noexcept { return shortTermLufs.load(std::memory_order_relaxed); }
+    // Keep the old 4x constant for existing consumers; settings are sampled
+    // only on host prepare, never allocate or change PDC on the audio thread.
     static constexpr int oversamplingFactor = 4;
+    static constexpr bool validOversampling(int factor) noexcept {
+        return factor==2 || factor==4 || factor==8;
+    }
+    void requestOversampling(int factor) noexcept {
+        if(validOversampling(factor)) requestedOversampling.store(factor,std::memory_order_relaxed);
+    }
+    int getRequestedOversampling() const noexcept { return requestedOversampling.load(std::memory_order_relaxed); }
+    int getActiveOversampling() const noexcept { return activeOversampling.load(std::memory_order_acquire); }
 
 private:
     static void atomicMax(std::atomic<float>& v, float input) noexcept;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
+    std::atomic<int> requestedOversampling {4};
+    std::atomic<int> activeOversampling {0}; // 0 = not prepared
     skelly::MasteringEngine engine;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> defaultDryDelay;
     juce::AudioBuffer<float> defaultDry;
