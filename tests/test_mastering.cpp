@@ -407,6 +407,41 @@ int main() {
     }
     std::cout<<"PASS: V15 factory compressor null, strong adaptive response, neutral width null\\n";
 
+    // V16 compensation is limited, linked and inactive at all factory settings.
+    for(double sr:{44100.,48000.,96000.,88200.,176400.,352800.,384000.,768000.}) {
+        CompressionMakeup makeup; makeup.prepare(sr);
+        for(int i=0;i<int(sr*.1);++i)
+            require(makeup.next(.15,.2,.30,.30)==1.,"makeup exact factory neutral");
+        double last=1.;
+        for(int i=0;i<int(sr*1.5);++i) {
+            const double gain=makeup.next(.3,.5,.75,.6);
+            require(gain>=last && gain<=CompressionMakeup::maxGain,"makeup monotone bounded rise");
+            last=gain;
+        }
+        require(last>1.41,"makeup reaches combined cap under strong reduction");
+        for(int i=0;i<int(sr*2.5);++i) {
+            const double gain=makeup.next(1.,1.,0.,0.);
+            require(gain<=last && gain>=1.,"makeup monotone return");
+            last=gain;
+        }
+        require(last==1.,"makeup returns exactly to unity");
+        makeup.reset();
+        require(makeup.next(1.,1.,.75,.6)==1.,"makeup no loss no boost");
+    }
+    {
+        auto old=std::make_unique<MasteringEngine>(), fresh=std::make_unique<MasteringEngine>();
+        old->prepare(rate,2,lookahead); fresh->prepare(rate,2,lookahead);
+        MasterParameters a; a.glue=.24; a.dynamics=.18; a.adaptiveCompression=true;
+        auto b=a; b.compressionMakeup=true;
+        old->setParameters(a); fresh->setParameters(b);
+        for(int i=0;i<42000;++i) {
+            const auto x=fixtureFrame(i);
+            const auto l=old->processFrame(x.left,x.right),r=fresh->processFrame(x.left,x.right);
+            require(l.left==r.left && l.right==r.right,"V16 factory full engine exact null");
+        }
+    }
+    std::cout<<"PASS: V16 makeup cap, exact factory DSP, eight rates, reset\\n";
+
     // The new clip amount is a genuine 4x audio process; zero retains
     // all earlier sessions' transparent limiting behavior by default.
     require(MasterParameters{}.clipper == 0.0, "legacy clipper default must be zero");

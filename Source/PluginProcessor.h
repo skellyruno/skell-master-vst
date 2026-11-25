@@ -73,6 +73,8 @@ public:
 
     bool usesEfficientDepth() const noexcept { return efficientDepthEnabled.load(std::memory_order_relaxed); }
     void setEfficientDepthEnabled(bool value) noexcept { efficientDepthEnabled.store(value,std::memory_order_relaxed); }
+    bool usesCompressionMakeup() const noexcept { return compressionMakeupEnabled.load(std::memory_order_relaxed); }
+    void setCompressionMakeupEnabled(bool value) noexcept { compressionMakeupEnabled.store(value,std::memory_order_relaxed); }
     bool usesAdaptiveCompression() const noexcept { return adaptiveCompressionEnabled.load(std::memory_order_relaxed); }
     void setAdaptiveCompressionEnabled(bool value) noexcept { adaptiveCompressionEnabled.store(value,std::memory_order_relaxed); }
     bool usesDepthWidth() const noexcept { return depthWidthEnabled.load(std::memory_order_relaxed); }
@@ -132,6 +134,7 @@ private:
     std::atomic<bool> depthWidthEnabled { true };
     std::atomic<bool> efficientDepthEnabled { true };
     std::atomic<bool> adaptiveCompressionEnabled { true };
+    std::atomic<bool> compressionMakeupEnabled { true };
     int referenceClipGuardHold = 0;
     int activeChannels = 2;
     int lookaheadSamples = 0;

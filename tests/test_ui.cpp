@@ -215,6 +215,7 @@ int main() {
               "new Width parameter must be neutral at 100 percent");
         check(processor.usesDepthWidth(),"fresh instances retain legacy depth mode");
         check(processor.usesAnalogSauce(),"fresh instances use V13 analog Sauce");
+        check(processor.usesCompressionMakeup(),"fresh V16 sessions enable partial makeup");
         check(processor.usesEfficientDepth() && processor.usesAdaptiveCompression(),
               "fresh sessions enable V15 efficient depth and optional strong compression");
         {
@@ -259,6 +260,7 @@ int main() {
             SkellyMasterAudioProcessor legacy; legacy.setStateInformation(blob.getData(),static_cast<int>(blob.getSize()));
             check(!legacy.usesDepthWidth(),"V10 state must retain its old Width law");
             check(!legacy.usesAnalogSauce(),"old state must retain original Sauce");
+            check(!legacy.usesCompressionMakeup(),"old sessions preserve uncompensated compression");
             check(!legacy.usesEfficientDepth() && !legacy.usesAdaptiveCompression(),
                   "legacy state must preserve both old DSP responses");
             check(legacy.getRequestedOversampling()==4,"legacy sessions must remain 4x");
@@ -268,6 +270,7 @@ int main() {
             SkellyMasterAudioProcessor roundtrip; roundtrip.setStateInformation(saved.getData(),static_cast<int>(saved.getSize()));
             check(!roundtrip.usesDepthWidth(),"V10 Width law survives V13 resave");
             check(!roundtrip.usesAnalogSauce(),"legacy Sauce survives V13 resave");
+            check(!roundtrip.usesCompressionMakeup(),"legacy makeup off survives resave");
             check(!roundtrip.usesEfficientDepth() && !roundtrip.usesAdaptiveCompression(),
                   "V15 resave must not silently upgrade old DSP");
         }

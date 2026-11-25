@@ -147,6 +147,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.depthWidth = usesDepthWidth();
     p.efficientDepth = usesEfficientDepth();
     p.adaptiveCompression = usesAdaptiveCompression();
+    p.compressionMakeup = usesCompressionMakeup();
     p.transients = parameters.getRawParameterValue("transients")->load(std::memory_order_relaxed) * 0.01;
     p.outputDb = parameters.getRawParameterValue("output")->load(std::memory_order_relaxed);
     p.clipper = parameters.getRawParameterValue("clipper")->load(std::memory_order_relaxed)*0.01;
@@ -200,8 +201,15 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     const bool creativeDepthGuard=p.spatialWidth>0.0 || (p.depthWidth &&
         (!atZero(p.width-1.0) || (p.enhancedSauce && p.sauce>0.20)));
     referenceClipGuardHold=std::max(0,referenceClipGuardHold-samples);
-    if(creativeDepthGuard && !p.bypass)
-        referenceClipGuardHold=static_cast<int>(std::ceil(getSampleRate()*.35));
+    const bool strongMakeup=p.compressionMakeup && (p.glue>.30 || p.dynamics>.30);
+    // Makeup fall (80ms) and control smoothing (30ms) have long tails.
+    // Keep reconstruction protection active until both have settled.
+    if(strongMakeup && !p.bypass)
+        referenceClipGuardHold=std::max(referenceClipGuardHold,
+            static_cast<int>(std::ceil(getSampleRate()*3.0)));
+    else if(creativeDepthGuard && !p.bypass)
+        referenceClipGuardHold=std::max(referenceClipGuardHold,
+            static_cast<int>(std::ceil(getSampleRate()*.35)));
     else if(p.referenceClip && p.clipper>0.0 && !p.bypass)
         referenceClipGuardHold=std::max(referenceClipGuardHold,
             static_cast<int>(std::ceil(getSampleRate()*.12)));
@@ -331,7 +339,8 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",15,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",16,nullptr);
+    snapshot.setProperty("skellMasterCompressionMakeup",usesCompressionMakeup()?1:0,nullptr);
     snapshot.setProperty("skellMasterEfficientDepth",usesEfficientDepth() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterAdaptiveCompression",usesAdaptiveCompression() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterOversampling",getRequestedOversampling(),nullptr);
@@ -362,6 +371,9 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         requestOversampling(previousVersion>=14 && quality=="2" ? 2 :
                             previousVersion>=14 && quality=="8" ? 8 : 4);
         snapshot.setProperty("skellMasterOversampling",getRequestedOversampling(),nullptr);
+        setCompressionMakeupEnabled(previousVersion>=16 &&
+            snapshot.getProperty("skellMasterCompressionMakeup",0).toString()=="1");
+        snapshot.setProperty("skellMasterCompressionMakeup",usesCompressionMakeup()?1:0,nullptr);
         setEfficientDepthEnabled(previousVersion>=15 &&
             snapshot.getProperty("skellMasterEfficientDepth",0).toString()=="1");
         setAdaptiveCompressionEnabled(previousVersion>=15 &&
@@ -501,7 +513,7 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             spatialState.setProperty("value",0.0f,nullptr);
             snapshot.appendChild(spatialState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",15,nullptr);
+        snapshot.setProperty("skellMasterStateVersion",16,nullptr);
         parameters.replaceState(snapshot);
     }
 }

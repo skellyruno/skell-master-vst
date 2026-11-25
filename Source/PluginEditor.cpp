@@ -606,6 +606,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "CLIP DRIVE");
          s.setTooltip(i==9
             ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Deuce Match uses the 257-tap reconstruction guard with a 0.5/0.45/0.4 dB margin at 44.1/48/96 kHz and 32-sample lookahead; legacy factories retain sample-peak limiting. Drag, type, or double-click to reset."
+            : i==2 ? "GLUE: factory range unchanged through 30%; stronger settings in new sessions use adaptive recovery and partial automatic makeup, capped at +3 dB combined with legacy Dynamics."
             : i==3 ? "WIDTH: 0% unchanged; 100% full adaptive multiband stereo separation. Center, bass and anti-phase protection. Legacy Width automation remains separate."
             : i==6 ? "SAUCE: factory tone unchanged through 20%; higher amounts add oversampled parallel even/odd harmonic color and dynamic headroom protection in new sessions. Older projects retain their original response."
             : i==10 ? "CLIP: 35% matches the supplied Soft Clip Pro 11% saturator/-1.2dB clip reference. Clipper sits BEFORE the limiter in new sessions. 4x standard oversampling (2x and 8x optional); stronger settings add saturation and a lower knee. Older states retain their original path."
@@ -776,6 +777,7 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     processor.setDepthWidthEnabled(true);
     processor.setEfficientDepthEnabled(true);
     processor.setAdaptiveCompressionEnabled(true);
+    processor.setCompressionMakeupEnabled(true);
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     processor.setFactoryPresetId(0);
     displayedFactory=0;
@@ -811,6 +813,7 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     processor.setDepthWidthEnabled(true);
     processor.setEfficientDepthEnabled(true);
     processor.setAdaptiveCompressionEnabled(true);
+    processor.setCompressionMakeupEnabled(true);
     if(presetId>=6) {
         // Fresh opt-in factory sounds use the 4x clip-before-L2 topology.
         // Never rewrite an older saved project merely by loading it.

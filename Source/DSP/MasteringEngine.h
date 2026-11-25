@@ -4,6 +4,7 @@
 #include "DepthWidth.h"
 #include "SpatialSeparation.h"
 #include "AnalogSauce.h"
+#include "CompressionMakeup.h"
 
 // SKELLY MASTER | portable DSP core (C++17, no GUI or host dependencies).
 // State is allocated during prepare(); processFrame() performs no allocation.
@@ -372,6 +373,7 @@ struct MasterParameters {
     bool depthWidth = false; // V11 creative width, V10 states retain previous widening
     bool efficientDepth = false; // V15 skip inactive 3D stages; legacy states warm filters
     bool adaptiveCompression = false; // V15 only >30% compression, opt-in new sessions
+    bool compressionMakeup = false; // V16 bounded partial level recovery
     double transients = 0.0;// 0..1
     double outputDb = 0.0;
     double clipper = 0.0;  // existing 0..1 CLIP automation ID, unchanged
@@ -875,6 +877,7 @@ public:
                                                   (1.0-alpha)*norm};
             }
         }
+        compressionMakeup.prepare(rate);
         glueComp.prepare(rate, 27, 220);
         dynamicsComp.prepare(rate, 8, 110);
         hf[0].prepare(rate, 2400); hf[1].prepare(rate, 2400);
@@ -939,6 +942,7 @@ public:
         lastPhasePosition=-1.0;
         referenceClipDrive.snap(0.0);
         glueComp.reset(); dynamicsComp.reset();
+        compressionMakeup.reset();
         dcInput.fill(0.0); dcOutput.fill(0.0);
         fastEnv = slowEnv = 0.0; limiterGain = 1.0; limiterHold = 0; writeIndex = 0;
         eqCounter = 0; lastEqLows = lastEqHighs = 1.0e9;
@@ -949,6 +953,8 @@ public:
         referenceCalibration=p.referenceCalibration;
         efficientDepthMode=p.efficientDepth;
         adaptiveCompressionMode=p.adaptiveCompression && !p.bypass;
+        compressionMakeupMode=p.compressionMakeup && !p.bypass;
+        if(!compressionMakeupMode) compressionMakeup.reset();
         // Unexpected non-finite host automation must never become an active
         // effect. std::min/std::max on NaN used to select the upper bound,
         // e.g. accidentally setting DRIVE/GLUE to 100% and INPUT to +18dB.
@@ -1080,6 +1086,10 @@ public:
         const double dynamicsGain = dynamicsComp.next(detector, dyn, -26, 3.6, adaptiveCompressionMode);
         l *= glueGain * dynamicsGain;
         r *= glueGain * dynamicsGain;
+        if(compressionMakeupMode) {
+            const double makeup=compressionMakeup.next(glueGain,dynamicsGain,g,dyn);
+            if(makeup>1.) { l*=makeup; r*=makeup; }
+        }
 
         // Stereo-linked transient attack lift, no gain pumping on sustained tails.
         const double postCompressionPeak = std::max(std::abs(l), std::abs(r));
@@ -1403,12 +1413,13 @@ private:
     bool referenceClipBeforeLimiter = false;
     detail::DriveShaper driveShaper;
     detail::Compressor glueComp, dynamicsComp;
+    CompressionMakeup compressionMakeup;
     std::array<double, 2> dcInput{}, dcOutput{};
     double fastEnv = 0, slowEnv = 0, fastAtk = 0, slowAtk = 0;
     double limiterGain = 1, limiterReleaseFast = 0, limiterReleaseSlow = 0;
     double referenceReleaseFast = 0, referenceReleaseSlow = 0;
     bool referenceCalibration = false;
-    bool efficientDepthMode = false, adaptiveCompressionMode = false;
+    bool efficientDepthMode = false, adaptiveCompressionMode = false, compressionMakeupMode = false;
     int limiterHold = 0;
     double lastEqLows = 1.0e9, lastEqHighs = 1.0e9;
     double gainReduction = 1, outputPeak = 0;

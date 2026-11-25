@@ -649,9 +649,10 @@ int main(int argc, char** argv) {
         // Stream rendered blocks directly to disk. The previous whole-file
         // vector plus a second full AudioBuffer doubled peak memory usage and
         // could approach 1 GiB for the documented 10-minute / 96 kHz limit.
-        std::unique_ptr<juce::AudioFormatWriter> outputWriter;
+        // Temporary file must outlive writer even on exception.
         std::unique_ptr<juce::TemporaryFile> temporaryOutput;
-        if(argc>=4) {
+        std::unique_ptr<juce::AudioFormatWriter> outputWriter;
+        if(externalWav && argc>=4) {
             const juce::File outputPath(juce::String::fromUTF8(argv[3]));
             // Never replace the owner's input WAV, even on successful render.
             if(reader) {
@@ -726,9 +727,6 @@ int main(int argc, char** argv) {
         // Close the writer before returning so the WAV header/frame count is
         // finalized even when the caller immediately inspects the output.
         outputWriter.reset();
-        if(temporaryOutput)
-            require(temporaryOutput->overwriteTargetFileWithTemporary(),
-                    "Could not atomically replace the completed output WAV");
         plugin->releaseResources();
         const auto dB=[](double linear) {
             return 20.0*std::log10(std::max(1.e-14,linear));
@@ -744,6 +742,8 @@ int main(int argc, char** argv) {
         const bool bypassEnabled = getBoolParameterByName(*plugin, "Bypass");
         std::unique_ptr<juce::XmlElement> finalHostWrapper;
         const auto finalComponent=getComponentStateXml(*plugin,finalHostWrapper);
+        const bool strongMakeupGuard=finalComponent->getIntAttribute("skellMasterCompressionMakeup",0)==1
+            && (getNumericParameterByName(*plugin,"Glue")>30.f || getNumericParameterByName(*plugin,"Dynamics")>30.f);
         const bool creativeDepthGuard=getNumericParameterByName(*plugin,"Spatial Width")>0.f || (finalComponent->getIntAttribute("skellMasterDepthWidth",0)==1
             && (std::abs(getNumericParameterByName(*plugin,"Width")-100.f)>.01f
                 || (finalComponent->getIntAttribute("skellMasterEnhancedSauce",0)==1
@@ -759,7 +759,7 @@ int main(int argc, char** argv) {
             // true-peak safety even when CLIP=0 and Deuce Match is OFF.
             // Original published factories retain their legacy sample
             // guard for saved-project parity.
-            if (deuceMatchEnabled || referenceClipEnabled || creativeDepthGuard ||
+            if (deuceMatchEnabled || referenceClipEnabled || creativeDepthGuard || strongMakeupGuard ||
                 (requestedFactory>=7 && requestedFactory<=9)) {
                 // The production guard uses a rate-adaptive 0.5/0.45/0.4dB margin at 44.1/48/96kHz. The hosted
                 // 48-tap monitor must remain 0.1dB below the configured
@@ -773,6 +773,10 @@ int main(int argc, char** argv) {
         require(std::isfinite(metrics.reconstructedPeak)&&std::isfinite(width),
                 "Hosted VST3 true peak/width invalid");
         require(rms>1.e-5,"VST3 unexpectedly silent");
+        // Commit only after all signal acceptance checks pass.
+        if(temporaryOutput)
+            require(temporaryOutput->overwriteTargetFileWithTemporary(),
+                    "Could not atomically replace the completed output WAV");
         std::cout<<"VST3_HOST_RENDER PASS"
                  <<" input="<<(externalWav?"private_wav":"synthetic")
                  <<" sample_rate="<<sampleRate
