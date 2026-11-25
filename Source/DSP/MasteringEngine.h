@@ -378,8 +378,7 @@ struct MasterParameters {
     bool referenceClip = false; // v6 post-limit or v7 chain-ordered clip
     bool clipBeforeLimiter = false; // false preserves exact v6 topology
     bool refinedControlCurves = false; // v8 new-instance only; old states exact
-    bool referenceCalibration = false;
-    bool efficientDepthMode = false, adaptiveCompressionMode = false; // v9 factory5 recovery/phase profile
+    bool referenceCalibration = false; // v9 factory5 recovery/phase profile
     double ceilingDb = -1.0;
     bool bypass = false;
     bool deuceMatch = false; // opt-in pre-limiter five-band reference coloration
@@ -1409,6 +1408,7 @@ private:
     double limiterGain = 1, limiterReleaseFast = 0, limiterReleaseSlow = 0;
     double referenceReleaseFast = 0, referenceReleaseSlow = 0;
     bool referenceCalibration = false;
+    bool efficientDepthMode = false, adaptiveCompressionMode = false;
     int limiterHold = 0;
     double lastEqLows = 1.0e9, lastEqHighs = 1.0e9;
     double gainReduction = 1, outputPeak = 0;
