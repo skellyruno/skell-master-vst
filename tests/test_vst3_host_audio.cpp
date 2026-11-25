@@ -650,9 +650,20 @@ int main(int argc, char** argv) {
         // vector plus a second full AudioBuffer doubled peak memory usage and
         // could approach 1 GiB for the documented 10-minute / 96 kHz limit.
         std::unique_ptr<juce::AudioFormatWriter> outputWriter;
+        std::unique_ptr<juce::TemporaryFile> temporaryOutput;
         if(argc>=4) {
             const juce::File outputPath(juce::String::fromUTF8(argv[3]));
-            std::unique_ptr<juce::OutputStream> stream=outputPath.createOutputStream();
+            // Never replace the owner's input WAV, even on successful render.
+            if(reader) {
+                const juce::File inputPath(juce::String::fromUTF8(argv[2]));
+                require(outputPath!=inputPath,
+                        "Output WAV must not overwrite the source WAV");
+            }
+            // JUCE File::createOutputStream appends to an existing file,
+            // creating an invalid doubled RIFF on repeat renders. Write to a
+            // unique sibling and replace the destination only AFTER success.
+            temporaryOutput=std::make_unique<juce::TemporaryFile>(outputPath);
+            std::unique_ptr<juce::OutputStream> stream=temporaryOutput->getFile().createOutputStream();
             require(stream!=nullptr,"Could not create WAV output");
             auto* wav=audioFormats.findFormatForFileExtension("wav");
             require(wav!=nullptr,"JUCE WAV writer unavailable");
@@ -715,6 +726,9 @@ int main(int argc, char** argv) {
         // Close the writer before returning so the WAV header/frame count is
         // finalized even when the caller immediately inspects the output.
         outputWriter.reset();
+        if(temporaryOutput)
+            require(temporaryOutput->overwriteTargetFileWithTemporary(),
+                    "Could not atomically replace the completed output WAV");
         plugin->releaseResources();
         const auto dB=[](double linear) {
             return 20.0*std::log10(std::max(1.e-14,linear));

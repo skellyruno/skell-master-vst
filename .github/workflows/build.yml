@@ -73,6 +73,18 @@ jobs:
           '@ | python - $inputWavPath
           & $runner.FullName $plugin.FullName $inputWavPath $outputWavPath
           if ($LASTEXITCODE -ne 0) { throw "VST3 WAV render smoke test failed with exit code $LASTEXITCODE" }
+          $firstHash = (Get-FileHash $outputWavPath -Algorithm SHA256).Hash
+          & $runner.FullName $plugin.FullName $inputWavPath $outputWavPath
+          if ($LASTEXITCODE -ne 0) { throw "Repeated WAV output render failed" }
+          if ((Get-FileHash $outputWavPath -Algorithm SHA256).Hash -ne $firstHash) {
+            throw "Rerendering the same WAV path corrupted or changed the output"
+          }
+          $sourceHash = (Get-FileHash $inputWavPath -Algorithm SHA256).Hash
+          & $runner.FullName $plugin.FullName $inputWavPath $inputWavPath
+          if ($LASTEXITCODE -eq 0) { throw "Renderer accepted destructive input/output alias" }
+          if ((Get-FileHash $inputWavPath -Algorithm SHA256).Hash -ne $sourceHash) {
+            throw "Rejected input/output alias changed the source WAV"
+          }
           & $runner.FullName $plugin.FullName $inputWavPath $overrideWavPath --set 'Input=5' --set 'Glue=18' --bool 'Deuce Match=1'
           if ($LASTEXITCODE -ne 0) { throw "VST3 parameter-override render failed with exit code $LASTEXITCODE" }
           $newLoudWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-v8-loud-plus.wav'
@@ -278,6 +290,18 @@ jobs:
               w.writeframes(frames)
           PY
           "$runner" "$plugin" "$input" "$default"
+          cp "$default" "$RUNNER_TEMP/skell-master-first-render.wav"
+          "$runner" "$plugin" "$input" "$default"
+          if ! cmp -s "$default" "$RUNNER_TEMP/skell-master-first-render.wav"; then
+            echo "Repeat render output changed or became invalid" >&2
+            exit 1
+          fi
+          input_hash="$(sha256sum "$input" | cut -d ' ' -f1)"
+          if "$runner" "$plugin" "$input" "$input"; then
+            echo "Renderer accepted destructive input/output alias" >&2
+            exit 1
+          fi
+          test "$(sha256sum "$input" | cut -d ' ' -f1)" = "$input_hash"
           "$runner" "$plugin" "$input" "$override" --set 'Input=5' --set 'Glue=18' --bool 'Deuce Match=1'
           "$runner" "$plugin" "$input" "$boundary" --set 'Input=18' --set 'Ceiling Adjust=3'
           "$runner" "$plugin" "$input" "$extreme" --set 'Output Trim=12' --set 'Clip=100' --set 'Ceiling Adjust=3' --bool 'Deuce Match=1'
