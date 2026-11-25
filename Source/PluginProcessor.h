@@ -71,6 +71,10 @@ public:
         referenceCalibrationEnabled.store(enabled,std::memory_order_relaxed);
     }
 
+    bool usesEfficientDepth() const noexcept { return efficientDepthEnabled.load(std::memory_order_relaxed); }
+    void setEfficientDepthEnabled(bool value) noexcept { efficientDepthEnabled.store(value,std::memory_order_relaxed); }
+    bool usesAdaptiveCompression() const noexcept { return adaptiveCompressionEnabled.load(std::memory_order_relaxed); }
+    void setAdaptiveCompressionEnabled(bool value) noexcept { adaptiveCompressionEnabled.store(value,std::memory_order_relaxed); }
     bool usesDepthWidth() const noexcept { return depthWidthEnabled.load(std::memory_order_relaxed); }
     void setDepthWidthEnabled(bool value) noexcept { depthWidthEnabled.store(value,std::memory_order_relaxed); }
     bool usesAnalogSauce() const noexcept { return analogSauceEnabled.load(std::memory_order_relaxed); }
@@ -126,6 +130,8 @@ private:
     std::atomic<bool> enhancedSauceEnabled { true };
     std::atomic<bool> analogSauceEnabled { true };
     std::atomic<bool> depthWidthEnabled { true };
+    std::atomic<bool> efficientDepthEnabled { true };
+    std::atomic<bool> adaptiveCompressionEnabled { true };
     int referenceClipGuardHold = 0;
     int activeChannels = 2;
     int lookaheadSamples = 0;

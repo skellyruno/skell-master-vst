@@ -367,6 +367,46 @@ int main() {
     std::cout << "PASS: all 11 knob DSP paths, v8 gentle compressor extremes, "
                  "bit-exact published compressor range\\n";
 
+    // V15: default/factory compressor range must null bit-for-bit, even
+    // with opt-in adaptive mode; strong controls engage program-dependent
+    // release without changing attack, threshold, stereo link or ceiling.
+    for(const double setting:{0.0,0.11,0.20,0.24,0.30}) {
+        detail::Compressor oldComp, newComp;
+        oldComp.prepare(rate,27,220); newComp.prepare(rate,27,220);
+        for(int i=0;i<100000;++i) {
+            const double x=(i%9000<3000 ? 0.8 : 0.07);
+            const double a=oldComp.next(x,setting,-19,2.5,false);
+            const double b=newComp.next(x,setting,-19,2.5,true);
+            require(a==b,"adaptive compressor must exactly null through 30%");
+        }
+    }
+    {
+        detail::Compressor oldComp,newComp;
+        oldComp.prepare(rate,27,220); newComp.prepare(rate,27,220);
+        double largestDifference=0.;
+        for(int i=0;i<static_cast<int>(rate*0.9);++i) {
+            const double x=i<static_cast<int>(rate*.42) ? 0.92 : 0.025;
+            const double a=oldComp.next(x,.80,-19,2.5,false);
+            const double b=newComp.next(x,.80,-19,2.5,true);
+            require(std::isfinite(a)&&std::isfinite(b) && a>0 && b>0
+                    && a<=1.0 && b<=1.0,"adaptive compressor bounded");
+            largestDifference=std::max(largestDifference,std::abs(a-b));
+        }
+        require(largestDifference>1.e-5,"adaptive release must respond to actual program history");
+    }
+    {
+        StereoImager oldImage,newImage;
+        oldImage.prepare(rate); newImage.prepare(rate);
+        for(int i=0;i<static_cast<int>(rate*.2);++i) {
+            const double x=.37*std::sin(2.0*detail::pi*837.0*i/rate);
+            double a=x+.08,b=x-.08,c=a,d=b;
+            oldImage.process(a,b,.12,0.0,1.0,false);
+            newImage.process(c,d,.12,0.0,1.0,true);
+            require(a==c && b==d,"efficient neutral depth must null the old image");
+        }
+    }
+    std::cout<<"PASS: V15 factory compressor null, strong adaptive response, neutral width null\\n";
+
     // The new clip amount is a genuine 4x audio process; zero retains
     // all earlier sessions' transparent limiting behavior by default.
     require(MasterParameters{}.clipper == 0.0, "legacy clipper default must be zero");

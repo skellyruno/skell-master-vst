@@ -274,10 +274,16 @@ public:
         release = std::exp(-1.0 / (rate * releaseMs * 0.001));
         gainAttack = std::exp(-1.0 / (rate * 0.003));
         gainRelease = std::exp(-1.0 / (rate * 0.070));
+        // New-session, high-control-only program recovery coefficients.
+        // All transcendental functions run during prepare, never audio.
+        programFastRelease = std::exp(-1.0 / (rate * 0.034));
+        programSlowRelease = std::exp(-1.0 / (rate * 0.142));
+        programDensityPole = std::exp(-1.0 / (rate * 0.090));
         reset();
     }
-    void reset() noexcept { envelope = 0.0; gain = targetGain = 1.0; tick = 0; }
-    double next(double stereoPeak, double amount, double thresholdAtMax, double ratioAtMax) noexcept {
+    void reset() noexcept { envelope = 0.0; gain = targetGain = 1.0; tick = 0; programDensity = 0.0; }
+    double next(double stereoPeak, double amount, double thresholdAtMax, double ratioAtMax,
+                bool adaptive = false) noexcept {
         const double a = stereoPeak > envelope ? attack : release;
         envelope = a * envelope + (1.0 - a) * stereoPeak;
         if (envelope < 1.0e-27) envelope = 0.0;
@@ -298,13 +304,33 @@ public:
                 targetGain = dbToLinear(-reductionDb);
             }
         }
-        const double g = targetGain < gain ? gainAttack : gainRelease;
+        double effectiveRelease = gainRelease;
+        // Only non-reference Glue/Dynamics settings above 30% use the new
+        // release; all factory and restored-legacy curves stay bit-exact.
+        const double blend = adaptive ? detail::clamp((amount-0.30) / 0.70, 0.0, 1.0) : 0.0;
+        if (blend > 1.0e-9) {
+            const double reduction = detail::clamp((1.0-targetGain)*6.0,0.0,1.0);
+            programDensity = programDensityPole*programDensity
+                + (1.0-programDensityPole)*reduction;
+            if (programDensity < 1.0e-27) programDensity = 0.0;
+            const double severity = detail::clamp((1.0-gain)*3.0,0.0,1.0);
+            const double sustained = detail::clamp(0.80*programDensity
+                +0.20*severity,0.0,1.0);
+            const double dynamicRelease=programFastRelease
+                +(programSlowRelease-programFastRelease)*sustained;
+            effectiveRelease=gainRelease+blend*(dynamicRelease-gainRelease);
+        } else {
+            programDensity=0.0;
+        }
+        const double g = targetGain < gain ? gainAttack : effectiveRelease;
         gain = g * gain + (1.0 - g) * targetGain;
         return gain;
     }
 private:
     double envelope = 0.0, gain = 1.0, targetGain = 1.0;
     double attack = 0.0, release = 0.0, gainAttack = 0.0, gainRelease = 0.0;
+    double programFastRelease = 0.0, programSlowRelease = 0.0;
+    double programDensityPole = 0.0, programDensity = 0.0;
     int tick = 0;
 };
 
@@ -344,13 +370,16 @@ struct MasterParameters {
     bool enhancedSauce = false; // opt-in; old saved states remain exact
     bool analogSauce = false; // V13 parallel coloration above 20% only
     bool depthWidth = false; // V11 creative width, V10 states retain previous widening
+    bool efficientDepth = false; // V15 skip inactive 3D stages; legacy states warm filters
+    bool adaptiveCompression = false; // V15 only >30% compression, opt-in new sessions
     double transients = 0.0;// 0..1
     double outputDb = 0.0;
     double clipper = 0.0;  // existing 0..1 CLIP automation ID, unchanged
     bool referenceClip = false; // v6 post-limit or v7 chain-ordered clip
     bool clipBeforeLimiter = false; // false preserves exact v6 topology
     bool refinedControlCurves = false; // v8 new-instance only; old states exact
-    bool referenceCalibration = false; // v9 factory5 recovery/phase profile
+    bool referenceCalibration = false;
+    bool efficientDepthMode = false, adaptiveCompressionMode = false; // v9 factory5 recovery/phase profile
     double ceilingDb = -1.0;
     bool bypass = false;
     bool deuceMatch = false; // opt-in pre-limiter five-band reference coloration
@@ -741,9 +770,11 @@ public:
     void reset() noexcept {
         sideBass.reset();
         depth.reset();
+        depthWasActive=false;
         midPower = sidePower = 0.0;
     }
-    void process(double& l, double& r, double amount, double widthOffset = 0.0, double depthBlend = 0.0) noexcept {
+    void process(double& l, double& r, double amount, double widthOffset = 0.0,
+                 double depthBlend = 0.0, bool efficientDepth = false) noexcept {
         const double mid = 0.5 * (l + r);
         const double side = 0.5 * (l - r);
         const double bassSide = sideBass.low(side);
@@ -752,7 +783,9 @@ public:
         if (midPower < 1.0e-36) midPower = 0.0;
         if (sidePower < 1.0e-36) sidePower = 0.0;
         if (amount < 1.0e-6 && std::abs(widthOffset) < 1.0e-6) {
-            if(depthBlend>1.e-6) depth.process(mid,side,0.,0.);
+            if (efficientDepth) {
+                if(depthWasActive) { depth.reset(); depthWasActive=false; }
+            } else if(depthBlend>1.e-6) depth.process(mid,side,0.,0.);
             return;
         }
 
@@ -762,9 +795,18 @@ public:
         double adjustedSide = side + (side - bassSide) * width;
         // Width is independent of the old Sauce imaging. Narrowing does not
         // depend on correlation; widening protects bass and anti-phase audio.
-        // Track the new stage at neutral too, so automation starts from warm filters.
-        const double expanded=depthBlend>1.e-6
+        // V11 states retain their always-warm filter histories. V15 new
+        // sessions skip expensive inert filters, reset old histories on
+        // disengage, then enter via the existing 35ms width smoother.
+        const bool runDepth=depthBlend>1.e-6
+            && (!efficientDepth || widthOffset>1.e-6);
+        if(efficientDepth && !runDepth && depthWasActive) {
+            depth.reset();
+            depthWasActive=false;
+        }
+        const double expanded=runDepth
             ? depth.process(mid,adjustedSide,widthOffset,protection) : adjustedSide;
+        if(runDepth) depthWasActive=true;
         if (widthOffset < -1.0e-6) adjustedSide *= 1.0 + detail::clamp(widthOffset,-1.0,0.0);
         else if (widthOffset > 1.0e-6) {
             const double previous=adjustedSide+(adjustedSide-bassSide)*detail::clamp(widthOffset,0.0,0.6)*protection;
@@ -777,6 +819,7 @@ public:
 private:
     detail::OnePole sideBass;
     DepthWidth depth;
+    bool depthWasActive=false;
     double energyCoefficient = 0.0;
     double midPower = 0.0, sidePower = 0.0;
 };
@@ -905,6 +948,8 @@ public:
 
     void setParameters(const MasterParameters& p) noexcept {
         referenceCalibration=p.referenceCalibration;
+        efficientDepthMode=p.efficientDepth;
+        adaptiveCompressionMode=p.adaptiveCompression && !p.bypass;
         // Unexpected non-finite host automation must never become an active
         // effect. std::min/std::max on NaN used to select the upper bound,
         // e.g. accidentally setting DRIVE/GLUE to 100% and INPUT to +18dB.
@@ -1032,8 +1077,8 @@ public:
         else r = l;
 
         const double detector = std::max(std::abs(l), std::abs(r));
-        const double glueGain = glueComp.next(detector, g, -19, 2.5);
-        const double dynamicsGain = dynamicsComp.next(detector, dyn, -26, 3.6);
+        const double glueGain = glueComp.next(detector, g, -19, 2.5, adaptiveCompressionMode);
+        const double dynamicsGain = dynamicsComp.next(detector, dyn, -26, 3.6, adaptiveCompressionMode);
         l *= glueGain * dynamicsGain;
         r *= glueGain * dynamicsGain;
 
@@ -1079,7 +1124,7 @@ public:
             analogWasActive=false;
         }
         if (channels == 2)
-            stereoImager.process(l, r, s-sauceMix*std::max(0.0,s-0.20), widthChange, depthMix);
+            stereoImager.process(l, r, s-sauceMix*std::max(0.0,s-0.20), widthChange, depthMix, efficientDepthMode);
         // A separate, additive control leaves all old Width automation intact.
         // At zero, skip the new stage entirely and retain the bit-exact path.
         if(channels==2 && spatialChange>1.e-8) {

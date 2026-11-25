@@ -215,6 +215,8 @@ int main() {
               "new Width parameter must be neutral at 100 percent");
         check(processor.usesDepthWidth(),"fresh instances retain legacy depth mode");
         check(processor.usesAnalogSauce(),"fresh instances use V13 analog Sauce");
+        check(processor.usesEfficientDepth() && processor.usesAdaptiveCompression(),
+              "fresh sessions enable V15 efficient depth and optional strong compression");
         {
             check(processor.getRequestedOversampling()==4 && processor.getActiveOversampling()==4,
                   "4x must remain the original default");
@@ -257,6 +259,8 @@ int main() {
             SkellyMasterAudioProcessor legacy; legacy.setStateInformation(blob.getData(),static_cast<int>(blob.getSize()));
             check(!legacy.usesDepthWidth(),"V10 state must retain its old Width law");
             check(!legacy.usesAnalogSauce(),"old state must retain original Sauce");
+            check(!legacy.usesEfficientDepth() && !legacy.usesAdaptiveCompression(),
+                  "legacy state must preserve both old DSP responses");
             check(legacy.getRequestedOversampling()==4,"legacy sessions must remain 4x");
             check(legacy.parameters.getRawParameterValue("spatialWidth")->load()==0.f,"old states must not activate spatial Width");
             check(std::abs(legacy.parameters.getRawParameterValue("width")->load()-145.f)<.01f,"V10 Width value survives migration");
@@ -264,6 +268,8 @@ int main() {
             SkellyMasterAudioProcessor roundtrip; roundtrip.setStateInformation(saved.getData(),static_cast<int>(saved.getSize()));
             check(!roundtrip.usesDepthWidth(),"V10 Width law survives V13 resave");
             check(!roundtrip.usesAnalogSauce(),"legacy Sauce survives V13 resave");
+            check(!roundtrip.usesEfficientDepth() && !roundtrip.usesAdaptiveCompression(),
+                  "V15 resave must not silently upgrade old DSP");
         }
         check(std::abs(skelly::detail::ceilingOffsetToDb(0.0)+1.0)<1e-9,
               "zero ceiling adjustment must preserve the -1 dBTP target before safety margin");

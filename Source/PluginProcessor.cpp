@@ -145,6 +145,8 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.enhancedSauce = usesEnhancedSauce();
     p.analogSauce = usesAnalogSauce();
     p.depthWidth = usesDepthWidth();
+    p.efficientDepth = usesEfficientDepth();
+    p.adaptiveCompression = usesAdaptiveCompression();
     p.transients = parameters.getRawParameterValue("transients")->load(std::memory_order_relaxed) * 0.01;
     p.outputDb = parameters.getRawParameterValue("output")->load(std::memory_order_relaxed);
     p.clipper = parameters.getRawParameterValue("clipper")->load(std::memory_order_relaxed)*0.01;
@@ -329,7 +331,9 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",14,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",15,nullptr);
+    snapshot.setProperty("skellMasterEfficientDepth",usesEfficientDepth() ? 1 : 0,nullptr);
+    snapshot.setProperty("skellMasterAdaptiveCompression",usesAdaptiveCompression() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterOversampling",getRequestedOversampling(),nullptr);
     snapshot.setProperty("skellMasterAnalogSauce",usesAnalogSauce() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterDepthWidth",usesDepthWidth() ? 1 : 0,nullptr);
@@ -358,6 +362,12 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         requestOversampling(previousVersion>=14 && quality=="2" ? 2 :
                             previousVersion>=14 && quality=="8" ? 8 : 4);
         snapshot.setProperty("skellMasterOversampling",getRequestedOversampling(),nullptr);
+        setEfficientDepthEnabled(previousVersion>=15 &&
+            snapshot.getProperty("skellMasterEfficientDepth",0).toString()=="1");
+        setAdaptiveCompressionEnabled(previousVersion>=15 &&
+            snapshot.getProperty("skellMasterAdaptiveCompression",0).toString()=="1");
+        snapshot.setProperty("skellMasterEfficientDepth",usesEfficientDepth()?1:0,nullptr);
+        snapshot.setProperty("skellMasterAdaptiveCompression",usesAdaptiveCompression()?1:0,nullptr);
         setAnalogSauceEnabled(previousVersion>=13 && snapshot.getProperty("skellMasterAnalogSauce",0).toString()=="1");
         snapshot.setProperty("skellMasterAnalogSauce",usesAnalogSauce() ? 1 : 0,nullptr);
         setDepthWidthEnabled(previousVersion>=11 && snapshot.getProperty("skellMasterDepthWidth",0).toString()=="1");
@@ -491,7 +501,7 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             spatialState.setProperty("value",0.0f,nullptr);
             snapshot.appendChild(spatialState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",14,nullptr);
+        snapshot.setProperty("skellMasterStateVersion",15,nullptr);
         parameters.replaceState(snapshot);
     }
 }

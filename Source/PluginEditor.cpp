@@ -774,6 +774,8 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     processor.setEnhancedSauceEnabled(true);
     processor.setAnalogSauceEnabled(true);
     processor.setDepthWidthEnabled(true);
+    processor.setEfficientDepthEnabled(true);
+    processor.setAdaptiveCompressionEnabled(true);
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     processor.setFactoryPresetId(0);
     displayedFactory=0;
@@ -807,6 +809,8 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     processor.setEnhancedSauceEnabled(true);
     processor.setAnalogSauceEnabled(true);
     processor.setDepthWidthEnabled(true);
+    processor.setEfficientDepthEnabled(true);
+    processor.setAdaptiveCompressionEnabled(true);
     if(presetId>=6) {
         // Fresh opt-in factory sounds use the 4x clip-before-L2 topology.
         // Never rewrite an older saved project merely by loading it.
