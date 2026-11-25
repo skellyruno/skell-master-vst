@@ -83,8 +83,8 @@ constexpr const char* ids[11] = {
     "sauce", "transients", "output", "ceiling", "clipper"
 };
 // Frozen published factory values (in the existing APVTS ID order).
-constexpr const char* panelId(int i) noexcept { return i==3 ? "width" : ids[i]; }
-constexpr float panelValue(int i,float original) noexcept { return i==3 ? 100.0f : original; }
+constexpr const char* panelId(int i) noexcept { return i==3 ? "spatialWidth" : ids[i]; }
+constexpr float panelValue(int i,float original) noexcept { return i==3 ? 0.0f : original; }
 constexpr float factoryValues[9][11] = {
     // PUBLISHED: frozen forever; existing projects and automation unchanged.
     {0,0,0,0,0,0,0,0,0,0,0},
@@ -599,14 +599,14 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         s.setRotaryParameters(pi * 1.25f, pi * 2.75f, true);
         s.setMouseDragSensitivity(190);
         s.setVelocityBasedMode(false);
-        s.setDoubleClickReturnValue(true, i==3 ? 100.0 : 0.0);
+        s.setDoubleClickReturnValue(true, 0.0);
         s.setNumDecimalPlacesToDisplay(0);
         const bool db = i == 0 || i == 4 || i == 5 || i == 8 || i == 9;
         s.setTextValueSuffix(i==9 ? "" : db ? " dB" : " %");
         const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "CLIP DRIVE");
          s.setTooltip(i==9
             ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Deuce Match uses the 257-tap reconstruction guard with a 0.5/0.45/0.4 dB margin at 44.1/48/96 kHz and 32-sample lookahead; legacy factories retain sample-peak limiting. Drag, type, or double-click to reset."
-            : i==3 ? "WIDTH: 0% mono, 100% unchanged, up to 160% adaptive multiband stereo depth in new sessions. Preserves center and protects bass; no synthesized stereo."
+            : i==3 ? "WIDTH: 0% unchanged; 100% full adaptive multiband stereo separation. Center, bass and anti-phase protection. Legacy Width automation remains separate."
             : i==6 ? "SAUCE: gentle analog color at factory settings; enhanced harmonic sheen above 20% in new sessions. Older projects retain their original response."
             : i==10 ? "CLIP: 35% matches the supplied Soft Clip Pro 11% saturator/-1.2dB clip reference. Clipper sits BEFORE the limiter in new sessions. 4x active oversampling (original StandardCLIP used 8x); stronger settings add saturation and a lower knee. Older states retain their original path."
             : juce::String(labels[i]) + " - " + sub +
@@ -764,7 +764,7 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
             param->setValueNotifyingHost(param->getDefaultValue());
             param->endChangeGesture();
         }
-    if (auto* param = processor.parameters.getParameter("width")) {
+    for(const char* id : {"width", "spatialWidth"}) if (auto* param = processor.parameters.getParameter(id)) {
         param->beginChangeGesture();
         param->setValueNotifyingHost(param->getDefaultValue());
         param->endChangeGesture();
@@ -810,7 +810,7 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
             p->endChangeGesture();
         }
     }
-    if(auto* p=processor.parameters.getParameter("width")) {
+    for(const char* id : {"width", "spatialWidth"}) if(auto* p=processor.parameters.getParameter(id)) {
         p->beginChangeGesture();
         p->setValueNotifyingHost(p->getDefaultValue());
         p->endChangeGesture();
@@ -839,6 +839,8 @@ void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
     }
     const auto* width=processor.parameters.getRawParameterValue("width");
     if(!width || std::abs(width->load(std::memory_order_relaxed)-100.0f)>0.01f) modified=true;
+    const auto* spatial=processor.parameters.getRawParameterValue("spatialWidth");
+    if(!spatial || std::abs(spatial->load(std::memory_order_relaxed))>0.01f) modified=true;
     const auto* deuce=processor.parameters.getRawParameterValue("deuceMatch");
     if(!deuce || (deuce->load(std::memory_order_relaxed)>=0.5f)!=(factory==5 || factory==6))
         modified=true;

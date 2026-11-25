@@ -36,6 +36,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SkellyMasterAudioProcessor::
         juce::ParameterID{"deuceMatch", 1}, "Deuce Match", false));
     // Append only: the hidden Dynamics ID and every original host index survive.
     add("width", "Width", 0.0f, 160.0f, 1.0f, 100.0f, "%");
+    add("spatialWidth", "Spatial Width", 0.0f, 100.0f, 1.0f, 0.0f, "%");
     return layout;
 }
 
@@ -136,6 +137,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.highsDb = parameters.getRawParameterValue("highs")->load(std::memory_order_relaxed);
     p.sauce = parameters.getRawParameterValue("sauce")->load(std::memory_order_relaxed) * 0.01;
     p.width = parameters.getRawParameterValue("width")->load(std::memory_order_relaxed) * 0.01;
+    p.spatialWidth = parameters.getRawParameterValue("spatialWidth")->load(std::memory_order_relaxed) * 0.01;
     p.enhancedSauce = usesEnhancedSauce();
     p.depthWidth = usesDepthWidth();
     p.transients = parameters.getRawParameterValue("transients")->load(std::memory_order_relaxed) * 0.01;
@@ -166,7 +168,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         && !p.deuceMatch && atZero(p.inputDb) && atZero(p.drive)
         && atZero(p.glue) && atZero(p.dynamics) && atZero(p.lowsDb)
         && atZero(p.highsDb) && atZero(p.sauce) && atZero(p.transients)
-        && atZero(p.width-1.0)
+        && atZero(p.width-1.0) && atZero(p.spatialWidth)
         && atZero(p.outputDb) && atZero(p.clipper)
         && atZero(parameters.getRawParameterValue("ceiling")
                       ->load(std::memory_order_relaxed));
@@ -188,8 +190,8 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     // New creative Width/Sauce may raise reconstructed peaks even on DEFAULT
     // without Deuce Match or Clip. Keep the true-peak guard enabled throughout
     // the 35ms control ramps and guard recovery. Legacy states stay unchanged.
-    const bool creativeDepthGuard=p.depthWidth &&
-        (!atZero(p.width-1.0) || (p.enhancedSauce && p.sauce>0.20));
+    const bool creativeDepthGuard=p.spatialWidth>0.0 || (p.depthWidth &&
+        (!atZero(p.width-1.0) || (p.enhancedSauce && p.sauce>0.20)));
     referenceClipGuardHold=std::max(0,referenceClipGuardHold-samples);
     if(creativeDepthGuard && !p.bypass)
         referenceClipGuardHold=static_cast<int>(std::ceil(getSampleRate()*.35));
@@ -322,7 +324,7 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",11,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",12,nullptr);
     snapshot.setProperty("skellMasterDepthWidth",usesDepthWidth() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterEnhancedSauce",usesEnhancedSauce() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterReferenceCalibration",usesReferenceCalibration() ? 1 : 0,nullptr);
@@ -460,7 +462,21 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             widthState.setProperty("value",100.0f,nullptr);
             snapshot.appendChild(widthState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",11,nullptr);
+        bool hasSpatialWidth=false;
+        for(int i=0;i<snapshot.getNumChildren();++i) {
+            auto child=snapshot.getChild(i);
+            if(child.getProperty("id").toString()=="spatialWidth") {
+                hasSpatialWidth=true;
+                if(previousVersion<12) child.setProperty("value",0.0f,nullptr);
+            }
+        }
+        if(!hasSpatialWidth && snapshot.getNumChildren()>0) {
+            juce::ValueTree spatialState(snapshot.getChild(0).getType());
+            spatialState.setProperty("id","spatialWidth",nullptr);
+            spatialState.setProperty("value",0.0f,nullptr);
+            snapshot.appendChild(spatialState,nullptr);
+        }
+        snapshot.setProperty("skellMasterStateVersion",12,nullptr);
         parameters.replaceState(snapshot);
     }
 }

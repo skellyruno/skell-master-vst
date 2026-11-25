@@ -700,10 +700,10 @@ int main(int argc, char** argv) {
         const bool bypassEnabled = getBoolParameterByName(*plugin, "Bypass");
         std::unique_ptr<juce::XmlElement> finalHostWrapper;
         const auto finalComponent=getComponentStateXml(*plugin,finalHostWrapper);
-        const bool creativeDepthGuard=finalComponent->getIntAttribute("skellMasterDepthWidth",0)==1
+        const bool creativeDepthGuard=getNumericParameterByName(*plugin,"Spatial Width")>0.f || (finalComponent->getIntAttribute("skellMasterDepthWidth",0)==1
             && (std::abs(getNumericParameterByName(*plugin,"Width")-100.f)>.01f
                 || (finalComponent->getIntAttribute("skellMasterEnhancedSauce",0)==1
-                    && getNumericParameterByName(*plugin,"Sauce")>20.f));
+                    && getNumericParameterByName(*plugin,"Sauce")>20.f)));
         // The new-reference VST3 instance also uses the final reconstructed
         // true-peak guard with CLIP alone, even when Deuce Match is OFF.
         // Legacy restored states continue using historical sample-peak mode.

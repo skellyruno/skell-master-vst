@@ -744,6 +744,32 @@ int main() {
     }
     std::cout<<"PASS: depth frequency bounds, neutral/mono/anti-phase, research recovery bounds\n";
 
+    // V12 Spatial Width: six actual processing rates, fresh mono, anti-phase,
+    // exact neutral and center preservation, bounded bass and treble response.
+    for(double sr:{44100.,48000.,96000.,176400.,192000.,384000.}) {
+        SpatialSeparation neutral,mono,anti;
+        neutral.prepare(sr); mono.prepare(sr); anti.prepare(sr);
+        for(int n=0;n<static_cast<int>(sr*.2);++n) {
+            double x=.2*std::sin(2*detail::pi*900*n/sr),y=.1*std::cos(2*detail::pi*2200*n/sr);
+            double l=x,r=y; neutral.process(l,r,0.);
+            require(l==x && r==y,"spatial zero exact");
+            l=r=x; mono.process(l,r,1.); require(l==r,"spatial mono exact");
+            l=x; r=-x; anti.process(l,r,1.); require(l==x && r==-x,"spatial anti-phase exact");
+        }
+        for(double f:{60.,7000.,12000.}) {
+            SpatialSeparation stage; stage.prepare(sr); double in=0.,out=0.;
+            for(int n=0;n<static_cast<int>(sr*.5);++n) {
+                double m=.2*std::sin(2*detail::pi*f*n/sr),s=.04*std::cos(2*detail::pi*f*n/sr);
+                double l=m+s,r=m-s; stage.process(l,r,1.);
+                require(std::abs((l+r)*.5-m)<1.e-12,"spatial mid unchanged");
+                if(n>sr*.25) {in+=s*s; out+=.25*(l-r)*(l-r);}
+            }
+            const double db=10.*std::log10(out/in);
+            require(f==60. ? std::abs(db)<.3 : db>4. && db<9.,"spatial band response bounded");
+        }
+    }
+    std::cout<<"PASS: V12 stereo separation neutral, mono, anti-phase, mid and band response\n";
+
     // main retains many independent engine fixtures. Keep this long-lived
     // engine on the heap so nested response probes fit Windows' 1 MB stack.
     auto dspStorage=std::make_unique<MasteringEngine>();

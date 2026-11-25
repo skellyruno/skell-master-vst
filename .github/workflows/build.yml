@@ -90,7 +90,7 @@ jobs:
           & $runner.FullName $plugin.FullName $inputWavPath $neutralWavPath --factory 1
           if ($LASTEXITCODE -ne 0) { throw "Neutral DEFAULT render failed" }
           $creativeWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-depth-width-sauce.wav'
-          & $runner.FullName $plugin.FullName $inputWavPath $creativeWavPath --factory 1 --set 'Width=160' --set 'Sauce=100' --set 'Input=12'
+          & $runner.FullName $plugin.FullName $inputWavPath $creativeWavPath --factory 1 --set 'Spatial Width=100' --set 'Sauce=100' --set 'Input=12'
           if ($LASTEXITCODE -ne 0) { throw "V11 creative Width/Sauce true-peak render failed" }
           & $runner.FullName $plugin.FullName $inputWavPath $dryWavPath --factory 1 --bool 'Bypass=1'
           if ($LASTEXITCODE -ne 0) { throw "Explicit dry bypass render failed" }
@@ -302,7 +302,7 @@ jobs:
           # zero knobs; earlier builds silently limited it by ~1.5dB.
           dry_default="$RUNNER_TEMP/skell-master-factory-1-explicit-bypass.wav"
           "$runner" "$plugin" "$input" "$dry_default" --factory 1 --bool 'Bypass=1'
-          "$runner" "$plugin" "$input" "$RUNNER_TEMP/skell-master-depth-width-sauce.wav" --factory 1 --set 'Width=160' --set 'Sauce=100' --set 'Input=12'
+          "$runner" "$plugin" "$input" "$RUNNER_TEMP/skell-master-depth-width-sauce.wav" --factory 1 --set 'Spatial Width=100' --set 'Sauce=100' --set 'Input=12'
           # Host native bypass can skip the plugin's 4x polyphase/latency
           # route, so exact PCM hashes are not the right host-level metric.
           # The direct JUCE test independently checks sample-exact dry path.
