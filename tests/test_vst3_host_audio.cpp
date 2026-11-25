@@ -698,6 +698,12 @@ int main(int argc, char** argv) {
         const bool deuceMatchEnabled = getBoolParameterByName(*plugin, "Deuce Match");
         const bool referenceClipEnabled = getNumericParameterByName(*plugin, "Clip")>0;
         const bool bypassEnabled = getBoolParameterByName(*plugin, "Bypass");
+        std::unique_ptr<juce::XmlElement> finalHostWrapper;
+        const auto finalComponent=getComponentStateXml(*plugin,finalHostWrapper);
+        const bool creativeDepthGuard=finalComponent->getIntAttribute("skellMasterDepthWidth",0)==1
+            && (std::abs(getNumericParameterByName(*plugin,"Width")-100.f)>.01f
+                || (finalComponent->getIntAttribute("skellMasterEnhancedSauce",0)==1
+                    && getNumericParameterByName(*plugin,"Sauce")>20.f));
         // The new-reference VST3 instance also uses the final reconstructed
         // true-peak guard with CLIP alone, even when Deuce Match is OFF.
         // Legacy restored states continue using historical sample-peak mode.
@@ -709,7 +715,7 @@ int main(int argc, char** argv) {
             // true-peak safety even when CLIP=0 and Deuce Match is OFF.
             // Original published factories retain their legacy sample
             // guard for saved-project parity.
-            if (deuceMatchEnabled || referenceClipEnabled ||
+            if (deuceMatchEnabled || referenceClipEnabled || creativeDepthGuard ||
                 (requestedFactory>=7 && requestedFactory<=9)) {
                 // The production guard uses a rate-adaptive 0.5/0.45/0.4dB margin at 44.1/48/96kHz. The hosted
                 // 48-tap monitor must remain 0.1dB below the configured

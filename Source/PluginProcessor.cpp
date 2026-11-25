@@ -185,9 +185,17 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     // Maintain final true-peak safety when reference CLIP is active even
     // outside Deuce Match, keeping it through the 18ms automation ramp and
     // 85ms release after the CLIP knob returns to zero.
-    if(p.referenceClip && p.clipper>0.0 && !p.bypass)
-        referenceClipGuardHold=static_cast<int>(std::ceil(getSampleRate()*.12));
-    else referenceClipGuardHold=std::max(0,referenceClipGuardHold-samples);
+    // New creative Width/Sauce may raise reconstructed peaks even on DEFAULT
+    // without Deuce Match or Clip. Keep the true-peak guard enabled throughout
+    // the 35ms control ramps and guard recovery. Legacy states stay unchanged.
+    const bool creativeDepthGuard=p.depthWidth &&
+        (!atZero(p.width-1.0) || (p.enhancedSauce && p.sauce>0.20));
+    referenceClipGuardHold=std::max(0,referenceClipGuardHold-samples);
+    if(creativeDepthGuard && !p.bypass)
+        referenceClipGuardHold=static_cast<int>(std::ceil(getSampleRate()*.35));
+    else if(p.referenceClip && p.clipper>0.0 && !p.bypass)
+        referenceClipGuardHold=std::max(referenceClipGuardHold,
+            static_cast<int>(std::ceil(getSampleRate()*.12)));
     // Fresh v8 voicings explicitly opt into the reconstructed true-peak
     // guard even at CLIP=0. Previously published factory IDs 0..6 keep
     // exactly their historical protection and legacy project behavior.
