@@ -1,5 +1,6 @@
 #include "../Source/DSP/MasteringEngine.h"
 #include "../Source/DSP/LoudnessMeter.h"
+#include "experimental/ProgramRecovery.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -712,6 +713,36 @@ int main() {
         require(widthGain(3500)>1.45 && widthGain(3500)<1.65,"Width audibly extends high-band sides");
         std::cout<<"PASS: Width neutral, mono, bass protection and high-band widening\n";
     }
+
+    // V11 original depth stage: direct tests at host and oversampled rates.
+    for(double sr:{44100.,48000.,96000.,176400.,192000.,384000.}) {
+        auto sideGainDb=[sr](double hz) {
+            DepthWidth depth; depth.prepare(sr);
+            double original=0.,enhanced=0.;
+            for(int n=0;n<static_cast<int>(sr*.6);++n) {
+                const double m=.2*std::sin(2*detail::pi*hz*n/sr);
+                const double s=.04*std::cos(2*detail::pi*hz*n/sr);
+                const double z=depth.process(m,s,.6,1.);
+                if(n>sr*.3) { original+=s*s; enhanced+=z*z; }
+            }
+            return 10.*std::log10(enhanced/original);
+        };
+        require(std::abs(sideGainDb(60.))<.25,"Depth protects bass");
+        require(sideGainDb(7000.)>4.5 && sideGainDb(12000.)<8.0,"Depth upper-band response bounded");
+        DepthWidth neutral,mono,anti; neutral.prepare(sr); mono.prepare(sr); anti.prepare(sr);
+        for(int n=0;n<static_cast<int>(sr*.1);++n) {
+            const double x=.2*std::sin(2*detail::pi*1000*n/sr);
+            require(neutral.process(x,.1,0.,1.)==.1,"Depth neutral exact");
+            require(mono.process(x,0.,.6,1.)==0.,"Depth fresh mono exact");
+            require(anti.process(0.,x,.6,0.)==x,"Depth respects correlation protection");
+        }
+        ProgramRecovery adaptive; adaptive.prepare(sr);
+        const auto sparse=adaptive.coefficient(1.,1.);
+        for(int i=0;i<static_cast<int>(sr*.3);++i) adaptive.coefficient(.5,.5);
+        const auto dense=adaptive.coefficient(.5,.5);
+        require(std::isfinite(sparse) && sparse>0. && dense>sparse && dense<1.,"Experimental recovery slows on sustained reduction");
+    }
+    std::cout<<"PASS: depth frequency bounds, neutral/mono/anti-phase, research recovery bounds\n";
 
     // main retains many independent engine fixtures. Keep this long-lived
     // engine on the heap so nested response probes fit Windows' 1 MB stack.

@@ -137,6 +137,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.sauce = parameters.getRawParameterValue("sauce")->load(std::memory_order_relaxed) * 0.01;
     p.width = parameters.getRawParameterValue("width")->load(std::memory_order_relaxed) * 0.01;
     p.enhancedSauce = usesEnhancedSauce();
+    p.depthWidth = usesDepthWidth();
     p.transients = parameters.getRawParameterValue("transients")->load(std::memory_order_relaxed) * 0.01;
     p.outputDb = parameters.getRawParameterValue("output")->load(std::memory_order_relaxed);
     p.clipper = parameters.getRawParameterValue("clipper")->load(std::memory_order_relaxed)*0.01;
@@ -313,7 +314,8 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",10,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",11,nullptr);
+    snapshot.setProperty("skellMasterDepthWidth",usesDepthWidth() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterEnhancedSauce",usesEnhancedSauce() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterReferenceCalibration",usesReferenceCalibration() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterFactoryPreset",getFactoryPresetId(),nullptr);
@@ -333,6 +335,8 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         // Retain their old sound, even when CLIP automation is nonzero.
         const int previousVersion=static_cast<int>(
             snapshot.getProperty("skellMasterStateVersion",1));
+        setDepthWidthEnabled(previousVersion>=11 && snapshot.getProperty("skellMasterDepthWidth",0).toString()=="1");
+        snapshot.setProperty("skellMasterDepthWidth",usesDepthWidth() ? 1 : 0,nullptr);
         setEnhancedSauceEnabled(previousVersion>=10 && snapshot.getProperty("skellMasterEnhancedSauce",0).toString()=="1");
         snapshot.setProperty("skellMasterEnhancedSauce",usesEnhancedSauce() ? 1 : 0,nullptr);
         const bool calibrated=previousVersion>=9
@@ -448,7 +452,7 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             widthState.setProperty("value",100.0f,nullptr);
             snapshot.appendChild(widthState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",10,nullptr);
+        snapshot.setProperty("skellMasterStateVersion",11,nullptr);
         parameters.replaceState(snapshot);
     }
 }

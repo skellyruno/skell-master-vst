@@ -1,6 +1,7 @@
 #pragma once
 
 #include "FiveBandColorPrototype.h"
+#include "DepthWidth.h"
 
 // SKELLY MASTER | portable DSP core (C++17, no GUI or host dependencies).
 // State is allocated during prepare(); processFrame() performs no allocation.
@@ -338,6 +339,7 @@ struct MasterParameters {
     double sauce = 0.0;     // 0..1
     double width = 1.0;     // 0..1.6; 1 is exact neutral
     bool enhancedSauce = false; // opt-in; old saved states remain exact
+    bool depthWidth = false; // V11 creative width, V10 states retain previous widening
     double transients = 0.0;// 0..1
     double outputDb = 0.0;
     double clipper = 0.0;  // existing 0..1 CLIP automation ID, unchanged
@@ -728,14 +730,16 @@ class StereoImager {
 public:
     void prepare(double sampleRate) noexcept {
         sideBass.prepare(sampleRate, 220.0);
+        depth.prepare(sampleRate);
         energyCoefficient = std::exp(-1.0 / (std::max(8000.0, sampleRate) * 0.055));
         reset();
     }
     void reset() noexcept {
         sideBass.reset();
+        depth.reset();
         midPower = sidePower = 0.0;
     }
-    void process(double& l, double& r, double amount, double widthOffset = 0.0) noexcept {
+    void process(double& l, double& r, double amount, double widthOffset = 0.0, double depthBlend = 0.0) noexcept {
         const double mid = 0.5 * (l + r);
         const double side = 0.5 * (l - r);
         const double bassSide = sideBass.low(side);
@@ -743,7 +747,10 @@ public:
         sidePower = energyCoefficient * sidePower + (1.0 - energyCoefficient) * side * side;
         if (midPower < 1.0e-36) midPower = 0.0;
         if (sidePower < 1.0e-36) sidePower = 0.0;
-        if (amount < 1.0e-6 && std::abs(widthOffset) < 1.0e-6) return;
+        if (amount < 1.0e-6 && std::abs(widthOffset) < 1.0e-6) {
+            if(depthBlend>1.e-6) depth.process(mid,side,0.,0.);
+            return;
+        }
 
         const double correlation = (midPower - sidePower) / (midPower + sidePower + 1.0e-12);
         const double protection = detail::clamp((correlation + 0.15) / 0.60, 0.0, 1.0);
@@ -751,14 +758,21 @@ public:
         double adjustedSide = side + (side - bassSide) * width;
         // Width is independent of the old Sauce imaging. Narrowing does not
         // depend on correlation; widening protects bass and anti-phase audio.
+        // Track the new stage at neutral too, so automation starts from warm filters.
+        const double expanded=depthBlend>1.e-6
+            ? depth.process(mid,adjustedSide,widthOffset,protection) : adjustedSide;
         if (widthOffset < -1.0e-6) adjustedSide *= 1.0 + detail::clamp(widthOffset,-1.0,0.0);
-        else if (widthOffset > 1.0e-6)
-            adjustedSide += (adjustedSide-bassSide)*detail::clamp(widthOffset,0.0,0.6)*protection;
+        else if (widthOffset > 1.0e-6) {
+            const double previous=adjustedSide+(adjustedSide-bassSide)*detail::clamp(widthOffset,0.0,0.6)*protection;
+            adjustedSide=depthBlend>1.e-6
+                ? previous+depthBlend*(expanded-previous) : previous;
+        }
         l = mid + adjustedSide;
         r = mid - adjustedSide;
     }
 private:
     detail::OnePole sideBass;
+    DepthWidth depth;
     double energyCoefficient = 0.0;
     double midPower = 0.0, sidePower = 0.0;
 };
@@ -778,6 +792,7 @@ public:
         sauceAmt.prepare(rate, 30, 0); transientsAmt.prepare(rate, 30, 0);
         widthOffset.prepare(rate, 35, 0);
         sauceEnhanceMix.prepare(rate, 35, 0);
+        depthWidthMix.prepare(rate, 35, 0);
         output.prepare(rate, 15, 1); ceiling.prepare(rate, 15, detail::dbToLinear(-1));
         clipperMix.prepare(rate, 18, 0);
         referenceClipDrive.prepare(rate, 18, 0);
@@ -857,6 +872,7 @@ public:
         stereoImager.reset();
         widthOffset.snap(0.0);
         sauceEnhanceMix.snap(0.0);
+        depthWidthMix.snap(0.0);
         fiveBandColor.reset();
         deuceMatchMakeup.snap(1.0);
         chainL2InputMakeup.snap(1.0);
@@ -898,6 +914,7 @@ public:
         sauceAmt.setTarget(safe(p.sauce, 0, 1));
         widthOffset.setTarget(std::isfinite(p.width) ? safe(p.width-1.0,-1.0,0.6) : 0.0);
         sauceEnhanceMix.setTarget(p.enhancedSauce ? 1.0 : 0.0);
+        depthWidthMix.setTarget(p.depthWidth ? 1.0 : 0.0);
         transientsAmt.setTarget(safe(p.transients, 0, 1));
         output.setTarget(detail::dbToLinear(safe(p.outputDb, -18, 12)));
         // Switch clip topology with two smoothly crossfading controls.
@@ -952,6 +969,7 @@ public:
         const double s = sauceAmt.next(), tr = transientsAmt.next();
         const double widthChange=widthOffset.next();
         const double sauceMix=sauceEnhanceMix.next();
+        const double depthMix=depthWidthMix.next();
         const double outGain = output.next();
         const double absoluteCeiling = ceiling.next();
         const double clipAmount = clipperMix.next();
@@ -1033,7 +1051,7 @@ public:
             r += color*sheen(hR);
         }
         if (channels == 2)
-            stereoImager.process(l, r, s-sauceMix*std::max(0.0,s-0.20), widthChange);
+            stereoImager.process(l, r, s-sauceMix*std::max(0.0,s-0.20), widthChange, depthMix);
 
         // Deuce Match's five-band coloration approximates the reference's
         // pre-L2 color stage. Keep it INSIDE the 4x engine so the following
@@ -1284,7 +1302,7 @@ private:
     int channels = 2, lookahead = 288, writeIndex = 0, eqCounter = 0;
     std::array<std::vector<double>, 2> programDelay, dryDelay;
     detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, referenceClipDrive, bypassMix, deuceMatchMakeup, chainL2InputMakeup;
-    detail::Smoother widthOffset, sauceEnhanceMix;
+    detail::Smoother widthOffset, sauceEnhanceMix, depthWidthMix;
     std::array<double,1025> referenceClipGainTable {};
     std::array<double,1025> referenceClipThresholdTable {};
     std::array<detail::Biquad, 2> lowShelf, highShelf;

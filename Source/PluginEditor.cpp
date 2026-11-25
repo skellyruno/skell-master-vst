@@ -606,7 +606,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "CLIP DRIVE");
          s.setTooltip(i==9
             ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Deuce Match uses the 257-tap reconstruction guard with a 0.5/0.45/0.4 dB margin at 44.1/48/96 kHz and 32-sample lookahead; legacy factories retain sample-peak limiting. Drag, type, or double-click to reset."
-            : i==3 ? "WIDTH: 0% mono, 100% unchanged, up to 160% bass-protected stereo widening. Does not synthesize stereo from mono."
+            : i==3 ? "WIDTH: 0% mono, 100% unchanged, up to 160% adaptive multiband stereo depth in new sessions. Preserves center and protects bass; no synthesized stereo."
             : i==6 ? "SAUCE: gentle analog color at factory settings; enhanced harmonic sheen above 20% in new sessions. Older projects retain their original response."
             : i==10 ? "CLIP: 35% matches the supplied Soft Clip Pro 11% saturator/-1.2dB clip reference. Clipper sits BEFORE the limiter in new sessions. 4x active oversampling (original StandardCLIP used 8x); stronger settings add saturation and a lower knee. Older states retain their original path."
             : juce::String(labels[i]) + " - " + sub +
@@ -754,6 +754,7 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     processor.setRefinedControlCurvesEnabled(true);
     processor.setReferenceCalibrationEnabled(true);
     processor.setEnhancedSauceEnabled(true);
+    processor.setDepthWidthEnabled(true);
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     processor.setFactoryPresetId(0);
     displayedFactory=0;
@@ -785,6 +786,7 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     if(presetId<1 || presetId>9) return;
     if(presetId==5) processor.setReferenceCalibrationEnabled(true);
     processor.setEnhancedSauceEnabled(true);
+    processor.setDepthWidthEnabled(true);
     if(presetId>=6) {
         // Fresh opt-in factory sounds use the 4x clip-before-L2 topology.
         // Never rewrite an older saved project merely by loading it.

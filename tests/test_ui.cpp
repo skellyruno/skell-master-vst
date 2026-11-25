@@ -213,6 +213,24 @@ int main() {
         auto* widthParam=processor.parameters.getParameter("width");
         check(widthParam && std::abs(widthParam->convertFrom0to1(widthParam->getDefaultValue())-100.0f)<0.0001f,
               "new Width parameter must be neutral at 100 percent");
+        check(processor.usesDepthWidth(),"fresh instances opt into V11 depth");
+        {
+            auto old=processor.parameters.copyState();
+            old.setProperty("skellMasterStateVersion",10,nullptr);
+            old.setProperty("skellMasterDepthWidth",1,nullptr);
+            for(int i=0;i<old.getNumChildren();++i) {
+                auto child=old.getChild(i);
+                if(child.getProperty("id").toString()=="width") child.setProperty("value",145.f,nullptr);
+            }
+            auto xml=old.createXml(); juce::MemoryBlock blob;
+            juce::AudioProcessor::copyXmlToBinary(*xml,blob);
+            SkellyMasterAudioProcessor legacy; legacy.setStateInformation(blob.getData(),static_cast<int>(blob.getSize()));
+            check(!legacy.usesDepthWidth(),"V10 state must retain its old Width law");
+            check(std::abs(legacy.parameters.getRawParameterValue("width")->load()-145.f)<.01f,"V10 Width value survives migration");
+            juce::MemoryBlock saved; legacy.getStateInformation(saved);
+            SkellyMasterAudioProcessor roundtrip; roundtrip.setStateInformation(saved.getData(),static_cast<int>(saved.getSize()));
+            check(!roundtrip.usesDepthWidth(),"V10 Width law survives V11 resave");
+        }
         check(std::abs(skelly::detail::ceilingOffsetToDb(0.0)+1.0)<1e-9,
               "zero ceiling adjustment must preserve the -1 dBTP target before safety margin");
         juce::Button* skinButton=nullptr;
