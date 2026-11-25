@@ -770,6 +770,26 @@ int main() {
     }
     std::cout<<"PASS: V12 stereo separation neutral, mono, anti-phase, mid and band response\n";
 
+    // V13 color prototype: test the exact class at six processing rates.
+    for(double rate:{44100.,48000.,96000.,176400.,192000.,384000.}) {
+        AnalogSauce z,m,s; z.prepare(rate); m.prepare(rate); s.prepare(rate);
+        double mx=0.,avg=0.,pow=0.;
+        for(int n=0;n<int(rate);++n) {
+            double l=.4*std::sin(2*detail::pi*997*n/rate),r=.25*std::cos(2*detail::pi*1301*n/rate);
+            const double L=l,R=r;
+            z.process(l,r,0.); require(l==L && r==R,"Analog Sauce zero exact");
+            r=l; m.process(l,r,1.); require(l==r && std::isfinite(l),"Analog Sauce mono preserved");
+            l=L; r=R; s.process(l,r,1.);
+            require(std::isfinite(l) && std::isfinite(r),"Analog Sauce finite");
+            if(n>rate*.5) {mx=std::max(mx,std::abs(l-L));avg+=l;pow+=l*l;}
+        }
+        require(mx>.005 && mx<.15,"Analog Sauce audible residual bounded");
+        require(std::abs(avg/(rate*.5))<.002 && pow>0.,"Analog Sauce DC bounded");
+        m.reset(); double l=0,r=0; m.process(l,r,1.);
+        require(l==0 && r==0,"Analog Sauce reset silence");
+    }
+    std::cout<<"PASS: V13 analog color zero, mono, finite, bounded residual/DC at six rates\n";
+
     // main retains many independent engine fixtures. Keep this long-lived
     // engine on the heap so nested response probes fit Windows' 1 MB stack.
     auto dspStorage=std::make_unique<MasteringEngine>();

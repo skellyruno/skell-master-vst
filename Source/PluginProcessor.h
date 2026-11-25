@@ -73,6 +73,8 @@ public:
 
     bool usesDepthWidth() const noexcept { return depthWidthEnabled.load(std::memory_order_relaxed); }
     void setDepthWidthEnabled(bool value) noexcept { depthWidthEnabled.store(value,std::memory_order_relaxed); }
+    bool usesAnalogSauce() const noexcept { return analogSauceEnabled.load(std::memory_order_relaxed); }
+    void setAnalogSauceEnabled(bool value) noexcept { analogSauceEnabled.store(value,std::memory_order_relaxed); }
     bool usesEnhancedSauce() const noexcept { return enhancedSauceEnabled.load(std::memory_order_relaxed); }
     void setEnhancedSauceEnabled(bool value) noexcept { enhancedSauceEnabled.store(value,std::memory_order_relaxed); }
 
@@ -110,6 +112,7 @@ private:
     std::atomic<bool> refinedControlCurvesEnabled { true };
     std::atomic<bool> referenceCalibrationEnabled { true };
     std::atomic<bool> enhancedSauceEnabled { true };
+    std::atomic<bool> analogSauceEnabled { true };
     std::atomic<bool> depthWidthEnabled { true };
     int referenceClipGuardHold = 0;
     int activeChannels = 2;

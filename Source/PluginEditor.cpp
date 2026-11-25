@@ -607,7 +607,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
          s.setTooltip(i==9
             ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Deuce Match uses the 257-tap reconstruction guard with a 0.5/0.45/0.4 dB margin at 44.1/48/96 kHz and 32-sample lookahead; legacy factories retain sample-peak limiting. Drag, type, or double-click to reset."
             : i==3 ? "WIDTH: 0% unchanged; 100% full adaptive multiband stereo separation. Center, bass and anti-phase protection. Legacy Width automation remains separate."
-            : i==6 ? "SAUCE: gentle analog color at factory settings; enhanced harmonic sheen above 20% in new sessions. Older projects retain their original response."
+            : i==6 ? "SAUCE: factory tone unchanged through 20%; higher amounts add 4x parallel even/odd harmonic color and dynamic headroom protection in new sessions. Older projects retain their original response."
             : i==10 ? "CLIP: 35% matches the supplied Soft Clip Pro 11% saturator/-1.2dB clip reference. Clipper sits BEFORE the limiter in new sessions. 4x active oversampling (original StandardCLIP used 8x); stronger settings add saturation and a lower knee. Older states retain their original path."
             : juce::String(labels[i]) + " - " + sub +
               " | drag to adjust, double-click to reset, right-click for menu");
@@ -754,6 +754,7 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     processor.setRefinedControlCurvesEnabled(true);
     processor.setReferenceCalibrationEnabled(true);
     processor.setEnhancedSauceEnabled(true);
+    processor.setAnalogSauceEnabled(true);
     processor.setDepthWidthEnabled(true);
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     processor.setFactoryPresetId(0);
@@ -786,6 +787,7 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     if(presetId<1 || presetId>9) return;
     if(presetId==5) processor.setReferenceCalibrationEnabled(true);
     processor.setEnhancedSauceEnabled(true);
+    processor.setAnalogSauceEnabled(true);
     processor.setDepthWidthEnabled(true);
     if(presetId>=6) {
         // Fresh opt-in factory sounds use the 4x clip-before-L2 topology.

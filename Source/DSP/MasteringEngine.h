@@ -3,6 +3,7 @@
 #include "FiveBandColorPrototype.h"
 #include "DepthWidth.h"
 #include "SpatialSeparation.h"
+#include "AnalogSauce.h"
 
 // SKELLY MASTER | portable DSP core (C++17, no GUI or host dependencies).
 // State is allocated during prepare(); processFrame() performs no allocation.
@@ -341,6 +342,7 @@ struct MasterParameters {
     double width = 1.0;     // Legacy V10/V11: 0..1.6, 1 neutral
     double spatialWidth = 0.0; // V12: 0..1 creative stereo separation
     bool enhancedSauce = false; // opt-in; old saved states remain exact
+    bool analogSauce = false; // V13 parallel coloration above 20% only
     bool depthWidth = false; // V11 creative width, V10 states retain previous widening
     double transients = 0.0;// 0..1
     double outputDb = 0.0;
@@ -796,6 +798,8 @@ public:
         spatialAmount.prepare(rate, 45, 0);
         spatialSeparation.prepare(rate);
         sauceEnhanceMix.prepare(rate, 35, 0);
+        analogSauceMix.prepare(rate, 45, 0);
+        analogColor.prepare(rate);
         depthWidthMix.prepare(rate, 35, 0);
         output.prepare(rate, 15, 1); ceiling.prepare(rate, 15, detail::dbToLinear(-1));
         clipperMix.prepare(rate, 18, 0);
@@ -879,6 +883,9 @@ public:
         spatialSeparation.reset();
         spatialWasActive=false;
         sauceEnhanceMix.snap(0.0);
+        analogSauceMix.snap(0.0);
+        analogColor.reset();
+        analogWasActive=false;
         depthWidthMix.snap(0.0);
         fiveBandColor.reset();
         deuceMatchMakeup.snap(1.0);
@@ -922,6 +929,7 @@ public:
         widthOffset.setTarget(std::isfinite(p.width) ? safe(p.width-1.0,-1.0,0.6) : 0.0);
         spatialAmount.setTarget(safe(p.spatialWidth,0.0,1.0));
         sauceEnhanceMix.setTarget(p.enhancedSauce ? 1.0 : 0.0);
+        analogSauceMix.setTarget(p.analogSauce ? 1.0 : 0.0);
         depthWidthMix.setTarget(p.depthWidth ? 1.0 : 0.0);
         transientsAmt.setTarget(safe(p.transients, 0, 1));
         output.setTarget(detail::dbToLinear(safe(p.outputDb, -18, 12)));
@@ -978,6 +986,7 @@ public:
         const double widthChange=widthOffset.next();
         const double spatialChange=spatialAmount.next();
         const double sauceMix=sauceEnhanceMix.next();
+        const double analogMix=analogSauceMix.next();
         const double depthMix=depthWidthMix.next();
         const double outGain = output.next();
         const double absoluteCeiling = ceiling.next();
@@ -1058,6 +1067,16 @@ public:
             };
             l += color*sheen(hL);
             r += color*sheen(hR);
+        }
+        // Color the signal in parallel, before clip/limiting. Keep factory
+        // <=20% and all older sessions on their exact previous signal path.
+        const double analogAmount=color*analogMix;
+        if(analogAmount>1.e-8) {
+            analogColor.process(l,r,analogAmount);
+            analogWasActive=true;
+        } else if(analogWasActive) {
+            analogColor.reset();
+            analogWasActive=false;
         }
         if (channels == 2)
             stereoImager.process(l, r, s-sauceMix*std::max(0.0,s-0.20), widthChange, depthMix);
@@ -1320,7 +1339,9 @@ private:
     int channels = 2, lookahead = 288, writeIndex = 0, eqCounter = 0;
     std::array<std::vector<double>, 2> programDelay, dryDelay;
     detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, referenceClipDrive, bypassMix, deuceMatchMakeup, chainL2InputMakeup;
-    detail::Smoother widthOffset, sauceEnhanceMix, depthWidthMix, spatialAmount;
+    detail::Smoother widthOffset, sauceEnhanceMix, depthWidthMix, spatialAmount, analogSauceMix;
+    AnalogSauce analogColor;
+    bool analogWasActive=false;
     SpatialSeparation spatialSeparation;
     bool spatialWasActive=false;
     std::array<double,1025> referenceClipGainTable {};

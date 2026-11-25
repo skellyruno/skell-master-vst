@@ -214,6 +214,7 @@ int main() {
         check(widthParam && std::abs(widthParam->convertFrom0to1(widthParam->getDefaultValue())-100.0f)<0.0001f,
               "new Width parameter must be neutral at 100 percent");
         check(processor.usesDepthWidth(),"fresh instances retain legacy depth mode");
+        check(processor.usesAnalogSauce(),"fresh instances use V13 analog Sauce");
         auto* spatialParam=processor.parameters.getParameter("spatialWidth");
         check(spatialParam && std::abs(spatialParam->convertFrom0to1(spatialParam->getDefaultValue()))<.0001f,"V12 spatial Width defaults to zero");
         {
@@ -228,11 +229,13 @@ int main() {
             juce::AudioProcessor::copyXmlToBinary(*xml,blob);
             SkellyMasterAudioProcessor legacy; legacy.setStateInformation(blob.getData(),static_cast<int>(blob.getSize()));
             check(!legacy.usesDepthWidth(),"V10 state must retain its old Width law");
+            check(!legacy.usesAnalogSauce(),"old state must retain original Sauce");
             check(legacy.parameters.getRawParameterValue("spatialWidth")->load()==0.f,"old states must not activate spatial Width");
             check(std::abs(legacy.parameters.getRawParameterValue("width")->load()-145.f)<.01f,"V10 Width value survives migration");
             juce::MemoryBlock saved; legacy.getStateInformation(saved);
             SkellyMasterAudioProcessor roundtrip; roundtrip.setStateInformation(saved.getData(),static_cast<int>(saved.getSize()));
-            check(!roundtrip.usesDepthWidth(),"V10 Width law survives V11 resave");
+            check(!roundtrip.usesDepthWidth(),"V10 Width law survives V13 resave");
+            check(!roundtrip.usesAnalogSauce(),"legacy Sauce survives V13 resave");
         }
         check(std::abs(skelly::detail::ceilingOffsetToDb(0.0)+1.0)<1e-9,
               "zero ceiling adjustment must preserve the -1 dBTP target before safety margin");
