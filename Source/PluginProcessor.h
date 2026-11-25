@@ -71,6 +71,9 @@ public:
         referenceCalibrationEnabled.store(enabled,std::memory_order_relaxed);
     }
 
+    bool usesEnhancedSauce() const noexcept { return enhancedSauceEnabled.load(std::memory_order_relaxed); }
+    void setEnhancedSauceEnabled(bool value) noexcept { enhancedSauceEnabled.store(value,std::memory_order_relaxed); }
+
     // Lock-free peak accumulation. GUI calls exchange(0) once per frame.
     float consumePeakLeft() noexcept { return peakLeft.exchange(0.0f, std::memory_order_relaxed); }
     float consumePeakRight() noexcept { return peakRight.exchange(0.0f, std::memory_order_relaxed); }
@@ -104,6 +107,7 @@ private:
     // the original, exact unmodified GLUE / DYNAMICS response.
     std::atomic<bool> refinedControlCurvesEnabled { true };
     std::atomic<bool> referenceCalibrationEnabled { true };
+    std::atomic<bool> enhancedSauceEnabled { true };
     int referenceClipGuardHold = 0;
     int activeChannels = 2;
     int lookaheadSamples = 0;

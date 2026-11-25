@@ -34,6 +34,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SkellyMasterAudioProcessor::
     // Appended so all pre-existing host parameter IDs and order remain stable.
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"deuceMatch", 1}, "Deuce Match", false));
+    // Append only: the hidden Dynamics ID and every original host index survive.
+    add("width", "Width", 0.0f, 160.0f, 1.0f, 100.0f, "%");
     return layout;
 }
 
@@ -133,6 +135,8 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.lowsDb = parameters.getRawParameterValue("lows")->load(std::memory_order_relaxed);
     p.highsDb = parameters.getRawParameterValue("highs")->load(std::memory_order_relaxed);
     p.sauce = parameters.getRawParameterValue("sauce")->load(std::memory_order_relaxed) * 0.01;
+    p.width = parameters.getRawParameterValue("width")->load(std::memory_order_relaxed) * 0.01;
+    p.enhancedSauce = usesEnhancedSauce();
     p.transients = parameters.getRawParameterValue("transients")->load(std::memory_order_relaxed) * 0.01;
     p.outputDb = parameters.getRawParameterValue("output")->load(std::memory_order_relaxed);
     p.clipper = parameters.getRawParameterValue("clipper")->load(std::memory_order_relaxed)*0.01;
@@ -161,6 +165,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         && !p.deuceMatch && atZero(p.inputDb) && atZero(p.drive)
         && atZero(p.glue) && atZero(p.dynamics) && atZero(p.lowsDb)
         && atZero(p.highsDb) && atZero(p.sauce) && atZero(p.transients)
+        && atZero(p.width-1.0)
         && atZero(p.outputDb) && atZero(p.clipper)
         && atZero(parameters.getRawParameterValue("ceiling")
                       ->load(std::memory_order_relaxed));
@@ -308,7 +313,8 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",9,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",10,nullptr);
+    snapshot.setProperty("skellMasterEnhancedSauce",usesEnhancedSauce() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterReferenceCalibration",usesReferenceCalibration() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterFactoryPreset",getFactoryPresetId(),nullptr);
     snapshot.setProperty("skellMasterClipAlgorithm",usesReferenceClip() ? 1 : 0,nullptr);
@@ -327,6 +333,8 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         // Retain their old sound, even when CLIP automation is nonzero.
         const int previousVersion=static_cast<int>(
             snapshot.getProperty("skellMasterStateVersion",1));
+        setEnhancedSauceEnabled(previousVersion>=10 && snapshot.getProperty("skellMasterEnhancedSauce",0).toString()=="1");
+        snapshot.setProperty("skellMasterEnhancedSauce",usesEnhancedSauce() ? 1 : 0,nullptr);
         const bool calibrated=previousVersion>=9
             && snapshot.getProperty("skellMasterReferenceCalibration",0).toString()=="1";
         setReferenceCalibrationEnabled(calibrated);
@@ -424,7 +432,23 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             deuceMatchState.setProperty("value",0.0f,nullptr);
             snapshot.appendChild(deuceMatchState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",9,nullptr);
+        // Old projects have no Width. Explicitly restore neutral even if
+        // a previous session automated the new control.
+        bool hasWidth=false;
+        for(int i=0;i<snapshot.getNumChildren();++i) {
+            auto child=snapshot.getChild(i);
+            if(child.getProperty("id").toString()=="width") {
+                hasWidth=true;
+                if(previousVersion<10) child.setProperty("value",100.0f,nullptr);
+            }
+        }
+        if(!hasWidth && snapshot.getNumChildren()>0) {
+            juce::ValueTree widthState(snapshot.getChild(0).getType());
+            widthState.setProperty("id","width",nullptr);
+            widthState.setProperty("value",100.0f,nullptr);
+            snapshot.appendChild(widthState,nullptr);
+        }
+        snapshot.setProperty("skellMasterStateVersion",10,nullptr);
         parameters.replaceState(snapshot);
     }
 }

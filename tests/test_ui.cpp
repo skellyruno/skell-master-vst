@@ -210,6 +210,9 @@ int main() {
             check(std::abs(param->convertFrom0to1(param->getDefaultValue()))<0.0001f,
                   "mastering control default must be zero");
         }
+        auto* widthParam=processor.parameters.getParameter("width");
+        check(widthParam && std::abs(widthParam->convertFrom0to1(widthParam->getDefaultValue())-100.0f)<0.0001f,
+              "new Width parameter must be neutral at 100 percent");
         check(std::abs(skelly::detail::ceilingOffsetToDb(0.0)+1.0)<1e-9,
               "zero ceiling adjustment must preserve the -1 dBTP target before safety margin");
         juce::Button* skinButton=nullptr;

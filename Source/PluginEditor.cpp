@@ -75,7 +75,7 @@ void themeInset(juce::Graphics& g,juce::Rectangle<float> r,
 // and all persisted host/automation identities remain frozen.
 constexpr const char* defaultPresetName="DEFAULT";
 constexpr const char* labels[11] = {
-    "INPUT", "DRIVE", "GLUE", "DYNAMICS", "LOWS", "HIGHS",
+    "INPUT", "DRIVE", "GLUE", "WIDTH", "LOWS", "HIGHS",
     "SAUCE", "TRANSIENTS", "OUTPUT", "CEILING", "CLIP"
 };
 constexpr const char* ids[11] = {
@@ -83,6 +83,8 @@ constexpr const char* ids[11] = {
     "sauce", "transients", "output", "ceiling", "clipper"
 };
 // Frozen published factory values (in the existing APVTS ID order).
+constexpr const char* panelId(int i) noexcept { return i==3 ? "width" : ids[i]; }
+constexpr float panelValue(int i,float original) noexcept { return i==3 ? 100.0f : original; }
 constexpr float factoryValues[9][11] = {
     // PUBLISHED: frozen forever; existing projects and automation unchanged.
     {0,0,0,0,0,0,0,0,0,0,0},
@@ -105,7 +107,7 @@ constexpr int menuForFactory(int factory) noexcept {
     return factory>=1 && factory<=5 ? factory : 0;
 }
 constexpr const char* subtitles[8] = {
-    "GAIN STAGE", "HARMONIC DRIVE", "BUS COMPRESSION", "LEVEL CONTROL",
+    "GAIN STAGE", "HARMONIC DRIVE", "BUS COMPRESSION", "STEREO FIELD",
     "115 Hz SHELF", "8.2 kHz SHELF", "ANALOG ENHANCE", "ATTACK SHAPE"
 };
 
@@ -597,20 +599,22 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         s.setRotaryParameters(pi * 1.25f, pi * 2.75f, true);
         s.setMouseDragSensitivity(190);
         s.setVelocityBasedMode(false);
-        s.setDoubleClickReturnValue(true, 0.0);
+        s.setDoubleClickReturnValue(true, i==3 ? 100.0 : 0.0);
         s.setNumDecimalPlacesToDisplay(0);
         const bool db = i == 0 || i == 4 || i == 5 || i == 8 || i == 9;
         s.setTextValueSuffix(i==9 ? "" : db ? " dB" : " %");
         const juce::String sub = i < 8 ? subtitles[i] : (i == 8 ? "OUTPUT TRIM" : i == 9 ? "PEAK CEILING" : "CLIP DRIVE");
          s.setTooltip(i==9
             ? "TRUE-PEAK CEILING: 0 = -1.0 dBTP target; -3 = -3 dBTP, +3 = -0.1 dBTP. Deuce Match uses the 257-tap reconstruction guard with a 0.5/0.45/0.4 dB margin at 44.1/48/96 kHz and 32-sample lookahead; legacy factories retain sample-peak limiting. Drag, type, or double-click to reset."
+            : i==3 ? "WIDTH: 0% mono, 100% unchanged, up to 160% bass-protected stereo widening. Does not synthesize stereo from mono."
+            : i==6 ? "SAUCE: gentle analog color at factory settings; enhanced harmonic sheen above 20% in new sessions. Older projects retain their original response."
             : i==10 ? "CLIP: 35% matches the supplied Soft Clip Pro 11% saturator/-1.2dB clip reference. Clipper sits BEFORE the limiter in new sessions. 4x active oversampling (original StandardCLIP used 8x); stronger settings add saturation and a lower knee. Older states retain their original path."
             : juce::String(labels[i]) + " - " + sub +
               " | drag to adjust, double-click to reset, right-click for menu");
         addAndMakeVisible(s);
         attachments[static_cast<size_t>(i)] =
             std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-                processor.parameters, ids[i], s);
+                processor.parameters, panelId(i), s);
         // Explicit user knob/text changes must mark the selected factory
         // as modified *immediately*. The APVTS SliderAttachment callback
         // may still be queued when this message-thread hook fires; the
@@ -619,8 +623,8 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
         s.onValueChange=[this,i] {
             refreshPresetDisplay();
             const int factory=processor.getFactoryPresetId();
-            const float expected=factory>=1 && factory<=9
-                ? factoryValues[factory-1][i] : 0.0f;
+            const float expected=panelValue(i,factory>=1 && factory<=9
+                ? factoryValues[factory-1][i] : 0.0f);
             // APVTS attachments may synchronously initialize slider ranges
             // before the editor's neutral state has settled. A neutral ID0
             // does not represent an edited factory; the 30Hz timer handles
@@ -749,6 +753,7 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     processor.setChainOrderedClipEnabled(true);
     processor.setRefinedControlCurvesEnabled(true);
     processor.setReferenceCalibrationEnabled(true);
+    processor.setEnhancedSauceEnabled(true);
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     processor.setFactoryPresetId(0);
     displayedFactory=0;
@@ -758,6 +763,11 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
             param->setValueNotifyingHost(param->getDefaultValue());
             param->endChangeGesture();
         }
+    if (auto* param = processor.parameters.getParameter("width")) {
+        param->beginChangeGesture();
+        param->setValueNotifyingHost(param->getDefaultValue());
+        param->endChangeGesture();
+    }
     if (auto* param = processor.parameters.getParameter("bypass")) {
         param->beginChangeGesture();
         param->setValueNotifyingHost(param->getDefaultValue());
@@ -774,6 +784,7 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
 void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     if(presetId<1 || presetId>9) return;
     if(presetId==5) processor.setReferenceCalibrationEnabled(true);
+    processor.setEnhancedSauceEnabled(true);
     if(presetId>=6) {
         // Fresh opt-in factory sounds use the 4x clip-before-L2 topology.
         // Never rewrite an older saved project merely by loading it.
@@ -797,6 +808,11 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
             p->endChangeGesture();
         }
     }
+    if(auto* p=processor.parameters.getParameter("width")) {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost(p->getDefaultValue());
+        p->endChangeGesture();
+    }
     if(auto* p=processor.parameters.getParameter("deuceMatch")) {
         p->beginChangeGesture();
         p->setValueNotifyingHost(p->convertTo0to1((presetId==5 || presetId==6) ? 1.0f : 0.0f));
@@ -819,6 +835,8 @@ void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
             break;
         }
     }
+    const auto* width=processor.parameters.getRawParameterValue("width");
+    if(!width || std::abs(width->load(std::memory_order_relaxed)-100.0f)>0.01f) modified=true;
     const auto* deuce=processor.parameters.getRawParameterValue("deuceMatch");
     if(!deuce || (deuce->load(std::memory_order_relaxed)>=0.5f)!=(factory==5 || factory==6))
         modified=true;

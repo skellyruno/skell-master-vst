@@ -670,6 +670,39 @@ int main() {
             "zero-percent sauce is exactly transparent");
     std::cout << "PASS: bass-safe mid-side imaging, anti-phase protection, neutral signal\n";
 
+    // Independent Width: exact neutral, mono downmix and protected widening.
+    {
+        StereoImager image;
+        image.prepare(rate);
+        double l=.2,r=.1;
+        image.process(l,r,0.0,0.0);
+        require(l==.2 && r==.1,"neutral Width must be exact");
+        l=.2; r=.1; image.process(l,r,0.0,-1.0);
+        require(std::abs(l-r)<1.e-12 && std::abs(l-.15)<1.e-12,"Width zero collapses to mono");
+        for(int n=0;n<static_cast<int>(rate*.5);++n) {
+            l=.2; r=.2; image.process(l,r,0.0,.6);
+            require(l==r,"Width never synthesizes stereo from mono");
+        }
+        for(int n=0;n<static_cast<int>(rate*.5);++n) {
+            l=.1; r=-.1; image.process(l,r,0.0,.6);
+        }
+        require(std::abs(l-.1)<1.e-5 && std::abs(r+.1)<1.e-5,"Width protects anti-phase signal");
+        auto widthGain=[rate](double hz) {
+            StereoImager im; im.prepare(rate); double a=0,b=0;
+            for(int n=0;n<static_cast<int>(rate*.5);++n) {
+                const double side=.04*std::sin(2*detail::pi*hz*n/rate);
+                const double mid=.2*std::sin(2*detail::pi*1000*n/rate);
+                double x=mid+side,y=mid-side;
+                im.process(x,y,0,.6);
+                if(n>rate*.25) {a+=side*side; b+=(x-y)*(x-y)*.25;}
+            }
+            return std::sqrt(b/a);
+        };
+        require(widthGain(40)<1.10,"Width protects low bass");
+        require(widthGain(3500)>1.45 && widthGain(3500)<1.65,"Width audibly extends high-band sides");
+        std::cout<<"PASS: Width neutral, mono, bass protection and high-band widening\n";
+    }
+
     // main retains many independent engine fixtures. Keep this long-lived
     // engine on the heap so nested response probes fit Windows' 1 MB stack.
     auto dspStorage=std::make_unique<MasteringEngine>();

@@ -336,6 +336,8 @@ struct MasterParameters {
     double lowsDb = 0.0;    // -6..+6
     double highsDb = 0.0;   // -6..+6
     double sauce = 0.0;     // 0..1
+    double width = 1.0;     // 0..1.6; 1 is exact neutral
+    bool enhancedSauce = false; // opt-in; old saved states remain exact
     double transients = 0.0;// 0..1
     double outputDb = 0.0;
     double clipper = 0.0;  // existing 0..1 CLIP automation ID, unchanged
@@ -733,7 +735,7 @@ public:
         sideBass.reset();
         midPower = sidePower = 0.0;
     }
-    void process(double& l, double& r, double amount) noexcept {
+    void process(double& l, double& r, double amount, double widthOffset = 0.0) noexcept {
         const double mid = 0.5 * (l + r);
         const double side = 0.5 * (l - r);
         const double bassSide = sideBass.low(side);
@@ -741,12 +743,17 @@ public:
         sidePower = energyCoefficient * sidePower + (1.0 - energyCoefficient) * side * side;
         if (midPower < 1.0e-36) midPower = 0.0;
         if (sidePower < 1.0e-36) sidePower = 0.0;
-        if (amount < 1.0e-6) return;
+        if (amount < 1.0e-6 && std::abs(widthOffset) < 1.0e-6) return;
 
         const double correlation = (midPower - sidePower) / (midPower + sidePower + 1.0e-12);
         const double protection = detail::clamp((correlation + 0.15) / 0.60, 0.0, 1.0);
         const double width = 0.18 * detail::clamp(amount, 0.0, 1.0) * protection;
-        const double adjustedSide = side + (side - bassSide) * width;
+        double adjustedSide = side + (side - bassSide) * width;
+        // Width is independent of the old Sauce imaging. Narrowing does not
+        // depend on correlation; widening protects bass and anti-phase audio.
+        if (widthOffset < -1.0e-6) adjustedSide *= 1.0 + detail::clamp(widthOffset,-1.0,0.0);
+        else if (widthOffset > 1.0e-6)
+            adjustedSide += (adjustedSide-bassSide)*detail::clamp(widthOffset,0.0,0.6)*protection;
         l = mid + adjustedSide;
         r = mid - adjustedSide;
     }
@@ -769,6 +776,8 @@ public:
         glueAmt.prepare(rate, 30, 0); dynamicsAmt.prepare(rate, 30, 0);
         lows.prepare(rate, 35, 0); highs.prepare(rate, 35, 0);
         sauceAmt.prepare(rate, 30, 0); transientsAmt.prepare(rate, 30, 0);
+        widthOffset.prepare(rate, 35, 0);
+        sauceEnhanceMix.prepare(rate, 35, 0);
         output.prepare(rate, 15, 1); ceiling.prepare(rate, 15, detail::dbToLinear(-1));
         clipperMix.prepare(rate, 18, 0);
         referenceClipDrive.prepare(rate, 18, 0);
@@ -846,6 +855,8 @@ public:
         for (auto& f : highShelf) f.reset();
         for (auto& f : hf) f.reset();
         stereoImager.reset();
+        widthOffset.snap(0.0);
+        sauceEnhanceMix.snap(0.0);
         fiveBandColor.reset();
         deuceMatchMakeup.snap(1.0);
         chainL2InputMakeup.snap(1.0);
@@ -885,6 +896,8 @@ public:
         lows.setTarget(safe(p.lowsDb, -6, 6));
         highs.setTarget(safe(p.highsDb, -6, 6));
         sauceAmt.setTarget(safe(p.sauce, 0, 1));
+        widthOffset.setTarget(std::isfinite(p.width) ? safe(p.width-1.0,-1.0,0.6) : 0.0);
+        sauceEnhanceMix.setTarget(p.enhancedSauce ? 1.0 : 0.0);
         transientsAmt.setTarget(safe(p.transients, 0, 1));
         output.setTarget(detail::dbToLinear(safe(p.outputDb, -18, 12)));
         // Switch clip topology with two smoothly crossfading controls.
@@ -937,6 +950,8 @@ public:
         const double g = glueAmt.next(), dyn = dynamicsAmt.next();
         const double eqLo = lows.next(), eqHi = highs.next();
         const double s = sauceAmt.next(), tr = transientsAmt.next();
+        const double widthChange=widthOffset.next();
+        const double sauceMix=sauceEnhanceMix.next();
         const double outGain = output.next();
         const double absoluteCeiling = ceiling.next();
         const double clipAmount = clipperMix.next();
@@ -1005,8 +1020,20 @@ public:
         }
         // Bass is left essentially unchanged, and highly anti-phase material
         // is not widened further. The imaging filters track even at 0% SAUCE.
+        // Preserve every factory setting (all Sauce values <=20%) and the
+        // legacy curve. Above 20% add smooth, bounded high-band enhancement.
+        // The same band-limited signal feeds a soft rational shaper at 4x.
+        const double extra = detail::clamp((s-0.20)/0.80,0.0,1.0);
+        const double color = sauceMix*extra*extra*(3.0-2.0*extra);
+        if(color>1.e-8) {
+            const auto sheen=[](double h) noexcept {
+                return 0.45*h/(1.0+0.75*std::abs(h));
+            };
+            l += color*sheen(hL);
+            r += color*sheen(hR);
+        }
         if (channels == 2)
-            stereoImager.process(l, r, s);
+            stereoImager.process(l, r, s-sauceMix*std::max(0.0,s-0.20), widthChange);
 
         // Deuce Match's five-band coloration approximates the reference's
         // pre-L2 color stage. Keep it INSIDE the 4x engine so the following
@@ -1257,6 +1284,7 @@ private:
     int channels = 2, lookahead = 288, writeIndex = 0, eqCounter = 0;
     std::array<std::vector<double>, 2> programDelay, dryDelay;
     detail::Smoother input, drive, glueAmt, dynamicsAmt, lows, highs, sauceAmt, transientsAmt, output, ceiling, clipperMix, referenceClipDrive, bypassMix, deuceMatchMakeup, chainL2InputMakeup;
+    detail::Smoother widthOffset, sauceEnhanceMix;
     std::array<double,1025> referenceClipGainTable {};
     std::array<double,1025> referenceClipThresholdTable {};
     std::array<detail::Biquad, 2> lowShelf, highShelf;

@@ -15,9 +15,9 @@ void setValue(SkellyMasterAudioProcessor& p, const char* id, float plainValue) {
         param->setValueNotifyingHost(param->convertTo0to1(plainValue));
 }
 void resetValues(SkellyMasterAudioProcessor& p) {
-    static constexpr std::array<const char*, 12> ids {{
+    static constexpr std::array<const char*, 13> ids {{
        "input", "drive", "glue", "dynamics", "lows", "highs",
-       "sauce", "transients", "output", "ceiling", "clipper", "bypass"
+       "sauce", "transients", "output", "ceiling", "clipper", "bypass", "width"
     }};
     for (const auto* id : ids)
         if (auto* param = p.parameters.getParameter(id))
@@ -30,7 +30,7 @@ void resetValues(SkellyMasterAudioProcessor& p) {
 void synchronizeControls(SkellyMasterAudioProcessorEditor& editor,
                          SkellyMasterAudioProcessor& p) {
     static constexpr std::array<const char*, 11> ids {{
-        "input", "drive", "glue", "dynamics", "lows", "highs",
+        "input", "drive", "glue", "width", "lows", "highs",
         "sauce", "transients", "output", "ceiling", "clipper"
     }};
     int index = 0;
@@ -155,7 +155,7 @@ int main(int argc, char** argv) {
                     setValue(processor, "input", 5.0f);
                     setValue(processor, "drive", 34.0f);
                     setValue(processor, "glue", 53.0f);
-                    setValue(processor, "dynamics", 25.0f);
+                    setValue(processor, "width", 135.0f);
                     setValue(processor, "lows", 2.0f);
                     setValue(processor, "highs", 3.0f);
                     setValue(processor, "sauce", 34.0f);
