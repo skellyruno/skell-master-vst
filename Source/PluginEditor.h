@@ -38,14 +38,17 @@ private:
     void timerCallback() override;
     void paintStatic(juce::Graphics&);
     void drawMeter(juce::Graphics&, juce::Rectangle<float>, float, float,
-                   const juce::String&) const;
-    void drawReduction(juce::Graphics&) const;
+                   const juce::String&, bool staticOnly=false) const;
+    void drawReduction(juce::Graphics&, bool staticOnly=false) const;
     void drawScrew(juce::Graphics&, float, float) const;
     void resetToDefaults();
     void applyFactoryPreset(int presetId);
     void refreshPresetDisplay();
     void refreshQualityDisplay();
     void clearMeterHolds();
+    void showPresetChooser(bool save);
+    void showLoadMenu();
+    void loadPresetFile(const juce::File&);
     void switchSkin();
     static skellcore::ui::SkullSkin loadSkin();
     static void saveSkin(skellcore::ui::SkullSkin selected);
@@ -77,6 +80,8 @@ private:
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, knobCount> attachments;
     juce::TextButton bypass { "BYPASS" }, reset { "RESET" }, qualityButton { "4x" };
     juce::ComboBox presetSelector;
+    juce::TextButton savePresetButton {"SAVE"}, loadPresetButton {"LOAD"};
+    std::unique_ptr<juce::FileChooser> presetChooser;
     int displayedFactory=0;
     std::array<juce::TextButton,3> monitorButtons {juce::TextButton("PEAK"), juce::TextButton("TRUE"), juce::TextButton("CLEAR")};
     bool monitorTruePeak = true;
@@ -87,6 +92,7 @@ private:
     std::array<int, 2> peakHoldTicks {0, 0};
     float displayedReduction = 0.0f;
     float displayedTruePeak = 0.0f;
+    float displayedSamplePeak=0.0f, lastPaintedSamplePeak=0.0f;
     // Compare against the values last submitted for painting, not last timer
     // tick: otherwise tiny continuous decreases may never be drawn.
     std::array<float, 2> lastPaintedMeterValues {0.0f, 0.0f};

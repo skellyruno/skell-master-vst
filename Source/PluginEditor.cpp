@@ -227,9 +227,8 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawLabel(
         const bool unselected=preset->getSelectedId()==0;
         const bool modified=static_cast<bool>(preset->getProperties().getWithDefault(
             "skellMasterPresetModified",false));
-        const juce::String title=unselected
-            ? (modified ? juce::String("CUSTOM") : juce::String(defaultPresetName))
-            : label.getText()+(modified ? juce::String(" *") : juce::String());
+        const auto base=preset->getProperties().getWithDefault("skellMasterPresetTitle",defaultPresetName).toString();
+        const juce::String title=(unselected ? base : label.getText())+(modified ? juce::String(" *") : juce::String());
         g.setFont(getComboBoxFont(*preset));
         g.setColour(unselected
             ? juce::Colour(0xffe3d3ae) : hardwareText(activeSkin));
@@ -631,7 +630,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
             // does not represent an edited factory; the 30Hz timer handles
             // later custom neutral adjustments. Only existing *selected*
             // factories need immediate star feedback from this callback.
-            if(factory>=1 && factory<=6 &&
+            if(processor.getUserPresetName().isEmpty() && factory>=1 && factory<=6 &&
                 std::abs(knobs[static_cast<size_t>(i)].getValue()-expected)>.01) {
                 auto& properties=presetSelector.getProperties();
                 if(!static_cast<bool>(properties.getWithDefault(
@@ -698,6 +697,13 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     };
     addAndMakeVisible(qualityButton);
     refreshQualityDisplay();
+    savePresetButton.setComponentID("skell-master-save-preset");
+    loadPresetButton.setComponentID("skell-master-load-preset");
+    savePresetButton.setTooltip("Save current sound as a named user preset.");
+    loadPresetButton.setTooltip("Choose a saved preset or browse for a preset file.");
+    savePresetButton.onClick=[this]{ showPresetChooser(true); };
+    loadPresetButton.onClick=[this]{ showLoadMenu(); };
+    addAndMakeVisible(savePresetButton); addAndMakeVisible(loadPresetButton);
     for (int i=0;i<presetSelector.getNumChildComponents();++i)
         if (auto* label=dynamic_cast<juce::Label*>(
                 presetSelector.getChildComponent(i)))
@@ -707,8 +713,8 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     monitorButtons[0].setComponentID("skell-monitor-peak");
     monitorButtons[1].setComponentID("skell-monitor-true");
     monitorButtons[2].setComponentID("skell-monitor-clear");
-    monitorButtons[0].setTooltip("PEAK: show stereo sample-peak hold in dBFS.");
-    monitorButtons[1].setTooltip("TRUE: show 4x reconstructed output peaks in dBTP.");
+    monitorButtons[0].setTooltip("PEAK: maximum sample peak since CLEAR, in dBFS. Needles show RMS.");
+    monitorButtons[1].setTooltip("TRUE: maximum reconstructed output peak since CLEAR, in dBTP.");
     monitorButtons[2].setTooltip("CLEAR: reset displayed sample-peak and true-peak holds; audio stays untouched.");
     monitorButtons[0].setClickingTogglesState(true);
     monitorButtons[1].setClickingTogglesState(true);
@@ -731,6 +737,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
 
 SkellyMasterAudioProcessorEditor::~SkellyMasterAudioProcessorEditor() {
     stopTimer();
+    presetChooser.reset();
     for (auto& attachment : attachments) attachment.reset();
     bypassAttachment.reset();
     setLookAndFeel(nullptr);
@@ -778,6 +785,8 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     processor.setEfficientDepthEnabled(true);
     processor.setAdaptiveCompressionEnabled(true);
     processor.setCompressionMakeupEnabled(true);
+    processor.setImmersiveWidthEnabled(true);
+    processor.clearUserPresetIdentity();
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     processor.setFactoryPresetId(0);
     displayedFactory=0;
@@ -814,6 +823,8 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     processor.setEfficientDepthEnabled(true);
     processor.setAdaptiveCompressionEnabled(true);
     processor.setCompressionMakeupEnabled(true);
+    processor.setImmersiveWidthEnabled(true);
+    processor.clearUserPresetIdentity();
     if(presetId>=6) {
         // Fresh opt-in factory sounds use the 4x clip-before-L2 topology.
         // Never rewrite an older saved project merely by loading it.
@@ -876,14 +887,19 @@ void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
         modified=true;
     if(factory>=7 && !processor.usesRefinedControlCurves())
         modified=true;
+    const auto userName=processor.getUserPresetName();
+    if(userName.isNotEmpty()) modified=processor.isUserPresetModified();
+    const auto title=userName.isNotEmpty() ? userName : hasFactory && factory<=5 ? presetSelector.getItemText(factory-1) : juce::String(factory>=6 ? "CUSTOM" : defaultPresetName);
     auto& properties=presetSelector.getProperties();
+    const bool titleChanged=properties.getWithDefault("skellMasterPresetTitle",{}).toString()!=title;
+    if(titleChanged) properties.set("skellMasterPresetTitle",title);
     const bool previous=static_cast<bool>(properties.getWithDefault(
         "skellMasterPresetModified",false));
-    if(previous!=modified) {
+    if(previous!=modified || titleChanged) {
         properties.set("skellMasterPresetModified",modified);
         // Clearing the selection after an edit lets the same factory be chosen
         // again. ComboBox otherwise suppresses onChange for its selected item.
-        presetSelector.setSelectedId(modified ? 0 : menuForFactory(factory),
+        presetSelector.setSelectedId(modified || userName.isNotEmpty() ? 0 : menuForFactory(factory),
                                      juce::dontSendNotification);
         presetSelector.repaint();
         for(int i=0;i<presetSelector.getNumChildComponents();++i)
@@ -896,8 +912,9 @@ void SkellyMasterAudioProcessorEditor::clearMeterHolds() {
     meterValues.fill(0.0f);
     peakHoldValues.fill(0.0f);
     peakHoldTicks.fill(0);
-    displayedTruePeak=0.0f;
-    lastPaintedTruePeak=0.0f;
+    displayedTruePeak=displayedSamplePeak=0.0f;
+    lastPaintedTruePeak=lastPaintedSamplePeak=0.0f;
+    processor.consumeTruePeak(); processor.consumePeakLeft(); processor.consumePeakRight();
     repaint();
 }
 
@@ -905,7 +922,7 @@ void SkellyMasterAudioProcessorEditor::refreshQualityDisplay() {
     const int requested=processor.getRequestedOversampling();
     const int active=processor.getActiveOversampling();
     const bool pending=active!=0 && active!=requested;
-    const auto label=juce::String(requested)+"x"+(pending ? "*" : "");
+    const auto label=juce::String(requested)+"x "+(requested==2 ? "ECO" : requested==8 ? "HIGH" : "STANDARD")+(pending ? " *" : "");
     if(qualityButton.getButtonText()!=label) qualityButton.setButtonText(label);
     const auto tip=pending
         ? juce::String("Active ")+juce::String(active)+"x. Requested "+juce::String(requested)
@@ -927,8 +944,9 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
     }
     refreshPresetDisplay();
     const std::array<float, 2> peaks {processor.consumePeakLeft(), processor.consumePeakRight()};
+    const std::array<float, 2> rms {processor.consumeRmsLeft(),processor.consumeRmsRight()};
     for (size_t channel = 0; channel < meterValues.size(); ++channel) {
-        meterValues[channel] = juce::jmax(peaks[channel], meterValues[channel] * 0.89f);
+        meterValues[channel] += (rms[channel]-meterValues[channel])*(rms[channel]>meterValues[channel] ? .32f : .18f);
         if (peaks[channel] > peakHoldValues[channel]) {
             peakHoldValues[channel] = peaks[channel];
             peakHoldTicks[channel] = 45; // 1.5 second hold at 30 Hz
@@ -938,8 +956,11 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
             peakHoldValues[channel] *= 0.975f; // gentle peak cursor fall
         }
     }
-    displayedReduction = juce::jmax(processor.consumeMaxReduction(), displayedReduction * 0.86f);
-    displayedTruePeak = juce::jmax(processor.consumeTruePeak(), displayedTruePeak * 0.90f);
+    const float gr=processor.consumeMaxReduction();
+    displayedReduction+=(gr-displayedReduction)*(gr>displayedReduction ? .26f : .12f);
+    if(displayedReduction<.015f) displayedReduction=0.f;
+    displayedTruePeak = juce::jmax(processor.consumeTruePeak(), displayedTruePeak);
+    displayedSamplePeak=juce::jmax(displayedSamplePeak,juce::jmax(peaks[0],peaks[1]));
     const bool bypassed = bypass.getToggleState();
 
     // Meter graphics are relatively expensive at a compact size. While the
@@ -970,8 +991,8 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
         dirty(270, 105, 901, 177);
     }
     // The live glass display changes only on meaningful metering movement.
-    if(std::abs(displayedTruePeak-lastPaintedTruePeak) >= 0.002f) {
-        lastPaintedTruePeak=displayedTruePeak;
+    if(std::abs(displayedTruePeak-lastPaintedTruePeak) >= 0.002f || std::abs(displayedSamplePeak-lastPaintedSamplePeak)>=.002f) {
+        lastPaintedTruePeak=displayedTruePeak; lastPaintedSamplePeak=displayedSamplePeak;
         dirty(64,245,185,35);
     }
     if (bypassed != lastDisplayedBypass) {
@@ -986,10 +1007,11 @@ void SkellyMasterAudioProcessorEditor::drawScrew(juce::Graphics& g,float x,float
 
 void SkellyMasterAudioProcessorEditor::drawMeter(
     juce::Graphics& g, juce::Rectangle<float> r, float value,
-    float heldValue, const juce::String& name) const {
+    float heldValue, const juce::String& name, bool staticOnly) const {
     juce::Graphics::ScopedSaveState save(g);
     g.addTransform(juce::AffineTransform::scale(
         r.getWidth()/310.0f,r.getHeight()/156.0f).translated(r.getX(),r.getY()));
+    if(staticOnly) {
     hw::plate(g,{0,0,310,156},false,0x52b4u,9.0f,0.24f);
     for(float xx : {11.5f,298.5f})
         for(float yy : {12.0f,144.0f}) hw::screw(g,xx,yy,0.89f);
@@ -1046,7 +1068,7 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         // indicator is rendered separately from live audio below.
         juce::Path danger;
         for(int i=0;i<=36;++i) {
-            const float a=angle(0.83f+i*(0.17f/36.0f));
+            const float a=angle((47.0f/48.0f)+i*((1.0f/48.0f)/36.0f));
             const float px=cx+std::cos(a)*rad,py=cy+std::sin(a)*rad;
             if(i==0)danger.startNewSubPath(px,py);
             else danger.lineTo(px,py);
@@ -1081,6 +1103,8 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     g.setGradientFill(reflection);
     g.fillRoundedRectangle(24.0f,28.0f,262.0f,42.0f,18.0f);
 
+    return;
+    }
     constexpr float pivotX=155.0f,pivotY=141.0f,radius=111.0f;
     const float normalized=normalizedPeak(value);
     const float a=(-157.0f+134.0f*normalized)*pi/180.0f;
@@ -1091,11 +1115,11 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         juce::Graphics::ScopedSaveState needleClip(g);
         g.reduceClipRegion(juce::Rectangle<int>(20,30,271,106));
     // Red arc *illumination* and peak marker follow audio as it approaches 0.
-    if(normalized>0.83f) {
+    if(normalized>(47.0f/48.0f)) {
         juce::Path activeDanger;
-        const int steps=juce::jmax(2,juce::roundToInt((normalized-0.83f)*96.0f));
+        const int steps=juce::jmax(2,juce::roundToInt((normalized-(47.0f/48.0f))*96.0f));
         for(int i=0;i<=steps;++i) {
-            const float t=0.83f+(normalized-0.83f)*i/static_cast<float>(steps);
+            const float t=(47.0f/48.0f)+(normalized-(47.0f/48.0f))*i/static_cast<float>(steps);
             const float aa=(-157.0f+134.0f*t)*pi/180.0f;
             const float px=pivotX+std::cos(aa)*(radius+1.5f);
             const float py=pivotY+std::sin(aa)*(radius+1.5f);
@@ -1115,10 +1139,10 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     needle.closeSubPath();
     g.setColour(juce::Colours::black.withAlpha(0.42f));
     g.fillPath(needle,juce::AffineTransform::translation(1.2f,1.5f));
-    g.setColour(normalized>0.83f ? juce::Colour(0xff9d2218)
+    g.setColour(normalized>(47.0f/48.0f) ? juce::Colour(0xff9d2218)
                                   : juce::Colour(0xff342618));
     g.fillPath(needle);
-    g.setColour(normalized>0.83f ? juce::Colour(0xffff5743)
+    g.setColour(normalized>(47.0f/48.0f) ? juce::Colour(0xffff5743)
                                   : hw::brass);
     g.drawLine(pivotX+nx*.32f,pivotY+ny*.32f,
                tipX+nx*.18f,tipY+ny*.18f,0.65f);
@@ -1126,7 +1150,7 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
         const float ah=(-157.0f+134.0f*normalizedPeak(heldValue))*pi/180.0f;
         const float hx=pivotX+std::cos(ah)*radius;
         const float hy=pivotY+std::sin(ah)*radius;
-        g.setColour(normalizedPeak(heldValue)>0.83f
+        g.setColour(normalizedPeak(heldValue)>(47.0f/48.0f)
             ? juce::Colour(0xffff5134) : hw::gold);
         g.fillEllipse(hx-2.3f,hy-2.3f,4.6f,4.6f);
     }
@@ -1142,7 +1166,7 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
     g.setColour(juce::Colour(0xff17160f));
     g.fillRoundedRectangle(109,129,92,18,4.0f);
     font(g,12,true);g.setColour(readoutWhite);
-    text(g,juce::String(juce::roundToInt(peakDb(value)))+" dBFS",
+    text(g,juce::String(peakDb(value),1)+" RMS",
          108,128,94,19);
     hw::screw(g,107,137,0.53f);
     hw::screw(g,203,137,0.53f);
@@ -1160,7 +1184,8 @@ void SkellyMasterAudioProcessorEditor::drawMeter(
                            27.0f,2.3f);
 }
 
-void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
+void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g, bool staticOnly) const {
+    if(staticOnly) {
     // Hardware GR module: the electronic display and LED ladder are
     // physically DARK at idle. No ghost 0, dB text, or grey inactive bars.
     // The label and recessed unlit glass stay visible as physical hardware.
@@ -1178,8 +1203,6 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
     g.setColour(juce::Colours::white.withAlpha(0.085f));
     g.drawLine(982.0f,155.5f,1142.0f,155.5f,0.8f);
 
-    const bool active=std::isfinite(displayedReduction)
-                   && displayedReduction>=0.5f;
     // The former GR light-pipe rectangle now houses the preset dropdown.
     // Its label is engraved above the recessed glass, never faked as LEDs.
     font(g,11,true);g.setColour(hw::parchment);
@@ -1187,14 +1210,18 @@ void SkellyMasterAudioProcessorEditor::drawReduction(juce::Graphics& g) const {
     // Balanced centreline engraving, not a left-anchored preset title.
     g.setColour(hardwareAccent(skin).withAlpha(0.57f));
     g.fillRoundedRectangle(1036.0f,226.0f,53.0f,0.9f,0.45f);
-    if (!active) return;
-
-    font(g,37,true);
-    g.setColour(hw::phosphor);
-    text(g,juce::String(juce::roundToInt(displayedReduction)),985,158,130,47);
-    font(g,12,true);
-    g.setColour(hw::gold);
-    text(g,"dB",1117,178,27,14);
+    return;
+    }
+    if(!std::isfinite(displayedReduction) || displayedReduction<.1f) return;
+    font(g,27,true); g.setColour(hw::phosphor);
+    text(g,"-"+juce::String(displayedReduction,1)+" dB",985,157,155,32);
+    for(int i=0;i<12;++i) {
+        const float level=juce::jlimit(0.f,1.f,displayedReduction-static_cast<float>(i));
+        if(level>.02f) {
+            g.setColour(hardwareAccent(skin).withAlpha(.18f+.82f*level));
+            g.fillRoundedRectangle(986.f+i*12.6f,191.f,10.5f,7.f,1.5f);
+        }
+    }
     // The GR numerals sit behind the same curved front glass as the readouts.
     juce::ColourGradient lens(juce::Colours::white.withAlpha(0.13f),
                               983.0f,155.0f,
@@ -1269,9 +1296,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     font(g,18,true);g.setColour(hw::gold);
     text(g,"SKELLY MASTER",65,125,182,26);
     font(g,12,true);g.setColour(hw::parchment);
-    text(g,"PRECISION MASTER BUS / M-01",61,154,189,20);
-    font(g,11,true);g.setColour(hw::parchment);
-    text(g,"STEREO LINK  /  PEAK LIMIT",60,175,190,15);
+    text(g,"QUALITY / OVERSAMPLING",61,151,189,15);
     hw::divider(g,63,191,247,191);
     font(g,13,true);g.setColour(hw::gold);
     text(g,"OUTPUT MONITOR",65,193,178,18);
@@ -1313,9 +1338,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     hw::divider(g,850,685,850,744);
     hw::divider(g,1121,685,1121,744);
     font(g,16,true);g.setColour(hw::gold);
-    text(g,"// MASTER BUS",48,696,205,25,juce::Justification::centredLeft);
-    font(g,14,true);g.setColour(hw::parchment);
-    text(g,"TONE IS EVERYTHING",66,724,184,18,juce::Justification::centredLeft);
+    text(g,"USER PRESETS",48,681,205,18,juce::Justification::centred);
     font(g,14,true);g.setColour(hw::gold);
     text(g,"CLIP",294,710,85,21,juce::Justification::centredLeft);
     font(g,15,true);g.setColour(hw::gold);
@@ -1324,6 +1347,10 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     font(g,16,true);g.setColour(hw::gold);
     text(g,"M-01",1125,705,41,24);
 
+    // Cache all expensive meter hardware and inactive GR glass once.
+    drawMeter(g,{275,112,325,159},0.f,0.f,"OUTPUT L / RMS",true);
+    drawMeter(g,{612,112,325,159},0.f,0.f,"OUTPUT R / RMS",true);
+    drawReduction(g,true);
     // Clean uninterrupted rack edges: removable side handles intentionally
     // omitted at the user's request. Keep the two corner mounting screws.
     for(float x : {25.0f,1176.0f})
@@ -1358,14 +1385,14 @@ void SkellyMasterAudioProcessorEditor::paint(juce::Graphics& g) {
     g.drawImage(staticBackdrop, 0, 0, designW, designH,
                 0, 0, rasterW, rasterH);
 
-    drawMeter(g,{275,112,325,159},meterValues[0],peakHoldValues[0],"OUTPUT  /  L");
-    drawMeter(g,{612,112,325,159},meterValues[1],peakHoldValues[1],"OUTPUT  /  R");
+    drawMeter(g,{275,112,325,159},meterValues[0],peakHoldValues[0],"OUTPUT L / RMS");
+    drawMeter(g,{612,112,325,159},meterValues[1],peakHoldValues[1],"OUTPUT R / RMS");
     drawReduction(g);
 
     // Readout is separate from artwork and continuously uses actual DSP data.
     // -80 dB is a visual noise-floor marker rather than fabricated activity.
     const float observed=monitorTruePeak ? displayedTruePeak
-        : juce::jmax(peakHoldValues[0],peakHoldValues[1]);
+        : displayedSamplePeak;
     const float db=juce::Decibels::gainToDecibels(
         juce::jmax(observed,0.0001f),-80.0f);
     font(g,13,true);g.setColour(readoutWhite);
@@ -1397,7 +1424,9 @@ void SkellyMasterAudioProcessorEditor::resized() {
         const int rowY=row==0?315:485;
         place(knobs[static_cast<size_t>(i)],cellX+15,rowY+5,247,118);
     }
-    place(qualityButton,803,29,52,38);
+    place(qualityButton,63,167,184,23);
+    place(savePresetButton,48,705,98,32);
+    place(loadPresetButton,151,705,98,32);
     place(bypass,887,29,125,38);
     place(reset,1024,29,126,38);
     place(presetSelector,976,228,170,26);
@@ -1409,4 +1438,57 @@ void SkellyMasterAudioProcessorEditor::resized() {
     place(knobs[8],647,685,199,68);
     place(knobs[9],929,685,181,68);
     place(skullHitTarget,57,10,82,72);
+}
+
+void SkellyMasterAudioProcessorEditor::showPresetChooser(bool save) {
+    auto directory=SkellyMasterAudioProcessor::userPresetDirectory();
+    if(directory.createDirectory().failed()) {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Presets","Cannot create the user preset folder.");
+        return;
+    }
+    const auto name=processor.getUserPresetName();
+    const auto start=save ? directory.getChildFile((name.isNotEmpty()?name:juce::String("My Master"))+".skellmasterpreset") : directory;
+    presetChooser=std::make_unique<juce::FileChooser>(save?"Save Skell Master preset":"Load Skell Master preset",start,"*.skellmasterpreset");
+    const auto safe=juce::Component::SafePointer<SkellyMasterAudioProcessorEditor>(this);
+    const int flags=save ? juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting
+                         : juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles;
+    presetChooser->launchAsync(flags,[safe,save](const juce::FileChooser& chooser) {
+        if(safe==nullptr || chooser.getResult()==juce::File()) return;
+        const auto file=chooser.getResult();
+        if(save) {
+            // Do not silently append an extension to an existing different
+            // file name: the chooser must have confirmed the actual target.
+            const auto result=safe->processor.saveUserPreset(file);
+            if(result.failed()) juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Save preset",result.getErrorMessage());
+            safe->refreshPresetDisplay();
+        } else safe->loadPresetFile(file);
+    });
+}
+void SkellyMasterAudioProcessorEditor::loadPresetFile(const juce::File& file) {
+    const auto result=processor.loadUserPreset(file);
+    if(result.failed()) {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Load preset",result.getErrorMessage());
+        return;
+    }
+    displayedFactory=processor.getFactoryPresetId();
+    presetSelector.setSelectedId(0,juce::dontSendNotification);
+    refreshPresetDisplay(); refreshQualityDisplay();
+}
+void SkellyMasterAudioProcessorEditor::showLoadMenu() {
+    auto files=SkellyMasterAudioProcessor::userPresetDirectory().findChildFiles(juce::File::findFiles,false,"*.skellmasterpreset");
+    files.sort();
+    juce::PopupMenu menu;
+    menu.addSectionHeader("SAVED PRESETS");
+    const int count=juce::jmin(256,files.size());
+    for(int i=0;i<count;++i)
+        menu.addItem(i+1,files[i].getFileNameWithoutExtension());
+    if(count==0) menu.addItem(999,"No saved presets",false);
+    menu.addSeparator(); menu.addItem(1000,"Browse...");
+    const auto safe=juce::Component::SafePointer<SkellyMasterAudioProcessorEditor>(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&loadPresetButton),
+        [safe,files,count](int id) {
+            if(safe==nullptr) return;
+            if(id==1000) safe->showPresetChooser(false);
+            else if(id>0 && id<=count) safe->loadPresetFile(files[id-1]);
+        });
 }

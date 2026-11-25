@@ -3,6 +3,7 @@
 #include "FiveBandColorPrototype.h"
 #include "DepthWidth.h"
 #include "SpatialSeparation.h"
+#include "ImmersiveWidth.h"
 #include "AnalogSauce.h"
 #include "CompressionMakeup.h"
 
@@ -368,6 +369,7 @@ struct MasterParameters {
     double sauce = 0.0;     // 0..1
     double width = 1.0;     // Legacy V10/V11: 0..1.6, 1 neutral
     double spatialWidth = 0.0; // V12: 0..1 creative stereo separation
+    bool immersiveWidth = false; // V17 new-session wider midband
     bool enhancedSauce = false; // opt-in; old saved states remain exact
     bool analogSauce = false; // V13 parallel coloration above 20% only
     bool depthWidth = false; // V11 creative width, V10 states retain previous widening
@@ -578,24 +580,27 @@ public:
             // Each phase is one reconstructed point between the delayed sample
             // and its next host-rate neighbour. Keep the points so a local
             // three-point parabola can estimate the peak between 4x phases.
-            for (int phase = 0; phase < oversampling; ++phase) {
-                double reconstructedLeft = 0.0;
-                double reconstructedRight = 0.0;
-                for (int q = 0; oversampling * q + phase < tapCount; ++q) {
-                    int index = static_cast<int>(writeIndex) - q;
-                    if (index < 0)
-                        index += historyLength;
-                    const auto& sample = history[static_cast<std::size_t>(index)];
-                    const double weight = static_cast<double>(oversampling)
-                        * coefficients[static_cast<std::size_t>(oversampling * q + phase)];
-                    reconstructedLeft += weight * sample.left;
-                    reconstructedRight += weight * sample.right;
+            // All four phases share one history traversal. Preserve the
+            // increasing-q sum order of every phase, including the 257th
+            // tap in phase zero. No change to FIR coefficients or PDC.
+            int index=static_cast<int>(writeIndex);
+            for(int q=0;q<tapCount/oversampling;++q) {
+                const auto& sample=history[static_cast<std::size_t>(index)];
+                for(int phase=0;phase<oversampling;++phase) {
+                    const double weight=static_cast<double>(oversampling)
+                        * coefficients[static_cast<std::size_t>(oversampling*q+phase)];
+                    reconstructed[0][phase]+=weight*sample.left;
+                    reconstructed[1][phase]+=weight*sample.right;
                 }
-                reconstructed[0][phase] = reconstructedLeft;
-                reconstructed[1][phase] = reconstructedRight;
-                maximum = std::max(maximum, std::max(std::abs(reconstructedLeft),
-                                                     std::abs(reconstructedRight)));
+                if(--index<0) index=historyLength-1;
             }
+            const auto& last=history[static_cast<std::size_t>(index)];
+            const double lastWeight=static_cast<double>(oversampling)*coefficients.back();
+            reconstructed[0][0]+=lastWeight*last.left;
+            reconstructed[1][0]+=lastWeight*last.right;
+            for(int phase=0;phase<oversampling;++phase)
+                maximum=std::max(maximum,std::max(std::abs(reconstructed[0][phase]),
+                                                   std::abs(reconstructed[1][phase])));
 
             const auto refineLocalPeak = [](double previous, double current,
                                              double next) noexcept {
@@ -841,6 +846,7 @@ public:
         widthOffset.prepare(rate, 35, 0);
         spatialAmount.prepare(rate, 45, 0);
         spatialSeparation.prepare(rate);
+        immersiveWidth.prepare(rate);
         sauceEnhanceMix.prepare(rate, 35, 0);
         analogSauceMix.prepare(rate, 45, 0);
         analogColor.prepare(rate);
@@ -926,6 +932,7 @@ public:
         widthOffset.snap(0.0);
         spatialAmount.snap(0.0);
         spatialSeparation.reset();
+        immersiveWidth.reset();
         spatialWasActive=false;
         sauceEnhanceMix.snap(0.0);
         analogSauceMix.snap(0.0);
@@ -952,6 +959,11 @@ public:
     void setParameters(const MasterParameters& p) noexcept {
         referenceCalibration=p.referenceCalibration;
         efficientDepthMode=p.efficientDepth;
+        if(immersiveWidthMode!=p.immersiveWidth) {
+            spatialSeparation.reset(); immersiveWidth.reset();
+            spatialWasActive=false;
+        }
+        immersiveWidthMode=p.immersiveWidth;
         adaptiveCompressionMode=p.adaptiveCompression && !p.bypass;
         compressionMakeupMode=p.compressionMakeup && !p.bypass;
         if(!compressionMakeupMode) compressionMakeup.reset();
@@ -1137,10 +1149,11 @@ public:
         // A separate, additive control leaves all old Width automation intact.
         // At zero, skip the new stage entirely and retain the bit-exact path.
         if(channels==2 && spatialChange>1.e-8) {
-            spatialSeparation.process(l,r,spatialChange);
+            if(immersiveWidthMode) immersiveWidth.process(l,r,spatialChange);
+            else spatialSeparation.process(l,r,spatialChange);
             spatialWasActive=true;
         } else if(spatialWasActive) {
-            spatialSeparation.reset();
+            spatialSeparation.reset(); immersiveWidth.reset();
             spatialWasActive=false;
         }
 
@@ -1397,6 +1410,8 @@ private:
     AnalogSauce analogColor;
     bool analogWasActive=false;
     SpatialSeparation spatialSeparation;
+    ImmersiveWidth immersiveWidth;
+    bool immersiveWidthMode=false;
     bool spatialWasActive=false;
     std::array<double,1025> referenceClipGainTable {};
     std::array<double,1025> referenceClipThresholdTable {};

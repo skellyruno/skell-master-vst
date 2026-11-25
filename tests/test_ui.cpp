@@ -216,6 +216,26 @@ int main() {
         check(processor.usesDepthWidth(),"fresh instances retain legacy depth mode");
         check(processor.usesAnalogSauce(),"fresh instances use V13 analog Sauce");
         check(processor.usesCompressionMakeup(),"fresh V16 sessions enable partial makeup");
+        check(processor.usesImmersiveWidth(),"fresh V17 uses immersive width");
+        {
+            auto source=std::make_unique<SkellyMasterAudioProcessor>();
+            auto loaded=std::make_unique<SkellyMasterAudioProcessor>();
+            juce::TemporaryFile temp(".skellmasterpreset");
+            const auto file=temp.getFile();
+            source->parameters.getParameter("sauce")->setValueNotifyingHost(.57f);
+            source->parameters.getParameter("spatialWidth")->setValueNotifyingHost(.73f);
+            check(source->saveUserPreset(file).wasOk(),"save actual user preset");
+            check(!source->isUserPresetModified(),"saved user preset clean");
+            source->parameters.getParameter("sauce")->setValueNotifyingHost(.58f);
+            check(source->isUserPresetModified(),"knob edit marks saved preset");
+            loaded->requestOversampling(8);
+            check(loaded->loadUserPreset(file).wasOk(),"load actual user preset");
+            check(std::abs(loaded->parameters.getRawParameterValue("sauce")->load()-57.f)<.01f && std::abs(loaded->parameters.getRawParameterValue("spatialWidth")->load()-73.f)<.01f,"preset parameter recall");
+            check(loaded->getRequestedOversampling()==8 && !loaded->isUserPresetModified(),"preset does not change quality; clean baseline");
+            juce::MemoryBlock state; loaded->getStateInformation(state);
+            source->setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+            check(source->getUserPresetName()==loaded->getUserPresetName() && !source->isUserPresetModified(),"preset identity survives project recall");
+        }
         check(processor.usesEfficientDepth() && processor.usesAdaptiveCompression(),
               "fresh sessions enable V15 efficient depth and optional strong compression");
         {
@@ -261,6 +281,7 @@ int main() {
             check(!legacy.usesDepthWidth(),"V10 state must retain its old Width law");
             check(!legacy.usesAnalogSauce(),"old state must retain original Sauce");
             check(!legacy.usesCompressionMakeup(),"old sessions preserve uncompensated compression");
+            check(!legacy.usesImmersiveWidth(),"legacy spatial width law preserved");
             check(!legacy.usesEfficientDepth() && !legacy.usesAdaptiveCompression(),
                   "legacy state must preserve both old DSP responses");
             check(legacy.getRequestedOversampling()==4,"legacy sessions must remain 4x");
@@ -313,7 +334,7 @@ int main() {
                     ++presetCount; interactive.push_back(box);
                 }
             }
-            check(sliderCount==11 && buttonCount==6 && presetCount==1,
+            check(sliderCount==11 && buttonCount==8 && presetCount==1,
                   "missing mastering controls, monitor buttons or preset dropdown");
             for (size_t i=0;i<interactive.size();++i)
                 for (size_t j=i+1;j<interactive.size();++j)

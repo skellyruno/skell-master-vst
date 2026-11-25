@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include <cmath>
+#include <cstdlib>
 
 SkellyMasterAudioProcessor::SkellyMasterAudioProcessor()
     : AudioProcessor(BusesProperties()
@@ -82,6 +83,7 @@ void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) 
     truePeakMonitor.reset();
     loudnessMonitor.prepare(sampleRate,activeChannels);
     peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
+    rmsPowerL=rmsPowerR=0.; rmsLeft.store(0); rmsRight.store(0);
     momentaryLufs.store(-100.0f); shortTermLufs.store(-100.0f);
     activeOversampling.store(factor,std::memory_order_release);
 }
@@ -115,6 +117,7 @@ void SkellyMasterAudioProcessor::reset() {
     truePeakMonitor.reset();
     loudnessMonitor.reset();
     peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
+    rmsPowerL=rmsPowerR=0.; rmsLeft.store(0); rmsRight.store(0);
     momentaryLufs.store(-100.0f); shortTermLufs.store(-100.0f);
 }
 
@@ -142,6 +145,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.sauce = parameters.getRawParameterValue("sauce")->load(std::memory_order_relaxed) * 0.01;
     p.width = parameters.getRawParameterValue("width")->load(std::memory_order_relaxed) * 0.01;
     p.spatialWidth = parameters.getRawParameterValue("spatialWidth")->load(std::memory_order_relaxed) * 0.01;
+    p.immersiveWidth=usesImmersiveWidth();
     p.enhancedSauce = usesEnhancedSauce();
     p.analogSauce = usesAnalogSauce();
     p.depthWidth = usesDepthWidth();
@@ -297,6 +301,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         if (outR) outR[i] = corrected.right;
     }
     float maximumL = 0.0f, maximumR = 0.0f, maximumTP = 0.0f;
+    double energyL=0.,energyR=0.;
     const auto* readL = buffer.getReadPointer(0);
     const auto* readR = channels == 2 ? buffer.getReadPointer(1) : readL;
     if (useDefaultDry) {
@@ -311,6 +316,8 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     for (int i = 0; i < samples; ++i) {
         maximumL = juce::jmax(maximumL, std::abs(readL[i]));
         maximumR = juce::jmax(maximumR, std::abs(readR[i]));
+        const double l=readL[i],r=readR[i];
+        energyL+=l*l; energyR+=r*r;
         // On true mono buses, avoid reconstructing an identical second
         // channel. Stereo keeps the original sample-for-sample FIR path.
         maximumTP = juce::jmax(maximumTP, channels == 1
@@ -318,6 +325,13 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
             : truePeakMonitor.process(readL[i], readR[i]));
         loudnessMonitor.process(readL[i], readR[i]);
     }
+    // Post-output RMS, block energy with 300ms averaging. Readouts and
+    // peak holds are independent; none of these values feeds audio.
+    const double rmsAlpha=1.-std::exp(-samples/(std::max(1.,getSampleRate())*.300));
+    rmsPowerL+=rmsAlpha*(energyL/samples-rmsPowerL);
+    rmsPowerR+=rmsAlpha*(energyR/samples-rmsPowerR);
+    rmsLeft.store(static_cast<float>(std::sqrt(std::max(0.,rmsPowerL))),std::memory_order_relaxed);
+    rmsRight.store(static_cast<float>(std::sqrt(std::max(0.,rmsPowerR))),std::memory_order_relaxed);
     atomicMax(peakLeft, maximumL);
     atomicMax(peakRight, maximumR);
     atomicMax(truePeak, maximumTP);
@@ -339,7 +353,13 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",16,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",17,nullptr);
+    snapshot.setProperty("skellMasterImmersiveWidth",usesImmersiveWidth()?1:0,nullptr);
+    {
+        const juce::ScopedLock lock(presetIdentityLock);
+        snapshot.setProperty("skellMasterUserPresetName",userPresetName,nullptr);
+        snapshot.setProperty("skellMasterUserPresetBaseline",userPresetBaseline,nullptr);
+    }
     snapshot.setProperty("skellMasterCompressionMakeup",usesCompressionMakeup()?1:0,nullptr);
     snapshot.setProperty("skellMasterEfficientDepth",usesEfficientDepth() ? 1 : 0,nullptr);
     snapshot.setProperty("skellMasterAdaptiveCompression",usesAdaptiveCompression() ? 1 : 0,nullptr);
@@ -371,6 +391,8 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         requestOversampling(previousVersion>=14 && quality=="2" ? 2 :
                             previousVersion>=14 && quality=="8" ? 8 : 4);
         snapshot.setProperty("skellMasterOversampling",getRequestedOversampling(),nullptr);
+        setImmersiveWidthEnabled(previousVersion>=17 && snapshot.getProperty("skellMasterImmersiveWidth",0).toString()=="1");
+        snapshot.setProperty("skellMasterImmersiveWidth",usesImmersiveWidth()?1:0,nullptr);
         setCompressionMakeupEnabled(previousVersion>=16 &&
             snapshot.getProperty("skellMasterCompressionMakeup",0).toString()=="1");
         snapshot.setProperty("skellMasterCompressionMakeup",usesCompressionMakeup()?1:0,nullptr);
@@ -513,9 +535,102 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             spatialState.setProperty("value",0.0f,nullptr);
             snapshot.appendChild(spatialState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",16,nullptr);
+        snapshot.setProperty("skellMasterStateVersion",17,nullptr);
         parameters.replaceState(snapshot);
+        const juce::ScopedLock lock(presetIdentityLock);
+        userPresetName=snapshot.getProperty("skellMasterUserPresetName",{}).toString().substring(0,128);
+        userPresetBaseline=snapshot.getProperty("skellMasterUserPresetBaseline",{}).toString().substring(0,4096);
     }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new SkellyMasterAudioProcessor(); }
+
+juce::File SkellyMasterAudioProcessor::userPresetDirectory() {
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("SkellAudio").getChildFile("Skell Master").getChildFile("Presets");
+}
+
+juce::String SkellyMasterAudioProcessor::presetFingerprint() const {
+    juce::String result;
+    for(auto* param:getParameters())
+        result << juce::String(juce::roundToInt(param->getValue()*1000000.f)) << ";";
+    result << getFactoryPresetId() << ";" << int(usesReferenceClip()) << int(usesChainOrderedClip())
+        << int(usesRefinedControlCurves()) << int(usesReferenceCalibration())
+        << int(usesEnhancedSauce()) << int(usesAnalogSauce()) << int(usesDepthWidth())
+        << int(usesEfficientDepth()) << int(usesAdaptiveCompression())
+        << int(usesCompressionMakeup()) << int(usesImmersiveWidth());
+    return result; // Oversampling is a separate project/quality preference.
+}
+juce::String SkellyMasterAudioProcessor::getUserPresetName() const {
+    const juce::ScopedLock lock(presetIdentityLock);
+    return userPresetName;
+}
+bool SkellyMasterAudioProcessor::isUserPresetModified() const {
+    const juce::ScopedLock lock(presetIdentityLock);
+    return userPresetName.isNotEmpty() && presetFingerprint()!=userPresetBaseline;
+}
+void SkellyMasterAudioProcessor::clearUserPresetIdentity() {
+    const juce::ScopedLock lock(presetIdentityLock);
+    userPresetName={}; userPresetBaseline={};
+}
+juce::Result SkellyMasterAudioProcessor::saveUserPreset(const juce::File& file) {
+    if(!file.hasFileExtension("skellmasterpreset") || file.getFileNameWithoutExtension().length()>128)
+        return juce::Result::fail("Use a .skellmasterpreset filename (128 characters maximum).");
+    auto dir=file.getParentDirectory().createDirectory();
+    if(dir.failed()) return dir;
+    juce::MemoryBlock bytes;
+    getStateInformation(bytes);
+    auto xml=getXmlFromBinary(bytes.getData(),static_cast<int>(bytes.getSize()));
+    if(!xml) return juce::Result::fail("Could not serialize preset.");
+    const auto name=file.getFileNameWithoutExtension();
+    const auto baseline=presetFingerprint();
+    xml->setAttribute("skellMasterUserPresetName",name);
+    xml->setAttribute("skellMasterUserPresetBaseline",baseline);
+    copyXmlToBinary(*xml,bytes);
+    juce::TemporaryFile temporary(file);
+    if(!temporary.getFile().replaceWithData(bytes.getData(),bytes.getSize()) ||
+       !temporary.overwriteTargetFileWithTemporary())
+        return juce::Result::fail("Could not save preset.");
+    const juce::ScopedLock lock(presetIdentityLock);
+    userPresetName=name; userPresetBaseline=baseline;
+    return juce::Result::ok();
+}
+juce::Result SkellyMasterAudioProcessor::loadUserPreset(const juce::File& file) {
+    if(!file.hasFileExtension("skellmasterpreset") || !file.existsAsFile()
+       || file.getSize()<=0 || file.getSize()>256*1024)
+        return juce::Result::fail("Invalid or oversized Skell Master preset.");
+    juce::MemoryBlock bytes;
+    if(!file.loadFileAsData(bytes)) return juce::Result::fail("Could not read preset.");
+    auto xml=getXmlFromBinary(bytes.getData(),static_cast<int>(bytes.getSize()));
+    if(!xml || !xml->hasTagName(parameters.state.getType()) ||
+       xml->getIntAttribute("skellMasterStateVersion",0)<16 ||
+       xml->getIntAttribute("skellMasterStateVersion",0)>17)
+        return juce::Result::fail("Unsupported Skell Master preset.");
+    const auto tree=juce::ValueTree::fromXml(*xml);
+    // Check every known parameter before mutating the current processor.
+    for(auto* raw:getParameters()) {
+        auto* param=dynamic_cast<juce::RangedAudioParameter*>(raw);
+        if(!param) continue;
+        int count=0;
+        for(int i=0;i<tree.getNumChildren();++i) {
+            const auto child=tree.getChild(i);
+            if(child.getProperty("id").toString()!=param->paramID) continue;
+            ++count;
+            const auto str=child.getProperty("value").toString().toStdString();
+            char* end=nullptr;
+            const double value=std::strtod(str.c_str(),&end);
+            const auto& range=param->getNormalisableRange();
+            if(end==str.c_str() || *end!='\0' || !std::isfinite(value) ||
+               value<range.start-1.e-6 || value>range.end+1.e-6)
+                return juce::Result::fail("Invalid parameter in preset.");
+        }
+        if(count!=1) return juce::Result::fail("Missing or duplicate preset parameter.");
+    }
+    const int quality=getRequestedOversampling();
+    setStateInformation(bytes.getData(),static_cast<int>(bytes.getSize()));
+    requestOversampling(quality);
+    const juce::ScopedLock lock(presetIdentityLock);
+    userPresetName=file.getFileNameWithoutExtension().substring(0,128);
+    userPresetBaseline=presetFingerprint();
+    return juce::Result::ok();
+}

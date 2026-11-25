@@ -442,6 +442,28 @@ int main() {
     }
     std::cout<<"PASS: V16 makeup cap, exact factory DSP, eight rates, reset\\n";
 
+    for(double sr:{44100.,48000.,88200.,96000.,176400.,192000.,352800.,384000.,768000.}) {
+        ImmersiveWidth z,m,a; z.prepare(sr);m.prepare(sr);a.prepare(sr);
+        for(int i=0;i<int(sr*.1);++i) {
+            double l=.3*std::sin(i*.1),r=.15*std::cos(i*.2),L=l,R=r;
+            z.process(l,r,0.);require(l==L && r==R,"immersive zero exact");
+            r=l;m.process(l,r,1.);require(l==r,"immersive mono exact");
+            l=L;r=-L;a.process(l,r,1.);require(l==L && r==-L,"immersive anti-phase exact");
+        }
+        for(double f:{60.,500.,2000.,12000.}) {
+            ImmersiveWidth x; x.prepare(sr);double in=0.,out=0.;
+            for(int i=0;i<int(sr*.3);++i) {
+                double mid=.2*std::sin(2*detail::pi*f*i/sr),side=.04*std::cos(2*detail::pi*f*i/sr);
+                double l=mid+side,r=mid-side;x.process(l,r,1.);
+                require(std::isfinite(l)&&std::isfinite(r)&&std::abs((l+r)*.5-mid)<1.e-12,"immersive mid unchanged");
+                if(i>sr*.15){in+=side*side;out+=.25*(l-r)*(l-r);}
+            }
+            const double db=10.*std::log10(out/in);
+            require(f==60. ? std::abs(db)<.6 : db<11.,"immersive side bounds");
+        }
+    }
+    std::cout<<"PASS: V17 immersive Width nine rates, neutral, mono, anti-phase, mid and bass bounds\n";
+
     // The new clip amount is a genuine 4x audio process; zero retains
     // all earlier sessions' transparent limiting behavior by default.
     require(MasterParameters{}.clipper == 0.0, "legacy clipper default must be zero");

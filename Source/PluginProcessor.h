@@ -71,6 +71,8 @@ public:
         referenceCalibrationEnabled.store(enabled,std::memory_order_relaxed);
     }
 
+    bool usesImmersiveWidth() const noexcept { return immersiveWidthEnabled.load(std::memory_order_relaxed); }
+    void setImmersiveWidthEnabled(bool v) noexcept { immersiveWidthEnabled.store(v,std::memory_order_relaxed); }
     bool usesEfficientDepth() const noexcept { return efficientDepthEnabled.load(std::memory_order_relaxed); }
     void setEfficientDepthEnabled(bool value) noexcept { efficientDepthEnabled.store(value,std::memory_order_relaxed); }
     bool usesCompressionMakeup() const noexcept { return compressionMakeupEnabled.load(std::memory_order_relaxed); }
@@ -85,6 +87,8 @@ public:
     void setEnhancedSauceEnabled(bool value) noexcept { enhancedSauceEnabled.store(value,std::memory_order_relaxed); }
 
     // Lock-free peak accumulation. GUI calls exchange(0) once per frame.
+    float consumeRmsLeft() noexcept { return rmsLeft.exchange(0.f,std::memory_order_relaxed); }
+    float consumeRmsRight() noexcept { return rmsRight.exchange(0.f,std::memory_order_relaxed); }
     float consumePeakLeft() noexcept { return peakLeft.exchange(0.0f, std::memory_order_relaxed); }
     float consumePeakRight() noexcept { return peakRight.exchange(0.0f, std::memory_order_relaxed); }
     float consumeMaxReduction() noexcept { return reduction.exchange(0.0f, std::memory_order_relaxed); }
@@ -103,8 +107,19 @@ public:
     int getRequestedOversampling() const noexcept { return requestedOversampling.load(std::memory_order_relaxed); }
     int getActiveOversampling() const noexcept { return activeOversampling.load(std::memory_order_acquire); }
 
+    // Preset I/O and identity are non-realtime only; audio never takes this lock.
+    static juce::File userPresetDirectory();
+    juce::Result saveUserPreset(const juce::File& file);
+    juce::Result loadUserPreset(const juce::File& file);
+    juce::String getUserPresetName() const;
+    bool isUserPresetModified() const;
+    void clearUserPresetIdentity();
+
 private:
     static void atomicMax(std::atomic<float>& v, float input) noexcept;
+    juce::String presetFingerprint() const;
+    mutable juce::CriticalSection presetIdentityLock;
+    juce::String userPresetName, userPresetBaseline;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
     std::atomic<int> requestedOversampling {4};
     std::atomic<int> activeOversampling {0}; // 0 = not prepared
@@ -115,6 +130,8 @@ private:
     bool defaultDryMixInitialized = false;
     std::atomic<float> peakLeft { 0.0f }, peakRight { 0.0f }, reduction { 0.0f };
     std::atomic<float> truePeak { 0.0f };
+    std::atomic<float> rmsLeft {0.f}, rmsRight {0.f};
+    double rmsPowerL=0., rmsPowerR=0.;
     skelly::StereoTruePeakMonitor truePeakMonitor;
     // Opt-in five-plugin factory #6 only. Final host-rate EQ after L2.
     skelly::detail::ReferenceFinalEq referenceFinalEq;
@@ -135,6 +152,7 @@ private:
     std::atomic<bool> efficientDepthEnabled { true };
     std::atomic<bool> adaptiveCompressionEnabled { true };
     std::atomic<bool> compressionMakeupEnabled { true };
+    std::atomic<bool> immersiveWidthEnabled { true };
     int referenceClipGuardHold = 0;
     int activeChannels = 2;
     int lookaheadSamples = 0;
