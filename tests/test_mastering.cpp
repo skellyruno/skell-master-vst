@@ -679,9 +679,19 @@ int main() {
         require(l==.2 && r==.1,"neutral Width must be exact");
         l=.2; r=.1; image.process(l,r,0.0,-1.0);
         require(std::abs(l-r)<1.e-12 && std::abs(l-.15)<1.e-12,"Width zero collapses to mono");
+        // A preceding stereo sample leaves a real low-pass filter history.
+        // It must decay on a mono transition, not be mistaken for generated stereo.
+        double residual=0;
+        for(int n=0;n<static_cast<int>(rate*.05);++n) {
+            l=.2; r=.2; image.process(l,r,0.0,.6);
+            residual=std::max(residual,std::abs(l-r));
+            require(std::abs(l+r-.4)<1.e-12,"Width must preserve mid during transition");
+        }
+        require(residual<.001 && std::abs(l-r)<1.e-12,"Width filter tail must decay on mono transition");
+        image.reset();
         for(int n=0;n<static_cast<int>(rate*.5);++n) {
             l=.2; r=.2; image.process(l,r,0.0,.6);
-            require(l==r,"Width never synthesizes stereo from mono");
+            require(l==r,"Width never synthesizes stereo from a fresh mono stream");
         }
         for(int n=0;n<static_cast<int>(rate*.5);++n) {
             l=.1; r=-.1; image.process(l,r,0.0,.6);
