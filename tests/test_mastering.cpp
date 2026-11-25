@@ -1,3 +1,4 @@
+#include "experimental/SpectralColorGuard.h"
 #include "../Source/DSP/MasteringEngine.h"
 #include "../Source/DSP/LoudnessMeter.h"
 #include "experimental/ProgramRecovery.h"
@@ -463,6 +464,50 @@ int main() {
         }
     }
     std::cout<<"PASS: V17 immersive Width nine rates, neutral, mono, anti-phase, mid and bass bounds\n";
+
+    // Exact production detector window against an independent scan,
+    // including bypass history, ties, reset, nonfinite input and clipped
+    // finite values. Every output is a maximum of the same 33 floats.
+    {
+        StereoTruePeakDetector4x detector; detector.prepare();
+        std::array<float,33> reference{};
+        std::size_t pos=0;
+        for(int n=0;n<100000;++n) {
+            if(n==50000) {detector.reset();reference.fill(0.f);pos=0;}
+            float l=static_cast<float>(.7*std::sin(n*.234)),r=static_cast<float>(.8*std::cos(n*.071));
+            if(n%101==0) l=std::numeric_limits<float>::infinity();
+            if(n%251==0) r=-1000.f;
+            if(n%499==0) l=std::numeric_limits<float>::quiet_NaN();
+            const auto safe=[](float v){return std::abs(static_cast<float>(detail::clamp(detail::finiteSample(static_cast<double>(v)),-256.,256.)));};
+            reference[pos]=std::max(safe(l),safe(r));pos=(pos+1)%reference.size();
+            detector.process(l,r,n%113<90);
+            require(detector.lookaheadSamplePeak()==*std::max_element(reference.begin(),reference.end()),
+                    "V18 lookahead rolling maximum exact");
+        }
+    }
+    // Independent research-only spectral color: no production hookup.
+    // Preserve low-mid harmonics, attenuate excess high-band residual;
+    // do not equate this metric with listening preference or alias power.
+    for(double sr:{44100.,48000.,88200.,96000.,176400.,192000.,352800.,384000.,768000.}) {
+        for(double f:{997.,7001.}) {
+            AnalogSauce sauce; sauce.prepare(sr);
+            experimental::SpectralColorGuard guard;guard.prepare(sr);
+            double before=0.,after=0.;
+            for(int n=0;n<int(sr*.6);++n) {
+                const double x=.45*std::sin(6.283185307179586*f*n/sr);
+                double l=x,r=x;sauce.process(l,r,1.);
+                double dl=l-x,dr=r-x;guard.process(x,x,dl,dr,1.);
+                require(std::isfinite(dl)&&dl==dr&&guard.currentGain()>=.4-1.e-12&&guard.currentGain()<=1.,
+                        "spectral color finite, mono and bounded");
+                if(n>sr*.3){before+=(l-x)*(l-x);after+=dl*dl;}
+            }
+            require(f==997. ? std::abs(10.*std::log10(after/before))<.5 : after<before*.65,
+                    "spectral color keeps lower harmonics and restrains upper residual");
+            guard.reset();double dl=.1,dr=-.2;guard.process(.8,.9,dl,dr,0.);
+            require(dl==.1&&dr==-.2,"spectral color zero amount exact");
+        }
+    }
+    std::cout<<"PASS: V18 exact rolling lookahead and research spectral color nine rates\\n";
 
     // The new clip amount is a genuine 4x audio process; zero retains
     // all earlier sessions' transparent limiting behavior by default.

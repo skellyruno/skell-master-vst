@@ -4,6 +4,7 @@
 #include "DepthWidth.h"
 #include "SpatialSeparation.h"
 #include "ImmersiveWidth.h"
+#include "PeakWindow.h"
 #include "AnalogSauce.h"
 #include "CompressionMakeup.h"
 
@@ -552,6 +553,7 @@ public:
 
     void reset() noexcept {
         history.fill({});
+        windowPeak.reset();
         writeIndex = 0;
     }
 
@@ -564,6 +566,9 @@ public:
         const float safeRight = static_cast<float>(detail::clamp(
             detail::finiteSample(static_cast<double>(right)), -256.0, 256.0));
         history[writeIndex] = { safeLeft, safeRight };
+        // Track the exact same sanitized host-rate samples even when the
+        // reconstructed detector is bypassed, so reentry is never cold.
+        windowPeak.push(std::max(std::abs(safeLeft),std::abs(safeRight)));
 
         double maximum = 0.0;
         if (measurePeak) {
@@ -648,17 +653,7 @@ public:
     // therefore cover the current input sample through the delayed output sample,
     // inclusive: a real 32-sample lookahead window for pre-attacking upcoming peaks.
     float lookaheadSamplePeak() const noexcept {
-        double maximum = 0.0;
-        for (int offset = 1; offset <= lookaheadSamples + 1; ++offset) {
-            int index = static_cast<int>(writeIndex) - offset;
-            if (index < 0)
-                index += historyLength;
-            const auto& sample = history[static_cast<std::size_t>(index)];
-            maximum = std::max(maximum, std::max(
-                std::abs(static_cast<double>(sample.left)),
-                std::abs(static_cast<double>(sample.right))));
-        }
-        return static_cast<float>(maximum);
+        return windowPeak.maximum();
     }
 
 private:
@@ -677,6 +672,7 @@ private:
 
     std::array<double, tapCount> coefficients {};
     std::array<StereoFrame, historyLength> history {};
+    PeakWindow<lookaheadSamples+1> windowPeak;
     std::size_t writeIndex = 0;
 };
 
@@ -694,7 +690,9 @@ public:
         const double rate = std::isfinite(sampleRate)
             ? std::max(1.0, sampleRate) : 48000.0;
         release = std::exp(-1.0 / (rate * 0.085));
-        guardMarginDb = rate <= 46000.0 ? 0.5 : rate <= 72000.0 ? 0.45 : 0.4;
+        // The rate-dependent margin cannot change during processing.
+        // Cache the exact same conversion outside the audio callback.
+        guardMarginGain = detail::dbToLinear(-(rate <= 46000.0 ? 0.5 : rate <= 72000.0 ? 0.45 : 0.4));
         detector.prepare();
         reset();
     }
@@ -724,7 +722,7 @@ public:
         const double requestedCeiling = std::clamp(
             std::isfinite(ceilingLinear) ? ceilingLinear : detail::dbToLinear(-1.0),
             1.0e-5, 1.0);
-        const double truePeakLimit = requestedCeiling * detail::dbToLinear(-guardMarginDb);
+        const double truePeakLimit = requestedCeiling * guardMarginGain;
         const double wantedGain = (!bypass && measuredPeak > truePeakLimit)
             ? truePeakLimit / std::max(measuredPeak, 1.0e-12) : 1.0;
 
@@ -757,7 +755,7 @@ private:
     std::size_t writeIndex = 0;
     double gain = 1.0;
     double release = 0.0;
-    double guardMarginDb = 0.3;
+    double guardMarginGain = detail::dbToLinear(-0.3);
 };
 
 // Gentle mastering width enhancement with two safeguards:
