@@ -89,8 +89,8 @@ private:
         }
     };
     PresetSelector presetSelector;
-    bool presetMenuOpen=false;
-    juce::TextButton fiveBandButton {"MAGIC"};
+    bool presetMenuOpen=false, qualityMenuOpen=false, presetChooserOpen=false;
+    juce::TextButton fiveBandButton {"SKELL MAGIC"};
     std::unique_ptr<juce::FileChooser> presetChooser;
     int displayedFactory=0;
     std::array<juce::TextButton,3> monitorButtons {juce::TextButton("PEAK"), juce::TextButton("TRUE"), juce::TextButton("CLEAR")};

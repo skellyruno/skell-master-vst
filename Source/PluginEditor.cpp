@@ -176,7 +176,8 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::setSkin(
     setColour(juce::ComboBox::backgroundColourId,juce::Colour(0xff080a08));
     setColour(juce::PopupMenu::backgroundColourId,juce::Colour(0xff111410));
     setColour(juce::PopupMenu::textColourId,lettering);
-    setColour(juce::PopupMenu::highlightedBackgroundColourId,accent.darker(0.72f));
+    setColour(juce::PopupMenu::highlightedBackgroundColourId,juce::Colour(0xff294333));
+    setColour(juce::PopupMenu::highlightedTextColourId,juce::Colour(0xfff4e6c4));
 }
 
 juce::Font SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::getComboBoxFont(
@@ -371,7 +372,7 @@ void SkellyMasterAudioProcessorEditor::SkellyLookAndFeel::drawButtonText(
     const float size=juce::jlimit(9.0f,17.0f,
                                   static_cast<float>(b.getHeight())*0.43f);
     font(g,size,true);
-    g.setColour(findColour(juce::TextButton::textColourOffId));
+    g.setColour(b.getToggleState() ? findColour(juce::TextButton::textColourOnId) : findColour(juce::TextButton::textColourOffId));
     // Compact 620px editor leaves only ~30px for the left mini-buttons.
     // A fixed 12px inset previously crushed their text into a tiny sliver.
     const int sidePad=b.getWidth()<45?2:b.getWidth()<95?6:12;
@@ -682,15 +683,22 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     addAndMakeVisible(presetSelector);
     qualityButton.setComponentID("skell-master-quality");
     qualityButton.onClick=[this] {
+        if(qualityMenuOpen || presetMenuOpen || presetChooserOpen) return;
         juce::PopupMenu menu;
+        menu.setLookAndFeel(&lookAndFeel);
+        menu.addSectionHeader("OVERSAMPLING");
         const int requested=processor.getRequestedOversampling();
         menu.addItem(2,"2x  /  ECO",true,requested==2);
         menu.addItem(4,"4x  /  STANDARD",true,requested==4);
         menu.addItem(8,"8x  /  HIGH",true,requested==8);
         const auto safe=juce::Component::SafePointer<SkellyMasterAudioProcessorEditor>(this);
-        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&qualityButton),
+        qualityMenuOpen=true;
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&qualityButton)
+                               .withMinimumWidth(200).withStandardItemHeight(28),
             [safe](int factor) {
-                if(safe==nullptr || !SkellyMasterAudioProcessor::validOversampling(factor)) return;
+                if(safe==nullptr) return;
+                safe->qualityMenuOpen=false;
+                if(!SkellyMasterAudioProcessor::validOversampling(factor)) return;
                 safe->processor.requestOversampling(factor);
                 safe->refreshQualityDisplay();
                 // No synchronous reprepare: the host owns audio lifecycle.
@@ -700,7 +708,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     refreshQualityDisplay();
     fiveBandButton.setComponentID("utility-five-band");
     fiveBandButton.setClickingTogglesState(true);
-    fiveBandButton.setTooltip("MAGIC: optional five-band enhancement. Sauce and Drive above 20%, plus Width, use shared multiband processing. Original factory sound remains protected.");
+    fiveBandButton.setTooltip("SKELL MAGIC: optional five-band enhancement. Sauce and Drive above 20%, plus Width, use shared multiband processing. Original factory sound remains protected.");
     fiveBandButton.setToggleState(processor.usesFiveBandEnhancement(),juce::dontSendNotification);
     fiveBandButton.onClick=[this]{ processor.setFiveBandEnhancementEnabled(fiveBandButton.getToggleState()); refreshPresetDisplay(); };
     addAndMakeVisible(fiveBandButton);
@@ -738,8 +746,8 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
 SkellyMasterAudioProcessorEditor::~SkellyMasterAudioProcessorEditor() {
     stopTimer();
     presetSelector.openMenu={};
-    if(presetMenuOpen) {
-        presetMenuOpen=false;
+    if(presetMenuOpen || qualityMenuOpen) {
+        presetMenuOpen=qualityMenuOpen=false;
         juce::PopupMenu::dismissAllActiveMenus();
     }
     presetChooser.reset();
@@ -1303,7 +1311,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     for(float x : {60.0f,249.0f})
         for(float y : {121.0f,273.0f}) hw::screw(g,x,y,0.88f);
     font(g,18,true);g.setColour(hw::gold);
-    // MAGIC occupies the former duplicate branding line in this panel.
+    // SKELL MAGIC occupies the former duplicate branding line in this panel.
     font(g,12,true);g.setColour(hw::parchment);
     text(g,"QUALITY / OVERSAMPLING",61,151,189,15);
     hw::divider(g,63,191,247,191);
@@ -1342,14 +1350,21 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     themeInset(g,{13,673,1174,80},skin,true);
     for(float x : {29.0f,1172.0f})
         for(float y : {685.0f,741.0f}) hw::screw(g,x,y,0.90f);
-    hw::divider(g,389,685,389,744);
-    hw::divider(g,755,685,755,744);
+    hw::divider(g,267,685,267,744);
+    hw::divider(g,553,685,553,744);
+    hw::divider(g,850,685,850,744);
     hw::divider(g,1121,685,1121,744);
-    // Redistribute all three utility controls across the freed deck.
+    // Restore the approved utility geometry exactly. The vacated left
+    // compartment is a quiet engraved identification plate, not a control.
+    font(g,16,true);g.setColour(hw::gold);
+    text(g,"MASTER BUS",48,689,205,23,juce::Justification::centred);
+    font(g,12,true);g.setColour(hw::parchment.withAlpha(.76f));
+    text(g,"STEREO PROCESSOR",48,718,205,17,juce::Justification::centred);
+    font(g,14,true);g.setColour(hw::gold);
+    text(g,"CLIP",294,710,85,21,juce::Justification::centredLeft);
     font(g,15,true);g.setColour(hw::gold);
-    text(g,"CLIP",62,710,88,21,juce::Justification::centredLeft);
-    text(g,"OUTPUT",423,710,88,21,juce::Justification::centredLeft);
-    text(g,"CEILING",789,710,92,21,juce::Justification::centredLeft);
+    text(g,"OUTPUT",566,710,84,21,juce::Justification::centredLeft);
+    text(g,"CEILING",852,710,88,21,juce::Justification::centredLeft);
     font(g,16,true);g.setColour(hw::gold);
     text(g,"M-01",1125,705,41,24);
 
@@ -1435,30 +1450,35 @@ void SkellyMasterAudioProcessorEditor::resized() {
     place(bypass,887,29,125,38);
     place(reset,1024,29,126,38);
     place(presetSelector,976,228,170,26);
-    place(knobs[10],156,685,204,68);
+    place(knobs[10],371,685,178,68);
     // Every compact button occupies the full available monitor row;
     // fixed 2px insets at min size preserve legibility and hit targets.
     for(int i=0;i<3;++i)
         place(monitorButtons[static_cast<size_t>(i)],63+i*62,215,60,30);
-    place(knobs[8],518,685,208,68);
-    place(knobs[9],886,685,210,68);
+    place(knobs[8],647,685,199,68);
+    place(knobs[9],929,685,181,68);
     place(skullHitTarget,57,10,82,72);
 }
 
 void SkellyMasterAudioProcessorEditor::showPresetChooser(bool save) {
+    if(presetChooserOpen) return;
     auto directory=SkellyMasterAudioProcessor::userPresetDirectory();
     if(directory.createDirectory().failed()) {
         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Presets","Cannot create the user preset folder.");
         return;
     }
-    const auto name=processor.getUserPresetName();
-    const auto start=save ? directory.getChildFile((name.isNotEmpty()?name:juce::String("My Master"))+".skellmasterpreset") : directory;
+    // Host-supplied preset names are display strings, not trusted paths.
+    const auto name=juce::File::createLegalFileName(processor.getUserPresetName()).trim().substring(0,128);
+    const auto start=save ? directory.getChildFile((name.isNotEmpty() && name!="." && name!=".." ? name : juce::String("My Master"))+".skellmasterpreset") : directory;
     presetChooser=std::make_unique<juce::FileChooser>(save?"Save Skell Master preset":"Load Skell Master preset",start,"*.skellmasterpreset");
     const auto safe=juce::Component::SafePointer<SkellyMasterAudioProcessorEditor>(this);
     const int flags=save ? juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting
                          : juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles;
+    presetChooserOpen=true;
     presetChooser->launchAsync(flags,[safe,save](const juce::FileChooser& chooser) {
-        if(safe==nullptr || chooser.getResult()==juce::File()) return;
+        if(safe==nullptr) return;
+        safe->presetChooserOpen=false;
+        if(chooser.getResult()==juce::File()) return;
         const auto file=chooser.getResult();
         if(save) {
             // Do not silently append an extension to an existing different
@@ -1481,6 +1501,7 @@ void SkellyMasterAudioProcessorEditor::loadPresetFile(const juce::File& file) {
 }
 void SkellyMasterAudioProcessorEditor::showPresetMenu() {
     if(presetMenuOpen) return;
+    if(qualityMenuOpen || presetChooserOpen) { presetSelector.hidePopup(); return; }
     constexpr int saveId=1000, browseId=1001, firstUserId=2000;
     auto files=SkellyMasterAudioProcessor::userPresetDirectory().findChildFiles(
         juce::File::findFiles,false,"*.skellmasterpreset");
@@ -1495,8 +1516,9 @@ void SkellyMasterAudioProcessorEditor::showPresetMenu() {
                      userName.isEmpty() && processor.getFactoryPresetId()==id);
     }
     menu.addSeparator();
-    menu.addItem(saveId,"Save preset...");
-    load.addItem(browseId,"Browse for preset...");
+    menu.addSectionHeader("USER PRESETS");
+    menu.addItem(saveId,"Save Preset...");
+    load.addItem(browseId,"Browse for Preset...");
     load.addSeparator();
     load.addSectionHeader("SAVED PRESETS");
     if(count==0) load.addItem(999,"No saved presets",false);
@@ -1504,12 +1526,12 @@ void SkellyMasterAudioProcessorEditor::showPresetMenu() {
         const auto name=files[n].getFileNameWithoutExtension();
         load.addItem(firstUserId+n,name,true,name==userName);
     }
-    menu.addSubMenu("Load preset",load);
+    menu.addSubMenu("Load Preset",load);
     menu.setLookAndFeel(&lookAndFeel);
     presetMenuOpen=true;
     const auto safe=juce::Component::SafePointer<SkellyMasterAudioProcessorEditor>(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&presetSelector)
-                           .withMinimumWidth(180),
+                           .withMinimumWidth(230).withStandardItemHeight(28),
         [safe,files,count,saveId,browseId,firstUserId](int id) {
             if(safe==nullptr) return;
             safe->presetMenuOpen=false;

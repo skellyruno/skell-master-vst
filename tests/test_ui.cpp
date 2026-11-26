@@ -433,7 +433,7 @@ int main() {
         for(const int width : {620,702,1200}) {
             editor.setSize(width,juce::roundToInt(width*760.0/1200.0));
             const auto bounds=preset->getBounds();
-            check(fiveBand->getButtonText()=="MAGIC" && fiveBand->getBounds().getCentreX()<width/4 && fiveBand->getY()>editor.getHeight()*0.14 && fiveBand->getBottom()<editor.getHeight()*0.21,"MAGIC toggle in upper-left monitoring box");
+            check(fiveBand->getButtonText()=="SKELL MAGIC" && fiveBand->getBounds().getCentreX()<width/4 && fiveBand->getY()>editor.getHeight()*0.14 && fiveBand->getBottom()<editor.getHeight()*0.21,"MAGIC toggle in upper-left monitoring box");
             check(editor.getComponentAt(fiveBand->getBounds().getCentre())==fiveBand,"five-band hit area unobstructed");
             const int middleY=bounds.getCentreY();
             for(const int xx : {bounds.getX()+3,bounds.getCentreX(),
@@ -445,6 +445,14 @@ int main() {
                 check(editor.getComponentAt(local)==monitor,
                       "small-size PEAK/TRUE/CLEAR button hit area is obstructed");
             }
+        }
+        // The approved bottom-control coordinates must not drift during polish.
+        editor.setSize(1200,760);
+        check(clipper->getBounds()==juce::Rectangle<int>(371,685,178,68),"restore approved CLIP placement");
+        for(int i=0;i<editor.getNumChildComponents();++i) {
+            auto* control=editor.getChildComponent(i);
+            if(control->getComponentID()=="utility-output") check(control->getBounds()==juce::Rectangle<int>(647,685,199,68),"restore approved OUTPUT placement");
+            if(control->getComponentID()=="utility-ceiling") check(control->getBounds()==juce::Rectangle<int>(929,685,181,68),"restore approved CEILING placement");
         }
         // JUCE's combo popup should not have its item states mutated by
         // the 30Hz timer while the user clicks a menu entry.
