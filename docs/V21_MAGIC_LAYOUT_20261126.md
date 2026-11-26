@@ -1,0 +1,3 @@
+# V21 MAGIC layout correction
+
+Owner clarified upper-left monitoring box, not bottom utility box. Rename existing five-band mode button MAGIC, replace duplicate SKELLY MASTER label above quality selector, preserve mode ID, tooltip and existing saved state/DSP. Keep Save/Load in preset dropdown. Redistribute Clip, Output, Ceiling across the full lower utility deck; no new control or DSP change. Prior Windows compile failure C3493 corrected in parent cc3e88d06b2be258c8957827b624fbefd8ca2851. Geometry test now requires MAGIC label and upper-left placement at 620/702/1200. Exact current build, menu interaction and visual inspection pending; JUCE git retrieval DNS failed. Draft PR only.

@@ -10,12 +10,17 @@ on:
       - 'Source/**'
       - 'tests/**'
       - 'tools/normalize_vst3_moduleinfo.py'
+      - 'tools/render_deuce_master_reference.ps1'
+      - 'tools/render_deuce_master_reference.sh'
 
 # During rapid UI/DSP iterations, do not waste Windows runners compiling
 # superseded snapshots. Always compile and publish the most recent commit.
+permissions:
+  contents: read
+
 concurrency:
   group: skell-master-${{ github.ref }}
-  # Do not cancel main or manual builds; supersede only old PR checks.
+  # Preserve main/manual builds; supersede only outdated PR checks.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -27,18 +32,420 @@ jobs:
         run: cmake -S . -B build -A x64
       - name: Build
         run: cmake --build build --config Release --parallel 4
-      # Keep normal DSP/JUCE regression checks; no hosted UI screenshot uploads.
+      - name: Validate VST3 metadata as strict JSON
+        shell: pwsh
+        run: |
+          python tools/normalize_vst3_moduleinfo.py --self-test
+          $plugin = Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Select-Object -First 1
+          if (-not $plugin) { throw 'VST3 bundle missing before metadata validation' }
+          $metadata = Join-Path $plugin.FullName 'Contents/Resources/moduleinfo.json'
+          if (-not (Test-Path $metadata)) { throw 'VST3 moduleinfo.json missing' }
+          python tools/normalize_vst3_moduleinfo.py "$metadata"
+      # Keep DSP/editor regressions. Visual captures stay local; no CI screenshot uploads.
       - name: Test mastering DSP
         run: ctest --test-dir build -C Release --output-on-failure --verbose
-      - name: Package
+      - name: Smoke-test external WAV render path
         shell: pwsh
         run: |
           $plugin = Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Select-Object -First 1
-          if (-not $plugin) { throw 'VST3 bundle missing' }
-          Compress-Archive -Path $plugin.FullName -DestinationPath SkellPlugin-Windows-VST3.zip
+          $runner = Get-ChildItem -Path build -File -Recurse -Filter 'SkellyVST3HostAudioTests.exe' | Select-Object -First 1
+          if (-not $plugin) { throw 'VST3 bundle missing for WAV render smoke test' }
+          if (-not $runner) { throw 'VST3 host render executable missing' }
+          $inputWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture.wav'
+          $outputWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-output.wav'
+          $overrideWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-override.wav'
+          @'
+          import math, struct, sys, wave
+          path = sys.argv[1]
+          rate = 44100
+          with wave.open(path, "wb") as w:
+              w.setnchannels(2)
+              w.setsampwidth(2)
+              w.setframerate(rate)
+              frames = bytearray()
+              for n in range(rate):
+                  t = n / rate
+                  transient = 0.85 * math.exp(-n / 24.0) if n < 240 else 0.0
+                  left = transient + 0.22 * math.sin(2 * math.pi * 63 * t) + 0.08 * math.sin(2 * math.pi * 7200 * t)
+                  right = transient * 0.8 + 0.19 * math.sin(2 * math.pi * 63 * t + 0.07) - 0.06 * math.sin(2 * math.pi * 7200 * t)
+                  frames.extend(struct.pack("<hh", max(-32768, min(32767, round(left * 22000))), max(-32768, min(32767, round(right * 22000)))))
+              w.writeframes(frames)
+          '@ | python - $inputWavPath
+          & $runner.FullName $plugin.FullName $inputWavPath $outputWavPath
+          if ($LASTEXITCODE -ne 0) { throw "VST3 WAV render smoke test failed with exit code $LASTEXITCODE" }
+          $firstHash = (Get-FileHash $outputWavPath -Algorithm SHA256).Hash
+          & $runner.FullName $plugin.FullName $inputWavPath $outputWavPath
+          if ($LASTEXITCODE -ne 0) { throw "Repeated WAV output render failed" }
+          if ((Get-FileHash $outputWavPath -Algorithm SHA256).Hash -ne $firstHash) {
+            throw "Rerendering the same WAV path corrupted or changed the output"
+          }
+          $sourceHash = (Get-FileHash $inputWavPath -Algorithm SHA256).Hash
+          & $runner.FullName $plugin.FullName $inputWavPath $inputWavPath
+          if ($LASTEXITCODE -eq 0) { throw "Renderer accepted destructive input/output alias" }
+          if ((Get-FileHash $inputWavPath -Algorithm SHA256).Hash -ne $sourceHash) {
+            throw "Rejected input/output alias changed the source WAV"
+          }
+          & $runner.FullName $plugin.FullName $inputWavPath $overrideWavPath --set 'Input=5' --set 'Glue=18' --bool 'Deuce Match=1'
+          if ($LASTEXITCODE -ne 0) { throw "VST3 parameter-override render failed with exit code $LASTEXITCODE" }
+          $newLoudWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-v8-loud-plus.wav'
+          & $runner.FullName $plugin.FullName $inputWavPath $newLoudWavPath --factory 9
+          if ($LASTEXITCODE -ne 0) { throw "New v8 LOUD MASTER+ VST3 state render failed" }
+          if (-not (Test-Path $newLoudWavPath)) { throw "New v8 LOUD MASTER+ output WAV missing" }
+          if ((Get-FileHash $newLoudWavPath -Algorithm SHA256).Hash -eq
+              (Get-FileHash $outputWavPath -Algorithm SHA256).Hash) {
+            throw "New LOUD MASTER+ factory has no distinct audio"
+          }
+          # Both the neutral DEFAULT and explicit BYPASS should output
+          # identical dry audio through the real Windows VST3 host.
+          $neutralWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-neutral-default.wav'
+          $dryWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-neutral-bypass.wav'
+          & $runner.FullName $plugin.FullName $inputWavPath $neutralWavPath --factory 1
+          if ($LASTEXITCODE -ne 0) { throw "Neutral DEFAULT render failed" }
+          $creativeWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-depth-width-sauce.wav'
+          & $runner.FullName $plugin.FullName $inputWavPath $creativeWavPath --factory 1 --set 'Spatial Width=100' --set 'Sauce=100' --set 'Input=12'
+          if ($LASTEXITCODE -ne 0) { throw "V11 creative Width/Sauce true-peak render failed" }
+          foreach ($os in @(2,4,8)) {
+            $makeupWav = Join-Path $env:RUNNER_TEMP "skell-master-makeup-$os.wav"
+            & $runner.FullName $plugin.FullName $inputWavPath $makeupWav --factory 1 --oversampling $os --set 'Glue=100' --set 'Dynamics=100' --set 'Input=12'
+            if ($LASTEXITCODE -ne 0) { throw "V16 strong compression true-peak stress failed at ${os}x" }
+            $fiveBandWav = Join-Path $env:RUNNER_TEMP "skell-master-five-band-$os.wav"
+            & $runner.FullName $plugin.FullName $inputWavPath $fiveBandWav --factory 1 --oversampling $os --five-band 1 --set 'Drive=100' --set 'Sauce=100' --set 'Spatial Width=100' --set 'Input=12' --set 'Clip=35'
+            if ($LASTEXITCODE -ne 0) { throw "Five-band creative stress failed at ${os}x" }
+          }
+          & $runner.FullName $plugin.FullName $inputWavPath $dryWavPath --factory 1 --bool 'Bypass=1'
+          if ($LASTEXITCODE -ne 0) { throw "Explicit dry bypass render failed" }
+          python tests/check_transparent_default.py $neutralWavPath $dryWavPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "DEFAULT native-host transparency test failed"
+          }
+          @'
+          import sys, wave
+          with wave.open(sys.argv[1], "rb") as w:
+              assert w.getnchannels() == 2, "render must be stereo"
+              assert w.getframerate() == 44100, "render sample rate changed"
+              assert w.getsampwidth() == 3, "render must be 24-bit PCM"
+              assert w.getnframes() > 44100, "render should include the plugin latency/tail"
+              print(f"PASS: external WAV VST3 render {w.getframerate()} Hz, {w.getnframes()} frames, {w.getsampwidth()*8}-bit PCM")
+          import hashlib, sys, wave
+          for path in sys.argv[1:]:
+              with wave.open(path, "rb") as w:
+                  assert w.getnchannels() == 2 and w.getframerate() == 44100 and w.getsampwidth() == 3
+                  assert w.getnframes() > 44100
+          hashes = [hashlib.sha256(open(path, "rb").read()).hexdigest() for path in sys.argv[1:]]
+          assert hashes[0] != hashes[1], "parameter overrides did not change the rendered audio"
+          print("PASS: default and --set override renders are valid, distinct 24-bit stereo WAVs")
+          '@ | python - $outputWavPath $overrideWavPath
+          $boundaryWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-boundary.wav'
+          $extremeWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-extreme-output-clip.wav'
+          $legacyWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-legacy-mode.wav'
+          $invalidRangeWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-invalid-range.wav'
+          $invalidStepWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-invalid-step.wav'
+          $wrongTypeWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-wrong-type.wav'
+          $numericBooleanWavPath = Join-Path $env:RUNNER_TEMP 'skell-master-render-fixture-numeric-boolean.wav'
+          & $runner.FullName $plugin.FullName $inputWavPath $boundaryWavPath --set 'Input=18' --set 'Ceiling Adjust=3'
+          if ($LASTEXITCODE -ne 0) { throw "Legal upper-bound override was rejected" }
+          & $runner.FullName $plugin.FullName $inputWavPath $extremeWavPath --set 'Output Trim=12' --set 'Clip=100' --set 'Ceiling Adjust=3' --bool 'Deuce Match=1'
+          if ($LASTEXITCODE -ne 0) { throw "Maximum Output Trim/Clip Deuce Match render failed its true-peak margin" }
+          if (-not (Test-Path $extremeWavPath)) { throw "Maximum Output Trim/Clip render did not create its WAV" }
+          # Legacy mode has sample-peak safety, but no Deuce Match true-peak guarantee.
+          & $runner.FullName $plugin.FullName $inputWavPath $legacyWavPath --bool 'Deuce Match=0'
+          if ($LASTEXITCODE -ne 0) { throw "Legacy sample-peak mode render was rejected" }
+          @'
+          import sys, wave
+          with wave.open(sys.argv[1], "rb") as w:
+              assert w.getnchannels() == 2 and w.getframerate() == 44100 and w.getsampwidth() == 3
+              assert w.getnframes() > 44100
+          print("PASS: Deuce Match-off legacy sample-peak render is valid 24-bit stereo WAV")
+          '@ | python - $legacyWavPath
+          & $runner.FullName $plugin.FullName $inputWavPath $invalidRangeWavPath --set 'Input=1000'
+          if ($LASTEXITCODE -eq 0) { throw "Out-of-range numeric override was silently accepted" }
+          if (Test-Path $invalidRangeWavPath) { throw "Rejected range override wrote an output file" }
+          & $runner.FullName $plugin.FullName $inputWavPath $invalidStepWavPath --set 'Input=5.5'
+          if ($LASTEXITCODE -eq 0) { throw "Illegal stepped value was silently accepted" }
+          if (Test-Path $invalidStepWavPath) { throw "Rejected step override wrote an output file" }
+          & $runner.FullName $plugin.FullName $inputWavPath $wrongTypeWavPath --bool 'Input=1'
+          if ($LASTEXITCODE -eq 0) { throw "Boolean override on a numeric parameter was silently accepted" }
+          if (Test-Path $wrongTypeWavPath) { throw "Rejected type override wrote an output file" }
+          & $runner.FullName $plugin.FullName $inputWavPath $numericBooleanWavPath --set 'Deuce Match=1'
+          if ($LASTEXITCODE -eq 0) { throw "Numeric override on a boolean parameter was silently accepted" }
+          if (Test-Path $numericBooleanWavPath) { throw "Rejected boolean-as-numeric override wrote an output file" }
+          # The final negative case intentionally leaves a non-zero native exit code.
+          # All rejection assertions passed, so do not leak that expected status to pwsh.
+          exit 0
+      - name: Package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundles = @(Get-ChildItem -Path build -Directory -Recurse -Filter '*.vst3' | Where-Object { $_.FullName -match '[\\/]Release[\\/]' -and $_.Name -eq 'Skelly Master.vst3' })
+          if ($bundles.Count -ne 1) { throw "Expected one Release Skelly Master.vst3 bundle, found $($bundles.Count)" }
+          $plugin = $bundles[0]
+          $binary = Join-Path $plugin.FullName 'Contents/x86_64-win/Skelly Master.vst3'
+          $bytes = [System.IO.File]::ReadAllBytes($binary)
+          if ($bytes.Length -lt 512 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'Invalid Windows PE DOS signature' }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          if ($peOffset -lt 0x40 -or $peOffset -gt ($bytes.Length - 24) -or
+              [Text.Encoding]::ASCII.GetString($bytes, $peOffset, 4) -ne "PE" + [char]0 + [char]0) { throw 'Invalid Windows PE signature' }
+          if ([BitConverter]::ToUInt16($bytes, $peOffset + 4) -ne 0x8664) { throw 'Expected AMD64 VST3 module' }
+          $metadata = Get-Content (Join-Path $plugin.FullName 'Contents/Resources/moduleinfo.json') -Raw | ConvertFrom-Json
+          if ($metadata.Name -ne 'Skelly Master' -or -not $metadata.Classes) { throw 'Incorrect VST3 metadata identity' }
+          Write-Host "VST3 binary SHA256: $((Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash)"
+          $runner = Get-ChildItem -Path build -File -Recurse -Filter 'SkellyVST3HostAudioTests.exe' | Select-Object -First 1
+          if (-not $runner) { throw 'VST3 host render executable missing' }
+          $package = Join-Path $PWD 'Skell-Master-Windows-VST3'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item -Path $plugin.FullName -Destination $package -Recurse
+          Copy-Item -Path $runner.FullName -Destination $package
+          Copy-Item -Path 'tools/render_deuce_master_reference.ps1' -Destination $package
+          $checkedOutCommit = (git rev-parse HEAD).Trim()
+          $prHead = "${{ github.event.pull_request.head.sha || github.sha }}"
+          $branchName = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
+          @"
+          Product: Skell Master
+          Version: 1.0.0
+          Checked-out commit: $checkedOutCommit
+          Workflow SHA: $env:GITHUB_SHA
+          PR head SHA: $prHead
+          Branch: $branchName
+          Workflow run: $env:GITHUB_RUN_ID
+          VST3 host runner: SkellyVST3HostAudioTests.exe
+          Audio render: 24-bit PCM WAV; stereo input; 44.1/48/96 kHz
+          Preset: SKELL MASTER (factory identity 5; Deuce Match enabled)
+          "@ | Set-Content -Encoding UTF8 (Join-Path $package 'BUILD-INFO.txt')
+          @"
+          Skell Master — Windows VST3 + offline WAV render helper
+
+          This is a draft verification build, not a production release.
+
+          Render a local stereo WAV through the compiled VST3:
+            .\render_deuce_master_reference.ps1 -InputWav "C:\path\deuce w beat.wav" -OutputWav "C:\path\SkellMaster_Deuce_Render.wav"
+
+          Input must be stereo WAV at 44.1, 48 or 96 kHz. Output is 24-bit PCM WAV.
+          The runner applies the SKELL MASTER reference parameters and enables Deuce Match.
+          Optional overrides: -SetParameter 'Input=5' -SetBoolean 'Deuce Match=1'.
+          It includes plugin latency and a short safety tail; align the result before A/B.
+          This is a JUCE-hosted VST3 render, not an FL Studio session render.
+          No owner audio or preset files are included in this package.
+          "@ | Set-Content -Encoding UTF8 (Join-Path $package 'README.txt')
+      - name: Validate exact staged VST3 with pluginval
+        uses: Tracktion/pluginval/validate@v2.0.0-beta3
+        with:
+          plugins: Skell-Master-Windows-VST3/Skelly Master.vst3
+          strictness-level: 5
+          pluginval-version: v2.0.0-beta3
       - uses: actions/upload-artifact@v6
         with:
           retention-days: 14
           name: SkellPlugin-Windows-VST3
-          path: SkellPlugin-Windows-VST3.zip
+          path: Skell-Master-Windows-VST3
+          if-no-files-found: error
+  reference-audio-linux-renderer:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install JUCE Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config xvfb libasound2-dev libjack-jackd2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxext-dev libxinerama-dev libxrandr-dev libxcursor-dev libxcomposite-dev libxrender-dev libxfixes-dev libxss-dev libgl1-mesa-dev libgtk-3-dev
+      - name: Configure Linux VST3 and host renderer
+        run: cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build Linux VST3 and host renderer
+        run: cmake --build build-linux --parallel 4
+      - name: Validate Linux VST3 metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/normalize_vst3_moduleinfo.py --self-test
+          plugin="$(find build-linux -type d -name '*.vst3' -print -quit)"
+          test -n "$plugin"
+          metadata="$plugin/Contents/Resources/moduleinfo.json"
+          test -f "$metadata"
+          python tools/normalize_vst3_moduleinfo.py "$metadata"
+      - name: Run portable DSP and hosted Linux VST3 tests
+        run: xvfb-run -a ctest --test-dir build-linux --output-on-failure --verbose
+      - name: Smoke-test Linux VST3 parameter override validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin="$(find build-linux -type d -name '*.vst3' -print -quit)"
+          runner="$(find build-linux -type f -name 'SkellyVST3HostAudioTestsLinux' -perm -111 -print -quit)"
+          test -n "$plugin"
+          test -n "$runner"
+          input="$RUNNER_TEMP/skell-master-range-validation-input.wav"
+          default="$RUNNER_TEMP/skell-master-range-validation-default.wav"
+          override="$RUNNER_TEMP/skell-master-range-validation-override.wav"
+          boundary="$RUNNER_TEMP/skell-master-range-validation-boundary.wav"
+          extreme="$RUNNER_TEMP/skell-master-range-validation-extreme-output-clip.wav"
+          legacy="$RUNNER_TEMP/skell-master-range-validation-legacy-mode.wav"
+          five_plugin="$RUNNER_TEMP/skell-master-range-validation-five-plugin.wav"
+          invalid_range="$RUNNER_TEMP/skell-master-range-validation-invalid-range.wav"
+          invalid_step="$RUNNER_TEMP/skell-master-range-validation-invalid-step.wav"
+          wrong_type="$RUNNER_TEMP/skell-master-range-validation-wrong-type.wav"
+          numeric_boolean="$RUNNER_TEMP/skell-master-range-validation-numeric-boolean.wav"
+          python - "$input" <<'PY'
+          import math, struct, sys, wave
+          rate = 44100
+          with wave.open(sys.argv[1], "wb") as w:
+              w.setnchannels(2)
+              w.setsampwidth(2)
+              w.setframerate(rate)
+              frames = bytearray()
+              for n in range(rate):
+                  t = n / rate
+                  left = 0.35 * math.sin(2 * math.pi * 61 * t) + 0.12 * math.sin(2 * math.pi * 7200 * t)
+                  right = 0.31 * math.sin(2 * math.pi * 61 * t + 0.07) - 0.09 * math.sin(2 * math.pi * 7200 * t)
+                  frames.extend(struct.pack("<hh", round(left * 26000), round(right * 26000)))
+              w.writeframes(frames)
+          PY
+          "$runner" "$plugin" "$input" "$default"
+          cp "$default" "$RUNNER_TEMP/skell-master-first-render.wav"
+          "$runner" "$plugin" "$input" "$default"
+          if ! cmp -s "$default" "$RUNNER_TEMP/skell-master-first-render.wav"; then
+            echo "Repeat render output changed or became invalid" >&2
+            exit 1
+          fi
+          input_hash="$(sha256sum "$input" | cut -d ' ' -f1)"
+          if "$runner" "$plugin" "$input" "$input"; then
+            echo "Renderer accepted destructive input/output alias" >&2
+            exit 1
+          fi
+          test "$(sha256sum "$input" | cut -d ' ' -f1)" = "$input_hash"
+          "$runner" "$plugin" "$input" "$override" --set 'Input=5' --set 'Glue=18' --bool 'Deuce Match=1'
+          "$runner" "$plugin" "$input" "$boundary" --set 'Input=18' --set 'Ceiling Adjust=3'
+          "$runner" "$plugin" "$input" "$extreme" --set 'Output Trim=12' --set 'Clip=100' --set 'Ceiling Adjust=3' --bool 'Deuce Match=1'
+          # Legacy mode retains sample-peak safety; true-peak margin is Deuce Match-only.
+          "$runner" "$plugin" "$input" "$legacy" --bool 'Deuce Match=0'
+          # Render NEW sixth factory by real serialized VST3 state; the
+          # CLI must support it without inventing an APVTS parameter.
+          "$runner" "$plugin" "$input" "$five_plugin" --factory 6
+          test -s "$five_plugin"
+          if cmp -s "$default" "$five_plugin"; then
+            echo "New five-plugin preset did not change rendered audio" >&2
+            exit 1
+          fi
+          # All nine factory identities must render through the actual
+          # VST3 state stream, not a fake GUI number or helper DSP mock.
+          for factory_id in 1 2 3 4 5 6 7 8 9; do
+            factory_wav="$RUNNER_TEMP/skell-master-factory-$factory_id.wav"
+            "$runner" "$plugin" "$input" "$factory_wav" --factory "$factory_id"
+            test -s "$factory_wav"
+          done
+          # DEFAULT must be exactly the latency-aligned dry path at all
+          # zero knobs; earlier builds silently limited it by ~1.5dB.
+          dry_default="$RUNNER_TEMP/skell-master-factory-1-explicit-bypass.wav"
+          "$runner" "$plugin" "$input" "$dry_default" --factory 1 --bool 'Bypass=1'
+          "$runner" "$plugin" "$input" "$RUNNER_TEMP/skell-master-depth-width-sauce.wav" --factory 1 --set 'Spatial Width=100' --set 'Sauce=100' --set 'Input=12'
+          for os in 2 4 8; do
+            "$runner" "$plugin" "$input" "$RUNNER_TEMP/skell-master-makeup-$os.wav" --factory 1 --oversampling "$os" --set 'Glue=100' --set 'Dynamics=100' --set 'Input=12'
+            "$runner" "$plugin" "$input" "$RUNNER_TEMP/skell-master-five-band-$os.wav" --factory 1 --oversampling "$os" --five-band 1 --set 'Drive=100' --set 'Sauce=100' --set 'Spatial Width=100' --set 'Input=12' --set 'Clip=35'
+          done
+          # Host native bypass can skip the plugin's 4x polyphase/latency
+          # route, so exact PCM hashes are not the right host-level metric.
+          # The direct JUCE test independently checks sample-exact dry path.
+          python tests/check_transparent_default.py \
+            "$RUNNER_TEMP/skell-master-factory-1.wav" "$dry_default"
+          if cmp -s "$RUNNER_TEMP/skell-master-factory-4.wav" \
+                    "$RUNNER_TEMP/skell-master-factory-9.wav"; then
+            echo "LOUD MASTER+ must be audibly distinct from original LOUD MASTER" >&2
+            exit 1
+          fi
+          # Named existing automation IDs: every physical mastering knob
+          # must change the actual VST3 output, not only its readout.
+          knob_index=0
+          for assignment in 'Input=6' 'Drive=18' 'Glue=28' \
+                            'Dynamics=25' 'Lows=2' 'Highs=4' \
+                            'Sauce=35' 'Transients=42' 'Output Trim=-6' \
+                            'Ceiling Adjust=-2' 'Clip=40'; do
+            knob_index=$((knob_index+1))
+            knob_wav="$RUNNER_TEMP/skell-master-knob-$knob_index.wav"
+            "$runner" "$plugin" "$input" "$knob_wav" \
+              --factory 5 --set "$assignment"
+            test -s "$knob_wav"
+            if cmp -s "$default" "$knob_wav"; then
+              echo "No actual DSP response for mastering $assignment" >&2
+              exit 1
+            fi
+          done
+          if "$runner" "$plugin" "$input" "$invalid_range" --set 'Input=1000'; then
+            echo "Out-of-range numeric override was silently accepted" >&2
+            exit 1
+          fi
+          test ! -e "$invalid_range"
+          if "$runner" "$plugin" "$input" "$invalid_step" --set 'Input=5.5'; then
+            echo "Illegal stepped value was silently accepted" >&2
+            exit 1
+          fi
+          test ! -e "$invalid_step"
+          if "$runner" "$plugin" "$input" "$wrong_type" --bool 'Input=1'; then
+            echo "Boolean override on a numeric parameter was silently accepted" >&2
+            exit 1
+          fi
+          test ! -e "$wrong_type"
+          if "$runner" "$plugin" "$input" "$numeric_boolean" --set 'Deuce Match=1'; then
+            echo "Numeric override on a boolean parameter was silently accepted" >&2
+            exit 1
+          fi
+          test ! -e "$numeric_boolean"
+          python - "$default" "$override" "$boundary" "$extreme" "$legacy" <<'PY'
+          import hashlib, sys, wave
+          hashes = []
+          for path in sys.argv[1:]:
+              with wave.open(path, "rb") as w:
+                  assert w.getnchannels() == 2 and w.getframerate() == 44100 and w.getsampwidth() == 3
+                  assert w.getnframes() > 44100
+              hashes.append(hashlib.sha256(open(path, "rb").read()).hexdigest())
+          assert len(set(hashes)) == 5, "legal mode/parameter overrides must produce distinct rendered audio"
+          print("PASS: Linux VST3 valid, boundary, maximum-output/clip, legacy-mode, range, step and boolean override checks")
+          PY
+      - name: Package local-reference renderer
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin="$(find build-linux -type d -name '*.vst3' -print -quit)"
+          runner="$(find build-linux -type f -name 'SkellyVST3HostAudioTestsLinux' -perm -111 -print -quit)"
+          test -n "$plugin"
+          test -n "$runner"
+          package=Skell-Master-Linux-VST3
+          mkdir -p "$package"
+          cp -a "$plugin" "$package/"
+          cp "$runner" "$package/"
+          cp tools/render_deuce_master_reference.sh "$package/"
+          chmod +x "$package/render_deuce_master_reference.sh"
+          plugin_binary="$(find "$plugin" -type f -name '*.so' -print -quit)"
+          test -n "$plugin_binary"
+          ldd "$runner" | tee "$package/ldd-runner.txt"
+          ldd "$plugin_binary" | tee "$package/ldd-plugin.txt"
+          if grep -q 'not found' "$package/ldd-runner.txt" "$package/ldd-plugin.txt"; then
+            echo 'Missing Linux runtime dependency' >&2
+            exit 1
+          fi
+          {
+            echo "Product: Skell Master"
+            echo "Checked-out commit: $(git rev-parse HEAD)"
+            echo "Workflow run: $GITHUB_RUN_ID"
+            echo "Host runner: SkellyVST3HostAudioTestsLinux"
+            echo "Preset: SKELL MASTER (factory identity 5; Deuce Match enabled)"
+            echo "Output: 24-bit PCM WAV; includes reported latency and safety tail"
+            echo "Private owner WAV/FST files: not included or uploaded"
+          } > "$package/BUILD-INFO.txt"
+          cat > "$package/README.txt" <<'EOF'
+          Skell Master — Linux VST3 reference renderer
+
+          This is a render/analysis helper, not a Windows release or FL Studio session.
+
+          Render a local stereo WAV through the compiled VST3:
+            ./render_deuce_master_reference.sh "./Skelly Master.vst3" "/path/input.wav" "/path/output.wav"
+
+          Input must be stereo WAV at 44.1, 48 or 96 kHz. Output is 24-bit PCM WAV.
+          The runner applies the SKELL MASTER factory parameters and enables Deuce Match.
+          Optional overrides: --set 'Input=5' --bool 'Deuce Match=1'.
+          The output includes reported plugin latency and a short tail; align before A/B.
+          The script refuses to overwrite an existing output file.
+          Owner audio and FST files are never included in this package.
+          EOF
+      - uses: actions/upload-artifact@v6
+        with:
+          retention-days: 14
+          name: SkellMaster-Linux-VST3-ReferenceRenderer
+          path: Skell-Master-Linux-VST3
           if-no-files-found: error

@@ -1,6 +1,8 @@
 #pragma once
 #include <JuceHeader.h>
 #include "DSP/MasteringEngine.h"
+#include "DSP/LoudnessMeter.h"
+#include "DSP/PostLimiterPresencePrototype.h"
 #include <atomic>
 #include <memory>
 
@@ -24,7 +26,11 @@ public:
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
+    const juce::String getProgramName(int index) override {
+        // VST3 requires a non-empty name for every exposed program.
+        // The five factory mastering choices remain in the dedicated UI selector.
+        return index == 0 ? juce::String("Default") : juce::String();
+    }
     void changeProgramName(int, const juce::String&) override {}
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*, int) override;
@@ -32,20 +38,134 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     juce::AudioProcessorValueTreeState parameters;
 
+    // Factory selector identity is UI state, not an automatable parameter.
+    void setFactoryPresetId(int presetId) noexcept {
+        factoryPresetId.store(juce::jlimit(0, 9, presetId), std::memory_order_relaxed);
+    }
+    int getFactoryPresetId() const noexcept {
+        return factoryPresetId.load(std::memory_order_relaxed);
+    }
+    // Non-automatable mode and topology stored in state v7; no host/APVTS IDs change.
+    bool usesReferenceClip() const noexcept {
+        return referenceClipEnabled.load(std::memory_order_relaxed);
+    }
+    void setReferenceClipEnabled(bool enabled) noexcept {
+        referenceClipEnabled.store(enabled,std::memory_order_relaxed);
+    }
+    bool usesChainOrderedClip() const noexcept {
+        return chainOrderedClipEnabled.load(std::memory_order_relaxed);
+    }
+    void setChainOrderedClipEnabled(bool enabled) noexcept {
+        chainOrderedClipEnabled.store(enabled,std::memory_order_relaxed);
+    }
+    bool usesRefinedControlCurves() const noexcept {
+        return refinedControlCurvesEnabled.load(std::memory_order_relaxed);
+    }
+    void setRefinedControlCurvesEnabled(bool enabled) noexcept {
+        refinedControlCurvesEnabled.store(enabled,std::memory_order_relaxed);
+    }
+    bool usesReferenceCalibration() const noexcept {
+        return referenceCalibrationEnabled.load(std::memory_order_relaxed);
+    }
+    void setReferenceCalibrationEnabled(bool enabled) noexcept {
+        referenceCalibrationEnabled.store(enabled,std::memory_order_relaxed);
+    }
+
+    bool usesFiveBandEnhancement() const noexcept { return fiveBandEnhancementEnabled.load(std::memory_order_relaxed); }
+    void setFiveBandEnhancementEnabled(bool v) noexcept { fiveBandEnhancementEnabled.store(v,std::memory_order_relaxed); }
+    bool usesImmersiveWidth() const noexcept { return immersiveWidthEnabled.load(std::memory_order_relaxed); }
+    void setImmersiveWidthEnabled(bool v) noexcept { immersiveWidthEnabled.store(v,std::memory_order_relaxed); }
+    bool usesEfficientDepth() const noexcept { return efficientDepthEnabled.load(std::memory_order_relaxed); }
+    void setEfficientDepthEnabled(bool value) noexcept { efficientDepthEnabled.store(value,std::memory_order_relaxed); }
+    bool usesCompressionMakeup() const noexcept { return compressionMakeupEnabled.load(std::memory_order_relaxed); }
+    void setCompressionMakeupEnabled(bool value) noexcept { compressionMakeupEnabled.store(value,std::memory_order_relaxed); }
+    bool usesAdaptiveCompression() const noexcept { return adaptiveCompressionEnabled.load(std::memory_order_relaxed); }
+    void setAdaptiveCompressionEnabled(bool value) noexcept { adaptiveCompressionEnabled.store(value,std::memory_order_relaxed); }
+    bool usesDepthWidth() const noexcept { return depthWidthEnabled.load(std::memory_order_relaxed); }
+    void setDepthWidthEnabled(bool value) noexcept { depthWidthEnabled.store(value,std::memory_order_relaxed); }
+    bool usesAnalogSauce() const noexcept { return analogSauceEnabled.load(std::memory_order_relaxed); }
+    void setAnalogSauceEnabled(bool value) noexcept { analogSauceEnabled.store(value,std::memory_order_relaxed); }
+    bool usesEnhancedSauce() const noexcept { return enhancedSauceEnabled.load(std::memory_order_relaxed); }
+    void setEnhancedSauceEnabled(bool value) noexcept { enhancedSauceEnabled.store(value,std::memory_order_relaxed); }
+
     // Lock-free peak accumulation. GUI calls exchange(0) once per frame.
+    float consumeRmsLeft() noexcept { return rmsLeft.exchange(0.f,std::memory_order_relaxed); }
+    float consumeRmsRight() noexcept { return rmsRight.exchange(0.f,std::memory_order_relaxed); }
     float consumePeakLeft() noexcept { return peakLeft.exchange(0.0f, std::memory_order_relaxed); }
     float consumePeakRight() noexcept { return peakRight.exchange(0.0f, std::memory_order_relaxed); }
     float consumeMaxReduction() noexcept { return reduction.exchange(0.0f, std::memory_order_relaxed); }
+    float consumeTruePeak() noexcept { return truePeak.exchange(0.0f, std::memory_order_relaxed); }
+    float getMomentaryLufs() const noexcept { return momentaryLufs.load(std::memory_order_relaxed); }
+    float getShortTermLufs() const noexcept { return shortTermLufs.load(std::memory_order_relaxed); }
+    // Keep the old 4x constant for existing consumers; settings are sampled
+    // only on host prepare, never allocate or change PDC on the audio thread.
     static constexpr int oversamplingFactor = 4;
+    static constexpr bool validOversampling(int factor) noexcept {
+        return factor==2 || factor==4 || factor==8;
+    }
+    void requestOversampling(int factor) noexcept {
+        if(validOversampling(factor)) requestedOversampling.store(factor,std::memory_order_relaxed);
+    }
+    int getRequestedOversampling() const noexcept { return requestedOversampling.load(std::memory_order_relaxed); }
+    int getActiveOversampling() const noexcept { return activeOversampling.load(std::memory_order_acquire); }
+
+    // Preset I/O and identity are non-realtime only; audio never takes this lock.
+    static juce::File userPresetDirectory();
+    juce::Result saveUserPreset(const juce::File& file);
+    juce::Result loadUserPreset(const juce::File& file);
+    juce::String getUserPresetName() const;
+    bool isUserPresetModified() const;
+    void clearUserPresetIdentity();
 
 private:
     static void atomicMax(std::atomic<float>& v, float input) noexcept;
+    juce::String presetFingerprint() const;
+    mutable juce::CriticalSection presetIdentityLock;
+    juce::String userPresetName, userPresetBaseline;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
+    std::atomic<int> requestedOversampling {4};
+    std::atomic<int> activeOversampling {0}; // 0 = not prepared
     skelly::MasteringEngine engine;
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> defaultDryDelay;
+    juce::AudioBuffer<float> defaultDry;
+    juce::SmoothedValue<float> defaultDryMix;
+    bool defaultDryMixInitialized = false;
     std::atomic<float> peakLeft { 0.0f }, peakRight { 0.0f }, reduction { 0.0f };
+    std::atomic<float> truePeak { 0.0f };
+    std::atomic<float> rmsLeft {0.f}, rmsRight {0.f};
+    double rmsPowerL=0., rmsPowerR=0.;
+    skelly::StereoTruePeakMonitor truePeakMonitor;
+    // Opt-in five-plugin factory #6 only. Final host-rate EQ after L2.
+    skelly::detail::ReferenceFinalEq referenceFinalEq;
+    skelly::detail::ReferenceToneCorrection referenceToneCorrection;
+    skelly::StereoLoudnessMonitor loudnessMonitor;
+    std::atomic<float> momentaryLufs {-100.0f}, shortTermLufs {-100.0f};
+    std::atomic<int> factoryPresetId { 0 };
+    std::atomic<bool> referenceClipEnabled { true };
+    // New instances: StandardCLIP -> limiter. Old v6 host states: post-L2.
+    std::atomic<bool> chainOrderedClipEnabled { true };
+    // V8 new sessions taper extreme compressor settings; v1-v7 restore
+    // the original, exact unmodified GLUE / DYNAMICS response.
+    std::atomic<bool> refinedControlCurvesEnabled { true };
+    std::atomic<bool> referenceCalibrationEnabled { true };
+    std::atomic<bool> enhancedSauceEnabled { true };
+    std::atomic<bool> analogSauceEnabled { true };
+    std::atomic<bool> depthWidthEnabled { true };
+    std::atomic<bool> efficientDepthEnabled { true };
+    std::atomic<bool> adaptiveCompressionEnabled { true };
+    std::atomic<bool> compressionMakeupEnabled { true };
+    std::atomic<bool> immersiveWidthEnabled { true };
+    std::atomic<bool> fiveBandEnhancementEnabled { false };
+    int referenceClipGuardHold = 0;
     int activeChannels = 2;
     int lookaheadSamples = 0;
-    // Fixed-size stereo-linked final safety processing; no audio-thread allocation.
-    skelly::StereoPeakGuard safetyGuard;
+    // Five-band Deuce coloration lives before the internal limiter. The
+    // 5kHz reference bell and measured 2.5kHz contour correction are both
+    // Deuce-Match-only and remain ahead of the final true-peak guard.
+    skelly::experimental::PostLimiterPresencePrototype postLimiterPresence;
+    skelly::experimental::PostLimiterMidPresencePrototype postLimiterMidPresence;
+    // Legacy sample guard plus Deuce-only fixed-size true-peak lookahead.
+    skelly::StereoPeakGuard legacySafetyGuard;
+    skelly::StereoTruePeakGuard safetyGuard;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SkellyMasterAudioProcessor)
 };

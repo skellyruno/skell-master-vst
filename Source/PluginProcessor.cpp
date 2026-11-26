@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include <cmath>
+#include <cstdlib>
 
 SkellyMasterAudioProcessor::SkellyMasterAudioProcessor()
     : AudioProcessor(BusesProperties()
@@ -18,18 +19,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout SkellyMasterAudioProcessor::
             juce::AudioParameterFloatAttributes().withLabel(units));
         layout.add(std::move(param));
     };
-    add("input",      "Input",       -18.0f, 18.0f, 0.1f,   0.0f, "dB");
-    add("drive",      "Drive",         0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("glue",       "Glue",          0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("dynamics",   "Dynamics",      0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("lows",       "Lows",         -6.0f,   6.0f, 0.1f,  0.0f, "dB");
-    add("highs",      "Highs",        -6.0f,   6.0f, 0.1f,  0.0f, "dB");
-    add("sauce",      "Sauce",         0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("transients", "Transients",    0.0f, 100.0f, 0.1f,  0.0f, "%");
-    add("output",     "Output Trim", -18.0f, 12.0f, 0.1f,  0.0f, "dB");
-    add("ceiling",    "Peak Ceiling", -3.0f, -0.1f, 0.1f, -1.0f, "dBFS");
+    add("input",      "Input",       -18.0f, 18.0f, 1.0f,   0.0f, "dB");
+    add("drive",      "Drive",         0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("glue",       "Glue",          0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("dynamics",   "Dynamics",      0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("lows",       "Lows",         -6.0f,   6.0f, 1.0f,  0.0f, "dB");
+    add("highs",      "Highs",        -6.0f,   6.0f, 1.0f,  0.0f, "dB");
+    add("sauce",      "Sauce",         0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("transients", "Transients",    0.0f, 100.0f, 1.0f,  0.0f, "%");
+    add("output",     "Output Trim", -18.0f, 12.0f, 1.0f,  0.0f, "dB");
+    add("ceiling",    "Ceiling Adjust", -3.0f, 3.0f, 1.0f, 0.0f, "step");
+    add("clipper",    "Clip", 0.0f, 100.0f, 1.0f, 0.0f, "%");
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{"bypass", 1}, "Bypass", false));
+    // Appended so all pre-existing host parameter IDs and order remain stable.
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{"deuceMatch", 1}, "Deuce Match", false));
+    // Append only: the hidden Dynamics ID and every original host index survive.
+    add("width", "Width", 0.0f, 160.0f, 1.0f, 100.0f, "%");
+    add("spatialWidth", "Spatial Width", 0.0f, 100.0f, 1.0f, 0.0f, "%");
     return layout;
 }
 
@@ -41,34 +49,76 @@ bool SkellyMasterAudioProcessor::isBusesLayoutSupported(const BusesLayout& layou
 
 void SkellyMasterAudioProcessor::prepareToPlay(double sampleRate, int maxBlock) {
     activeChannels = juce::jlimit(1, 2, getTotalNumInputChannels());
+    const int factor=getRequestedOversampling();
+    const size_t stages=factor==2 ? 1u : factor==8 ? 3u : 2u;
     oversampler = std::make_unique<juce::dsp::Oversampling<float>>(
-        static_cast<size_t>(activeChannels), 2,
+        static_cast<size_t>(activeChannels), stages,
         juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
         true, true);
-    oversampler->initProcessing(static_cast<size_t>(juce::jmax(16384, maxBlock)));
+    const int blockCapacity = juce::jmax(16384, maxBlock);
+    oversampler->initProcessing(static_cast<size_t>(blockCapacity));
     oversampler->reset();
 
-    // 1.5 ms of lookahead, exactly divisible by 4 to keep host latency integral.
-    const double highRate = sampleRate * static_cast<double>(oversamplingFactor);
-    lookaheadSamples = juce::jmax(4, static_cast<int>(std::ceil(sampleRate * 0.0015)) * oversamplingFactor);
+    // Keep the same physical lookahead at each rate and integral host PDC.
+    const double highRate = sampleRate * static_cast<double>(factor);
+    lookaheadSamples = juce::jmax(factor, static_cast<int>(std::ceil(sampleRate * 0.0015)) * factor);
     engine.prepare(highRate, activeChannels, lookaheadSamples);
-    setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
-                      + lookaheadSamples / oversamplingFactor);
+    referenceClipGuardHold=0;
+    postLimiterPresence.prepare(sampleRate);
+    postLimiterMidPresence.prepare(sampleRate);
+    referenceFinalEq.prepare(sampleRate);
+    referenceToneCorrection.prepare(sampleRate);
+    legacySafetyGuard.prepare(sampleRate);
     safetyGuard.prepare(sampleRate);
-    peakLeft.store(0); peakRight.store(0); reduction.store(0);
+    setLatencySamples(static_cast<int>(std::lround(oversampler->getLatencyInSamples()))
+                      + lookaheadSamples / factor
+                      + safetyGuard.getLatencySamples());
+    defaultDry.setSize(activeChannels, blockCapacity);
+    defaultDryDelay.setMaximumDelayInSamples(getLatencySamples());
+    defaultDryDelay.prepare({sampleRate, static_cast<juce::uint32>(blockCapacity),
+                             static_cast<juce::uint32>(activeChannels)});
+    defaultDryDelay.setDelay(static_cast<float>(getLatencySamples()));
+    defaultDryMix.reset(sampleRate, 0.012);
+    defaultDryMixInitialized = false;
+    truePeakMonitor.reset();
+    loudnessMonitor.prepare(sampleRate,activeChannels);
+    peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
+    rmsPowerL=rmsPowerR=0.; rmsLeft.store(0); rmsRight.store(0);
+    momentaryLufs.store(-100.0f); shortTermLufs.store(-100.0f);
+    activeOversampling.store(factor,std::memory_order_release);
 }
 
 void SkellyMasterAudioProcessor::releaseResources() {
+    postLimiterPresence.reset();
+    postLimiterMidPresence.reset();
+    referenceFinalEq.reset();
+    referenceToneCorrection.reset();
+    legacySafetyGuard.reset();
     safetyGuard.reset();
+    truePeakMonitor.reset();
+    loudnessMonitor.reset();
     oversampler.reset();
+    activeOversampling.store(0,std::memory_order_release);
     setLatencySamples(0);
 }
 
 void SkellyMasterAudioProcessor::reset() {
     if (oversampler) oversampler->reset();
     engine.reset();
+    defaultDryDelay.reset();
+    defaultDryMixInitialized = false;
+    referenceClipGuardHold=0;
+    postLimiterPresence.reset();
+    postLimiterMidPresence.reset();
+    referenceFinalEq.reset();
+    referenceToneCorrection.reset();
+    legacySafetyGuard.reset();
     safetyGuard.reset();
-    peakLeft.store(0); peakRight.store(0); reduction.store(0);
+    truePeakMonitor.reset();
+    loudnessMonitor.reset();
+    peakLeft.store(0); peakRight.store(0); reduction.store(0); truePeak.store(0);
+    rmsPowerL=rmsPowerR=0.; rmsLeft.store(0); rmsRight.store(0);
+    momentaryLufs.store(-100.0f); shortTermLufs.store(-100.0f);
 }
 
 void SkellyMasterAudioProcessor::atomicMax(std::atomic<float>& dest, float next) noexcept {
@@ -93,12 +143,99 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.lowsDb = parameters.getRawParameterValue("lows")->load(std::memory_order_relaxed);
     p.highsDb = parameters.getRawParameterValue("highs")->load(std::memory_order_relaxed);
     p.sauce = parameters.getRawParameterValue("sauce")->load(std::memory_order_relaxed) * 0.01;
+    p.width = parameters.getRawParameterValue("width")->load(std::memory_order_relaxed) * 0.01;
+    p.spatialWidth = parameters.getRawParameterValue("spatialWidth")->load(std::memory_order_relaxed) * 0.01;
+    p.immersiveWidth=usesImmersiveWidth();
+    p.fiveBandEnhancement=usesFiveBandEnhancement();
+    p.enhancedSauce = usesEnhancedSauce();
+    p.analogSauce = usesAnalogSauce();
+    p.depthWidth = usesDepthWidth();
+    p.efficientDepth = usesEfficientDepth();
+    p.adaptiveCompression = usesAdaptiveCompression();
+    p.compressionMakeup = usesCompressionMakeup();
     p.transients = parameters.getRawParameterValue("transients")->load(std::memory_order_relaxed) * 0.01;
     p.outputDb = parameters.getRawParameterValue("output")->load(std::memory_order_relaxed);
-    p.ceilingDb = parameters.getRawParameterValue("ceiling")->load(std::memory_order_relaxed);
+    p.clipper = parameters.getRawParameterValue("clipper")->load(std::memory_order_relaxed)*0.01;
+    p.referenceClip = usesReferenceClip();
+    p.clipBeforeLimiter = p.referenceClip && usesChainOrderedClip();
+    p.refinedControlCurves = usesRefinedControlCurves();
+    p.ceilingDb = skelly::detail::ceilingOffsetToDb(
+        parameters.getRawParameterValue("ceiling")->load(std::memory_order_relaxed));
     p.bypass = parameters.getRawParameterValue("bypass")->load(std::memory_order_relaxed) >= 0.5f;
+    // Keep the mode flag in the portable engine so the five-band stage runs
+    // before its internal lookahead limiter. Bypass still returns the aligned
+    // dry path; the wrapper's post-limiter presence and safety stages stay gated.
+    p.deuceMatch = parameters.getRawParameterValue("deuceMatch")
+        ->load(std::memory_order_relaxed) >= 0.5f;
+    p.referenceCalibration=usesReferenceCalibration()
+        && getFactoryPresetId()==5 && p.deuceMatch && p.clipBeforeLimiter;
+
+    // The pre-release DEFAULT was not actually neutral: the always-on
+    // -1dB limiter reduced loud incoming audio by ~1.5dB RMS.
+    // When DEFAULT (startup ID0 / factory ID1) is fully at its zero
+    // knob values, use an exact host-rate dry path. The oversampled bypass
+    // alone changes transient peaks through the polyphase filters.
+    const auto atZero=[](double v) noexcept { return std::abs(v)<1.0e-8; };
+    const int factoryId=getFactoryPresetId();
+    const bool neutralDefault=(factoryId==0 || factoryId==1)
+        && !p.deuceMatch && atZero(p.inputDb) && atZero(p.drive)
+        && atZero(p.glue) && atZero(p.dynamics) && atZero(p.lowsDb)
+        && atZero(p.highsDb) && atZero(p.sauce) && atZero(p.transients)
+        && atZero(p.width-1.0) && atZero(p.spatialWidth)
+        && atZero(p.outputDb) && atZero(p.clipper)
+        && atZero(parameters.getRawParameterValue("ceiling")
+                      ->load(std::memory_order_relaxed));
+    p.bypass=p.bypass || neutralDefault;
+    const float dryTarget = neutralDefault ? 1.0f : 0.0f;
+    if (!defaultDryMixInitialized) {
+        defaultDryMix.setCurrentAndTargetValue(dryTarget);
+        defaultDryMixInitialized = true;
+    } else {
+        defaultDryMix.setTargetValue(dryTarget);
+    }
+    const bool useDefaultDry = neutralDefault || defaultDryMix.isSmoothing();
     engine.setParameters(p);
     engine.beginBlock();
+    const bool deuceMatch = p.deuceMatch && !p.bypass;
+    // Maintain final true-peak safety when reference CLIP is active even
+    // outside Deuce Match, keeping it through the 18ms automation ramp and
+    // 85ms release after the CLIP knob returns to zero.
+    // New creative Width/Sauce may raise reconstructed peaks even on DEFAULT
+    // without Deuce Match or Clip. Keep the true-peak guard enabled throughout
+    // the 35ms control ramps and guard recovery. Legacy states stay unchanged.
+    const bool creativeDepthGuard=p.spatialWidth>0.0 || (p.depthWidth &&
+        (!atZero(p.width-1.0) || (p.enhancedSauce && p.sauce>0.20)));
+    referenceClipGuardHold=std::max(0,referenceClipGuardHold-samples);
+    const bool strongMakeup=p.compressionMakeup && (p.glue>.30 || p.dynamics>.30);
+    // Makeup fall (80ms) and control smoothing (30ms) have long tails.
+    // Keep reconstruction protection active until both have settled.
+    const bool creativeFiveBand=p.fiveBandEnhancement && (p.sauce>.20 || p.drive>.20 || p.spatialWidth>0.);
+    if((strongMakeup || creativeFiveBand) && !p.bypass)
+        referenceClipGuardHold=std::max(referenceClipGuardHold,
+            static_cast<int>(std::ceil(getSampleRate()*3.0)));
+    else if(creativeDepthGuard && !p.bypass)
+        referenceClipGuardHold=std::max(referenceClipGuardHold,
+            static_cast<int>(std::ceil(getSampleRate()*.35)));
+    else if(p.referenceClip && p.clipper>0.0 && !p.bypass)
+        referenceClipGuardHold=std::max(referenceClipGuardHold,
+            static_cast<int>(std::ceil(getSampleRate()*.12)));
+    // Fresh v8 voicings explicitly opt into the reconstructed true-peak
+    // guard even at CLIP=0. Previously published factory IDs 0..6 keep
+    // exactly their historical protection and legacy project behavior.
+    const int selectedFactory=getFactoryPresetId();
+    const bool newV8Voicing=selectedFactory>=7 && selectedFactory<=9;
+    const bool requireTruePeak=!p.bypass && (
+        deuceMatch || referenceClipGuardHold>0 || newV8Voicing);
+    // A sixth, additive factory preset alone enables this API-like post-L2
+    // bell. Existing SKELL MASTER and all v1-v7 saved presets stay the same.
+    // SKELL MASTER is now calibrated to the five-plugin reference too:
+    // same broad final API-like tone as the opt-in 5-PLUGIN MATCH preset.
+    referenceFinalEq.setEnabled((selectedFactory==5 || selectedFactory==6)
+                                && !p.bypass);
+    // Only primary factory5 takes the measured current five-plugin tone fit.
+    // All other presets and dry bypass remain sample-for-sample unchanged.
+    referenceToneCorrection.setEnabled(selectedFactory==5 && !p.bypass);
+    referenceToneCorrection.setClipAmount(p.clipper,p.referenceCalibration);
 
     // Reject malformed input BEFORE JUCE's oversampling filter stages.
     // Sanitizing only the oversampled samples is too late: NaN or Inf can
@@ -108,11 +245,16 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     constexpr float maxHostSample = 256.0f;
     for (int channel = 0; channel < channels; ++channel) {
         float* inputSamples = buffer.getWritePointer(channel);
+        float* drySamples = defaultDry.getWritePointer(channel);
         for (int i = 0; i < samples; ++i) {
             const float value = inputSamples[i];
             if (!std::isfinite(value)) inputSamples[i] = 0.0f;
             else if (value > maxHostSample) inputSamples[i] = maxHostSample;
             else if (value < -maxHostSample) inputSamples[i] = -maxHostSample;
+            // Keep history through wet processing for automation back to DEFAULT.
+            defaultDryDelay.pushSample(channel, inputSamples[i]);
+            const float drySample = defaultDryDelay.popSample(channel);
+            if (useDefaultDry) drySamples[i] = drySample;
         }
     }
 
@@ -128,36 +270,81 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     }
     oversampler->processSamplesDown(original);
 
-    // Stereo-linked post-oversampling limiter. Shared and regression-tested
-    // with the standalone C++ DSP module: immediate attenuation, smooth
-    // recovery, no audio-thread allocations. Ceiling is sample-peak only.
-    if (!p.bypass) {
-        const double ceiling = skelly::detail::dbToLinear(p.ceilingDb);
-        auto* outL = buffer.getWritePointer(0);
-        auto* outR = channels == 2 ? buffer.getWritePointer(1) : nullptr;
-        for (int i = 0; i < samples; ++i) {
-            const auto corrected = safetyGuard.process(
-                {outL[i], outR ? outR[i] : outL[i]}, ceiling);
-            outL[i] = corrected.left;
-            if (outR) outR[i] = corrected.right;
-        }
-    } else {
-        // Bypass must be unmodified, apart from the existing aligned delay.
-        safetyGuard.reset();
+    // The Deuce reference's final +2dB / 5kHz EQ sits after its limiter.
+    // Keep it opt-in; legacy factories retain their original sample limiter.
+    const double ceiling = skelly::detail::dbToLinear(p.ceilingDb);
+    auto* outL = buffer.getWritePointer(0);
+    auto* outR = channels == 2 ? buffer.getWritePointer(1) : nullptr;
+    const double presenceWet = deuceMatch ? 1.0 : 0.0;
+    for (int i = 0; i < samples; ++i) {
+        double postL = outL[i];
+        double postR = outR ? outR[i] : postL;
+        postLimiterPresence.process(postL, postR, presenceWet);
+        postLimiterMidPresence.process(postL, postR, presenceWet);
+        referenceFinalEq.process(postL, postR);
+        referenceToneCorrection.process(postL, postR);
+        const skelly::StereoFrame postFrame {
+            static_cast<float>(postL), static_cast<float>(postR)
+        };
+        // Preserve the original sample-peak guard for all legacy factories.
+        // Only the opt-in SKELL MASTER / Deuce Match path uses reconstructed
+        // true-peak limiting. The fixed 32-sample delay remains in both paths
+        // so host PDC never changes when the automatable mode is switched.
+        // Exactly one safety algorithm may affect audible samples. Run
+        // the unused sample-peak stage as a state-neutral pass-through:
+        // no duplicate gain math and no stale release after DEFAULT/BYPASS.
+        const bool useLegacyGuard = !requireTruePeak && !p.bypass;
+        const auto legacyLimited = legacySafetyGuard.process(
+            postFrame, ceiling, !useLegacyGuard);
+        const auto corrected = safetyGuard.process(
+            useLegacyGuard ? legacyLimited : postFrame,
+            ceiling, !requireTruePeak || p.bypass);
+        outL[i] = corrected.left;
+        if (outR) outR[i] = corrected.right;
     }
-    float maximumL = 0.0f, maximumR = 0.0f;
+    float maximumL = 0.0f, maximumR = 0.0f, maximumTP = 0.0f;
+    double energyL=0.,energyR=0.;
     const auto* readL = buffer.getReadPointer(0);
     const auto* readR = channels == 2 ? buffer.getReadPointer(1) : readL;
+    if (useDefaultDry) {
+        const auto* dryL = defaultDry.getReadPointer(0);
+        const auto* dryR = outR ? defaultDry.getReadPointer(1) : dryL;
+        for (int i = 0; i < samples; ++i) {
+            const float mix = defaultDryMix.getNextValue();
+            outL[i] = mix == 1.0f ? dryL[i] : outL[i] + mix * (dryL[i] - outL[i]);
+            if (outR) outR[i] = mix == 1.0f ? dryR[i] : outR[i] + mix * (dryR[i] - outR[i]);
+        }
+    }
     for (int i = 0; i < samples; ++i) {
         maximumL = juce::jmax(maximumL, std::abs(readL[i]));
         maximumR = juce::jmax(maximumR, std::abs(readR[i]));
+        const double l=readL[i],r=readR[i];
+        energyL+=l*l; energyR+=r*r;
+        // On true mono buses, avoid reconstructing an identical second
+        // channel. Stereo keeps the original sample-for-sample FIR path.
+        maximumTP = juce::jmax(maximumTP, channels == 1
+            ? truePeakMonitor.processMono(readL[i])
+            : truePeakMonitor.process(readL[i], readR[i]));
+        loudnessMonitor.process(readL[i], readR[i]);
     }
+    // Post-output RMS, block energy with 300ms averaging. Readouts and
+    // peak holds are independent; none of these values feeds audio.
+    const double rmsAlpha=1.-std::exp(-samples/(std::max(1.,getSampleRate())*.300));
+    rmsPowerL+=rmsAlpha*(energyL/samples-rmsPowerL);
+    rmsPowerR+=rmsAlpha*(energyR/samples-rmsPowerR);
+    rmsLeft.store(static_cast<float>(std::sqrt(std::max(0.,rmsPowerL))),std::memory_order_relaxed);
+    rmsRight.store(static_cast<float>(std::sqrt(std::max(0.,rmsPowerR))),std::memory_order_relaxed);
     atomicMax(peakLeft, maximumL);
     atomicMax(peakRight, maximumR);
+    atomicMax(truePeak, maximumTP);
+    momentaryLufs.store(static_cast<float>(loudnessMonitor.momentaryLufs()),std::memory_order_relaxed);
+    shortTermLufs.store(static_cast<float>(loudnessMonitor.shortTermLufs()),std::memory_order_relaxed);
     // Report the strongest gain reduction actually applied, including the
     // final safety stage after the JUCE downsampler.
+    const double activeGuardGain = requireTruePeak ? safetyGuard.currentGain()
+        : (p.bypass ? 1.0 : legacySafetyGuard.currentGain());
     const float postReductionDb = static_cast<float>(
-        juce::jmax(0.0, -skelly::detail::linearToDb(safetyGuard.currentGain())));
+        juce::jmax(0.0, -skelly::detail::linearToDb(activeGuardGain)));
     atomicMax(reduction, juce::jmax(static_cast<float>(engine.getBlockGainReductionDb()),
                                    p.bypass ? 0.0f : postReductionDb));
 }
@@ -167,14 +354,290 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 }
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
-    if (auto xml = parameters.copyState().createXml()) copyXmlToBinary(*xml, dest);
+    auto snapshot=parameters.copyState();
+    snapshot.setProperty("skellMasterStateVersion",18,nullptr);
+    snapshot.setProperty("skellMasterImmersiveWidth",usesImmersiveWidth()?1:0,nullptr);
+    snapshot.setProperty("skellMasterFiveBandEnhancement",usesFiveBandEnhancement()?1:0,nullptr);
+    {
+        const juce::ScopedLock lock(presetIdentityLock);
+        snapshot.setProperty("skellMasterUserPresetName",userPresetName,nullptr);
+        snapshot.setProperty("skellMasterUserPresetBaseline",userPresetBaseline,nullptr);
+    }
+    snapshot.setProperty("skellMasterCompressionMakeup",usesCompressionMakeup()?1:0,nullptr);
+    snapshot.setProperty("skellMasterEfficientDepth",usesEfficientDepth() ? 1 : 0,nullptr);
+    snapshot.setProperty("skellMasterAdaptiveCompression",usesAdaptiveCompression() ? 1 : 0,nullptr);
+    snapshot.setProperty("skellMasterOversampling",getRequestedOversampling(),nullptr);
+    snapshot.setProperty("skellMasterAnalogSauce",usesAnalogSauce() ? 1 : 0,nullptr);
+    snapshot.setProperty("skellMasterDepthWidth",usesDepthWidth() ? 1 : 0,nullptr);
+    snapshot.setProperty("skellMasterEnhancedSauce",usesEnhancedSauce() ? 1 : 0,nullptr);
+    snapshot.setProperty("skellMasterReferenceCalibration",usesReferenceCalibration() ? 1 : 0,nullptr);
+    snapshot.setProperty("skellMasterFactoryPreset",getFactoryPresetId(),nullptr);
+    snapshot.setProperty("skellMasterClipAlgorithm",usesReferenceClip() ? 1 : 0,nullptr);
+    snapshot.setProperty("skellMasterClipPlacement",usesChainOrderedClip() ? 1 : 0,nullptr);
+    snapshot.setProperty("skellMasterRefinedControlCurves",
+                         usesRefinedControlCurves() ? 1 : 0,nullptr);
+    if (auto xml=snapshot.createXml()) copyXmlToBinary(*xml,dest);
 }
 
 void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size) {
-    if (auto xml = getXmlFromBinary(data, size)) {
-        if (xml->hasTagName(parameters.state.getType()))
-            parameters.replaceState(juce::ValueTree::fromXml(*xml));
+    if (auto xml=getXmlFromBinary(data,size)) {
+        if (!xml->hasTagName(parameters.state.getType())) return;
+        auto snapshot=juce::ValueTree::fromXml(*xml);
+        if (!snapshot.isValid()) return;
+        // Sessions saved before v6 did not encode the CLIP signal path.
+        // Retain their old sound, even when CLIP automation is nonzero.
+        const int previousVersion=static_cast<int>(
+            snapshot.getProperty("skellMasterStateVersion",1));
+        // Strictly accept only the three supported settings; legacy and
+        // malformed states use the original 4x path. Host prepare applies it.
+        const auto quality=snapshot.getProperty("skellMasterOversampling",4).toString();
+        requestOversampling(previousVersion>=14 && quality=="2" ? 2 :
+                            previousVersion>=14 && quality=="8" ? 8 : 4);
+        snapshot.setProperty("skellMasterOversampling",getRequestedOversampling(),nullptr);
+        setFiveBandEnhancementEnabled(previousVersion>=18 && snapshot.getProperty("skellMasterFiveBandEnhancement",0).toString()=="1");
+        snapshot.setProperty("skellMasterFiveBandEnhancement",usesFiveBandEnhancement()?1:0,nullptr);
+        setImmersiveWidthEnabled(previousVersion>=17 && snapshot.getProperty("skellMasterImmersiveWidth",0).toString()=="1");
+        snapshot.setProperty("skellMasterImmersiveWidth",usesImmersiveWidth()?1:0,nullptr);
+        setCompressionMakeupEnabled(previousVersion>=16 &&
+            snapshot.getProperty("skellMasterCompressionMakeup",0).toString()=="1");
+        snapshot.setProperty("skellMasterCompressionMakeup",usesCompressionMakeup()?1:0,nullptr);
+        setEfficientDepthEnabled(previousVersion>=15 &&
+            snapshot.getProperty("skellMasterEfficientDepth",0).toString()=="1");
+        setAdaptiveCompressionEnabled(previousVersion>=15 &&
+            snapshot.getProperty("skellMasterAdaptiveCompression",0).toString()=="1");
+        snapshot.setProperty("skellMasterEfficientDepth",usesEfficientDepth()?1:0,nullptr);
+        snapshot.setProperty("skellMasterAdaptiveCompression",usesAdaptiveCompression()?1:0,nullptr);
+        setAnalogSauceEnabled(previousVersion>=13 && snapshot.getProperty("skellMasterAnalogSauce",0).toString()=="1");
+        snapshot.setProperty("skellMasterAnalogSauce",usesAnalogSauce() ? 1 : 0,nullptr);
+        setDepthWidthEnabled(previousVersion>=11 && snapshot.getProperty("skellMasterDepthWidth",0).toString()=="1");
+        snapshot.setProperty("skellMasterDepthWidth",usesDepthWidth() ? 1 : 0,nullptr);
+        setEnhancedSauceEnabled(previousVersion>=10 && snapshot.getProperty("skellMasterEnhancedSauce",0).toString()=="1");
+        snapshot.setProperty("skellMasterEnhancedSauce",usesEnhancedSauce() ? 1 : 0,nullptr);
+        const bool calibrated=previousVersion>=9
+            && snapshot.getProperty("skellMasterReferenceCalibration",0).toString()=="1";
+        setReferenceCalibrationEnabled(calibrated);
+        snapshot.setProperty("skellMasterReferenceCalibration",calibrated ? 1 : 0,nullptr);
+        const juce::String clipMode=snapshot.getProperty(
+            "skellMasterClipAlgorithm",{}).toString().trim();
+        const bool useReference=previousVersion>=6 && clipMode=="1";
+        setReferenceClipEnabled(useReference);
+        // IMPORTANT: a v6 Reference CLIP session used post-limiter DSP.
+        // Keep that exact algorithm even when the CLIP knob is nonzero.
+        // New v7 instances use clip->L2 as in the supplied FL mixer.
+        const juce::String placement=snapshot.getProperty(
+            "skellMasterClipPlacement",{}).toString().trim();
+        const bool chainOrdered=previousVersion>=7 && placement=="1";
+        setChainOrderedClipEnabled(chainOrdered);
+        // Only fresh v8 states may opt into gently-tapered upper-range
+        // compressor knobs. Older saved states have 1:1 legacy curves,
+        // including if GLUE/DYNAMICS were automated above 30%.
+        // V8 prototypes with the flag absent resolve to the new behavior.
+        const juce::String refinedText=snapshot.getProperty(
+            "skellMasterRefinedControlCurves",{}).toString().trim();
+        const bool refined=previousVersion>=8 &&
+            (refinedText.isEmpty() || refinedText=="1");
+        setRefinedControlCurvesEnabled(refined);
+        snapshot.setProperty("skellMasterRefinedControlCurves",
+                             refined ? 1 : 0,nullptr);
+        snapshot.setProperty("skellMasterClipAlgorithm",useReference ? 1 : 0,nullptr);
+        snapshot.setProperty("skellMasterClipPlacement",chainOrdered ? 1 : 0,nullptr);
+        // ValueTree XML attributes can be surfaced as strings after reload.
+        // Parse the saved UI identity and clamp it; absent/malformed legacy
+        // values restore the neutral SELECT label (0).
+        const auto savedFactoryPreset=snapshot.getProperty("skellMasterFactoryPreset",{});
+        const auto factoryText=savedFactoryPreset.toString().trim();
+        int parsedFactoryPreset=0;
+        bool validFactoryPreset=!factoryText.isEmpty();
+        for(const char* cursor=factoryText.toRawUTF8();*cursor!='\0';++cursor) {
+            const auto character=*cursor;
+            if(character<'0'||character>'9') {
+                validFactoryPreset=false;
+                break;
+            }
+            // 10 is a saturating sentinel for the new factory IDs 7-9.
+            // Old v7 snapshots remain limited to identity6, v1-v6 to5.
+            parsedFactoryPreset=juce::jmin(
+                10,parsedFactoryPreset*10+static_cast<int>(character-'0'));
+        }
+        const int maxIdForVersion=previousVersion>=8 ? 9
+            : previousVersion>=7 ? 6 : 5;
+        const int restoredFactoryPreset=validFactoryPreset
+            ? juce::jmin(maxIdForVersion,parsedFactoryPreset) : 0;
+        setFactoryPresetId(restoredFactoryPreset);
+        snapshot.setProperty("skellMasterFactoryPreset",restoredFactoryPreset,nullptr);
+        // Version-one presets contain the actual -3..-0.1 dBFS ceiling.
+        // Migrate just that value to the new centred adjustment, retaining
+        // the exact effective threshold without changing any other setting.
+        if (static_cast<int>(snapshot.getProperty("skellMasterStateVersion",1))<2) {
+            for (int index=0;index<snapshot.getNumChildren();++index) {
+                auto child=snapshot.getChild(index);
+                if (child.getProperty("id").toString()=="ceiling") {
+                    const double previous=static_cast<double>(
+                        child.getProperty("value",-1.0));
+                    child.setProperty("value",
+                        skelly::detail::ceilingDbToOffset(previous),nullptr);
+                    break;
+                }
+            }
+        }
+        // V1/V2 projects predate the CLIP control. Insert its neutral
+        // state explicitly, even if a previous preset left the knob nonzero.
+        bool hasClipper=false;
+        for(int index=0;index<snapshot.getNumChildren();++index) {
+            if(snapshot.getChild(index).getProperty("id").toString()=="clipper") {
+                hasClipper=true;
+                break;
+            }
+        }
+        if(!hasClipper && snapshot.getNumChildren()>0) {
+            juce::ValueTree clipperState(snapshot.getChild(0).getType());
+            clipperState.setProperty("id","clipper",nullptr);
+            clipperState.setProperty("value",0.0f,nullptr);
+            snapshot.appendChild(clipperState,nullptr);
+        }
+        // V1/V2/V3 sessions predate Deuce Match. Add an explicit neutral
+        // value so the new reference-only stages never activate on old projects.
+        bool hasDeuceMatch=false;
+        for(int index=0;index<snapshot.getNumChildren();++index) {
+            if(snapshot.getChild(index).getProperty("id").toString()=="deuceMatch") {
+                hasDeuceMatch=true;
+                break;
+            }
+        }
+        if(!hasDeuceMatch && snapshot.getNumChildren()>0) {
+            juce::ValueTree deuceMatchState(snapshot.getChild(0).getType());
+            deuceMatchState.setProperty("id","deuceMatch",nullptr);
+            deuceMatchState.setProperty("value",0.0f,nullptr);
+            snapshot.appendChild(deuceMatchState,nullptr);
+        }
+        // Old projects have no Width. Explicitly restore neutral even if
+        // a previous session automated the new control.
+        bool hasWidth=false;
+        for(int i=0;i<snapshot.getNumChildren();++i) {
+            auto child=snapshot.getChild(i);
+            if(child.getProperty("id").toString()=="width") {
+                hasWidth=true;
+                if(previousVersion<10) child.setProperty("value",100.0f,nullptr);
+            }
+        }
+        if(!hasWidth && snapshot.getNumChildren()>0) {
+            juce::ValueTree widthState(snapshot.getChild(0).getType());
+            widthState.setProperty("id","width",nullptr);
+            widthState.setProperty("value",100.0f,nullptr);
+            snapshot.appendChild(widthState,nullptr);
+        }
+        bool hasSpatialWidth=false;
+        for(int i=0;i<snapshot.getNumChildren();++i) {
+            auto child=snapshot.getChild(i);
+            if(child.getProperty("id").toString()=="spatialWidth") {
+                hasSpatialWidth=true;
+                if(previousVersion<12) child.setProperty("value",0.0f,nullptr);
+            }
+        }
+        if(!hasSpatialWidth && snapshot.getNumChildren()>0) {
+            juce::ValueTree spatialState(snapshot.getChild(0).getType());
+            spatialState.setProperty("id","spatialWidth",nullptr);
+            spatialState.setProperty("value",0.0f,nullptr);
+            snapshot.appendChild(spatialState,nullptr);
+        }
+        snapshot.setProperty("skellMasterStateVersion",18,nullptr);
+        parameters.replaceState(snapshot);
+        const juce::ScopedLock lock(presetIdentityLock);
+        userPresetName=snapshot.getProperty("skellMasterUserPresetName",{}).toString().substring(0,128);
+        userPresetBaseline=snapshot.getProperty("skellMasterUserPresetBaseline",{}).toString().substring(0,4096);
     }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new SkellyMasterAudioProcessor(); }
+
+juce::File SkellyMasterAudioProcessor::userPresetDirectory() {
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("SkellAudio").getChildFile("Skell Master").getChildFile("Presets");
+}
+
+juce::String SkellyMasterAudioProcessor::presetFingerprint() const {
+    juce::String result;
+    for(auto* param:getParameters())
+        result << juce::String(juce::roundToInt(param->getValue()*1000000.f)) << ";";
+    result << getFactoryPresetId() << ";" << int(usesReferenceClip()) << int(usesChainOrderedClip())
+        << int(usesRefinedControlCurves()) << int(usesReferenceCalibration())
+        << int(usesEnhancedSauce()) << int(usesAnalogSauce()) << int(usesDepthWidth())
+        << int(usesEfficientDepth()) << int(usesAdaptiveCompression())
+        << int(usesCompressionMakeup()) << int(usesImmersiveWidth());
+    // False adds nothing: existing V17 named-preset fingerprints stay clean.
+    if(usesFiveBandEnhancement()) result << ";fiveband";
+    return result; // Oversampling is a separate project/quality preference.
+}
+juce::String SkellyMasterAudioProcessor::getUserPresetName() const {
+    const juce::ScopedLock lock(presetIdentityLock);
+    return userPresetName;
+}
+bool SkellyMasterAudioProcessor::isUserPresetModified() const {
+    const juce::ScopedLock lock(presetIdentityLock);
+    return userPresetName.isNotEmpty() && presetFingerprint()!=userPresetBaseline;
+}
+void SkellyMasterAudioProcessor::clearUserPresetIdentity() {
+    const juce::ScopedLock lock(presetIdentityLock);
+    userPresetName={}; userPresetBaseline={};
+}
+juce::Result SkellyMasterAudioProcessor::saveUserPreset(const juce::File& file) {
+    if(!file.hasFileExtension("skellmasterpreset") || file.getFileNameWithoutExtension().length()>128)
+        return juce::Result::fail("Use a .skellmasterpreset filename (128 characters maximum).");
+    auto dir=file.getParentDirectory().createDirectory();
+    if(dir.failed()) return dir;
+    juce::MemoryBlock bytes;
+    getStateInformation(bytes);
+    auto xml=getXmlFromBinary(bytes.getData(),static_cast<int>(bytes.getSize()));
+    if(!xml) return juce::Result::fail("Could not serialize preset.");
+    const auto name=file.getFileNameWithoutExtension();
+    const auto baseline=presetFingerprint();
+    xml->setAttribute("skellMasterUserPresetName",name);
+    xml->setAttribute("skellMasterUserPresetBaseline",baseline);
+    copyXmlToBinary(*xml,bytes);
+    juce::TemporaryFile temporary(file);
+    if(!temporary.getFile().replaceWithData(bytes.getData(),bytes.getSize()) ||
+       !temporary.overwriteTargetFileWithTemporary())
+        return juce::Result::fail("Could not save preset.");
+    const juce::ScopedLock lock(presetIdentityLock);
+    userPresetName=name; userPresetBaseline=baseline;
+    return juce::Result::ok();
+}
+juce::Result SkellyMasterAudioProcessor::loadUserPreset(const juce::File& file) {
+    if(!file.hasFileExtension("skellmasterpreset") || !file.existsAsFile()
+       || file.getSize()<=0 || file.getSize()>256*1024)
+        return juce::Result::fail("Invalid or oversized Skell Master preset.");
+    juce::MemoryBlock bytes;
+    if(!file.loadFileAsData(bytes)) return juce::Result::fail("Could not read preset.");
+    auto xml=getXmlFromBinary(bytes.getData(),static_cast<int>(bytes.getSize()));
+    if(!xml || !xml->hasTagName(parameters.state.getType()) ||
+       xml->getIntAttribute("skellMasterStateVersion",0)<16 ||
+       xml->getIntAttribute("skellMasterStateVersion",0)>18)
+        return juce::Result::fail("Unsupported Skell Master preset.");
+    const auto tree=juce::ValueTree::fromXml(*xml);
+    // Check every known parameter before mutating the current processor.
+    for(auto* raw:getParameters()) {
+        auto* param=dynamic_cast<juce::RangedAudioParameter*>(raw);
+        if(!param) continue;
+        int count=0;
+        for(int i=0;i<tree.getNumChildren();++i) {
+            const auto child=tree.getChild(i);
+            if(child.getProperty("id").toString()!=param->paramID) continue;
+            ++count;
+            const auto str=child.getProperty("value").toString().toStdString();
+            char* end=nullptr;
+            const double value=std::strtod(str.c_str(),&end);
+            const auto& range=param->getNormalisableRange();
+            if(end==str.c_str() || *end!='\0' || !std::isfinite(value) ||
+               value<range.start-1.e-6 || value>range.end+1.e-6)
+                return juce::Result::fail("Invalid parameter in preset.");
+        }
+        if(count!=1) return juce::Result::fail("Missing or duplicate preset parameter.");
+    }
+    const int quality=getRequestedOversampling();
+    setStateInformation(bytes.getData(),static_cast<int>(bytes.getSize()));
+    requestOversampling(quality);
+    const juce::ScopedLock lock(presetIdentityLock);
+    userPresetName=file.getFileNameWithoutExtension().substring(0,128);
+    userPresetBaseline=presetFingerprint();
+    return juce::Result::ok();
+}

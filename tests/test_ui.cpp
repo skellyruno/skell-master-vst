@@ -6,6 +6,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -60,6 +61,18 @@ void checkRendered(juce::Image image) {
               << ", green=" << green << "\n";
     check(visible > 100, "editor rendered nearly blank");
     check(green > 6, "neon Skelly accents missing from UI snapshot");
+    // Inspect the real white OUTPUT/L meter face, scaled to the tested size.
+    int whiteFace=0;
+    for (int y=static_cast<int>(image.getHeight()*0.210f);
+         y<static_cast<int>(image.getHeight()*0.275f);y+=2)
+        for (int x=static_cast<int>(image.getWidth()*0.315f);
+             x<static_cast<int>(image.getWidth()*0.475f);x+=2) {
+            const auto c=image.getPixelAt(x,y);
+            if (c.getRed()>196 && c.getGreen()>196 && c.getBlue()>190
+                && std::abs(static_cast<int>(c.getRed())-
+                            static_cast<int>(c.getBlue()))<20) ++whiteFace;
+        }
+    check(whiteFace>20,"OUTPUT meter photographic face must render white");
 }
 } // namespace
 
@@ -89,10 +102,237 @@ int main() {
               "reference VU meter JPEG missing or unexpectedly low resolution");
         check(iron.isValid() && green.isValid(),
               "photographic panel grain assets did not decode");
+       #if SKELLY_MASTER_HEADER_ASSETS
+        const auto header = juce::ImageFileFormat::loadFrom(
+            BinaryData::header_nameplate_green_blank_png,
+            static_cast<size_t>(BinaryData::header_nameplate_green_blank_pngSize));
+        const auto skullLeft = juce::ImageFileFormat::loadFrom(
+            BinaryData::logo_skull_header_left_png,
+            static_cast<size_t>(BinaryData::logo_skull_header_left_pngSize));
+        check(header.isValid() && skullLeft.isValid(),
+              "reference header artwork did not decode");
+        check(header.getWidth() >= 391 && header.getHeight() >= 73,
+              "header nameplate below display resolution");
+        check(skullLeft.getPixelAt(0,0).getAlpha() < 32,
+              "transparent header skull assets have opaque corners");
+        std::cout << "PASS: reference-kit header graphics decoded\n";
+       #endif
         std::cout << "PASS: reference-derived hardware images decoded\n";
         SkellyMasterAudioProcessor processor;
+        check(processor.getNumPrograms()==1,
+              "processor must expose its single legacy Default program");
+        check(processor.getProgramName(0)=="Default",
+              "processor legacy program zero must be named Default");
+        check(processor.getProgramName(1).isEmpty(),
+              "processor out-of-range legacy program name must be empty");
         processor.prepareToPlay(48000.0, 512);
         SkellyMasterAudioProcessorEditor editor(processor);
+        // Snapshot the startup identity BEFORE testing knob positions.
+        // The hardware-pointer screenshot test later intentionally moves
+        // INPUT to +18dB, which is supposed to mark an unnamed custom state.
+        {
+            juce::ComboBox* initialMenu=nullptr;
+            for(int i=0;i<editor.getNumChildComponents();++i)
+                if(auto* combo=dynamic_cast<juce::ComboBox*>(editor.getChildComponent(i)))
+                    if(combo->getComponentID()=="skell-master-preset")
+                        initialMenu=combo;
+            check(initialMenu!=nullptr
+                && initialMenu->getSelectedId()==0
+                && initialMenu->getText().isEmpty()
+                && initialMenu->getItemId(0)==1
+                && initialMenu->getItemText(0)=="DEFAULT"
+                && !static_cast<bool>(initialMenu->getProperties().getWithDefault(
+                    "skellMasterPresetModified",false)),
+                "neutral startup must display DEFAULT while retaining saved ID0");
+        }
+        // Both DEFAULT identities must pass the source unchanged after the
+        // reported latency, including an impulse at the first sample. Checking
+        // only against internal bypass could hide identical filtering in both.
+        for(int defaultId : {0,1}) {
+            auto neutral=std::make_unique<SkellyMasterAudioProcessor>();
+            auto dry=std::make_unique<SkellyMasterAudioProcessor>();
+            neutral->setFactoryPresetId(defaultId);
+            dry->setFactoryPresetId(defaultId);
+            neutral->prepareToPlay(44100,256);
+            dry->prepareToPlay(44100,256);
+            if(auto* bp=dry->parameters.getParameter("bypass"))
+                bp->setValueNotifyingHost(1.0f);
+            juce::AudioBuffer<float> neutralAudio(2,256),dryAudio(2,256);
+            juce::MidiBuffer midi;
+            constexpr int blockSize=256, blocks=4;
+            juce::AudioBuffer<float> source(2,blockSize*blocks);
+            const int latency=neutral->getLatencySamples();
+            check(latency>0 && latency<blockSize,"unexpected DEFAULT latency at 44.1 kHz");
+            bool exactDry=true;
+            for(int block=0;block<blocks;++block) {
+                for(int k=0;k<256;++k) {
+                    const int sample=block*blockSize+k;
+                    const double t=sample/44100.0;
+                    const float left=static_cast<float>(
+                        .88*std::sin(2.0*juce::MathConstants<double>::pi*437.0*t)
+                        +.27*std::sin(2.0*juce::MathConstants<double>::pi*1790.0*t)
+                        +(sample==0 ? .95 : 0.0));
+                    const float right=static_cast<float>(
+                        .82*std::sin(2.0*juce::MathConstants<double>::pi*493.0*t)
+                        -.22*std::sin(2.0*juce::MathConstants<double>::pi*7200.0*t)
+                        -(sample==0 ? .87 : 0.0));
+                    source.setSample(0,sample,left);
+                    source.setSample(1,sample,right);
+                    neutralAudio.setSample(0,k,left);
+                    neutralAudio.setSample(1,k,right);
+                    dryAudio.setSample(0,k,left);
+                    dryAudio.setSample(1,k,right);
+                }
+                neutral->processBlock(neutralAudio,midi);
+                dry->processBlock(dryAudio,midi);
+                for(int k=0;k<256;++k)
+                    for(int channel=0;channel<2;++channel) {
+                        const int aligned=block*blockSize+k-latency;
+                        const float expected=aligned>=0 ? source.getSample(channel,aligned) : 0.0f;
+                        exactDry &= neutralAudio.getSample(channel,k)==expected
+                                    && dryAudio.getSample(channel,k)==expected;
+                    }
+            }
+            check(exactDry,"DEFAULT and its explicit bypass must equal the latency-aligned input");
+            std::cout<<"PASS: sample-exact DEFAULT ID"<<defaultId
+                     <<" and bypass at "<<latency<<" samples of latency\n";
+        }
+
+        // Every *fresh* control starts at displayed zero. Old projects still
+        // restore their saved user settings rather than resetting on open.
+        for (const auto* id : {"input","drive","glue","dynamics","lows",
+                               "highs","sauce","transients","output","ceiling","clipper","deuceMatch"}) {
+            auto* param=processor.parameters.getParameter(id);
+            check(param!=nullptr,"missing mastering parameter");
+            if(juce::String(id)=="clipper")
+                check(param->getName(64)=="Clip",
+                      "CLIP must be the host-facing name without changing its parameter ID");
+            check(std::abs(param->convertFrom0to1(param->getDefaultValue()))<0.0001f,
+                  "mastering control default must be zero");
+        }
+        auto* widthParam=processor.parameters.getParameter("width");
+        check(widthParam && std::abs(widthParam->convertFrom0to1(widthParam->getDefaultValue())-100.0f)<0.0001f,
+              "new Width parameter must be neutral at 100 percent");
+        check(processor.usesDepthWidth(),"fresh instances retain legacy depth mode");
+        check(processor.usesAnalogSauce(),"fresh instances use V13 analog Sauce");
+        check(processor.usesCompressionMakeup(),"fresh V16 sessions enable partial makeup");
+        check(processor.usesImmersiveWidth(),"fresh V17 uses immersive width");
+        check(!processor.usesFiveBandEnhancement(),"fresh five-band mode off");
+        {
+            auto source=std::make_unique<SkellyMasterAudioProcessor>();
+            auto loaded=std::make_unique<SkellyMasterAudioProcessor>();
+            source->setFiveBandEnhancementEnabled(true);
+            juce::MemoryBlock state;
+            source->getStateInformation(state);
+            loaded->setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+            check(loaded->usesFiveBandEnhancement(),"creative mode state roundtrip");
+            auto old=source->parameters.copyState();
+            old.setProperty("skellMasterStateVersion",17,nullptr);
+            old.setProperty("skellMasterFiveBandEnhancement",1,nullptr);
+            auto xml=old.createXml();
+            juce::AudioProcessor::copyXmlToBinary(*xml,state);
+            loaded->setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+            check(!loaded->usesFiveBandEnhancement(),"old state cannot activate new creative mode");
+        }
+        {
+            auto source=std::make_unique<SkellyMasterAudioProcessor>();
+            auto loaded=std::make_unique<SkellyMasterAudioProcessor>();
+            juce::TemporaryFile temp(".skellmasterpreset");
+            const auto file=temp.getFile();
+            source->parameters.getParameter("sauce")->setValueNotifyingHost(.57f);
+            source->parameters.getParameter("spatialWidth")->setValueNotifyingHost(.73f);
+            check(source->saveUserPreset(file).wasOk(),"save actual user preset");
+            check(!source->isUserPresetModified(),"saved user preset clean");
+            source->setFiveBandEnhancementEnabled(true);
+            check(source->isUserPresetModified(),"creative mode marks saved preset");
+            source->setFiveBandEnhancementEnabled(false);
+            check(!source->isUserPresetModified(),"original fingerprint restored");
+            source->parameters.getParameter("sauce")->setValueNotifyingHost(.58f);
+            check(source->isUserPresetModified(),"knob edit marks saved preset");
+            loaded->requestOversampling(8);
+            check(loaded->loadUserPreset(file).wasOk(),"load actual user preset");
+            check(std::abs(loaded->parameters.getRawParameterValue("sauce")->load()-57.f)<.01f && std::abs(loaded->parameters.getRawParameterValue("spatialWidth")->load()-73.f)<.01f,"preset parameter recall");
+            check(loaded->getRequestedOversampling()==8 && !loaded->isUserPresetModified(),"preset does not change quality; clean baseline");
+            juce::MemoryBlock state; loaded->getStateInformation(state);
+            source->setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+            check(source->getUserPresetName()==loaded->getUserPresetName() && !source->isUserPresetModified(),"preset identity survives project recall");
+        }
+        check(processor.usesEfficientDepth() && processor.usesAdaptiveCompression(),
+              "fresh sessions enable V15 efficient depth and optional strong compression");
+        {
+            check(processor.getRequestedOversampling()==4 && processor.getActiveOversampling()==4,
+                  "4x must remain the original default");
+            auto quality=std::make_unique<SkellyMasterAudioProcessor>();
+            quality->prepareToPlay(44100,257);
+            const int originalLatency=quality->getLatencySamples();
+            quality->requestOversampling(8);
+            check(quality->getRequestedOversampling()==8 && quality->getActiveOversampling()==4
+                  && quality->getLatencySamples()==originalLatency,
+                  "quality request must not rebuild an active audio path");
+            juce::MemoryBlock savedQuality;
+            quality->getStateInformation(savedQuality);
+            auto restoredQuality=std::make_unique<SkellyMasterAudioProcessor>();
+            restoredQuality->setStateInformation(savedQuality.getData(),static_cast<int>(savedQuality.getSize()));
+            check(restoredQuality->getRequestedOversampling()==8,"quality must persist");
+            restoredQuality->prepareToPlay(44100,257);
+            check(restoredQuality->getActiveOversampling()==8,"8x must be active on host prepare");
+            restoredQuality->releaseResources();
+            quality->releaseResources();
+            quality->requestOversampling(2);
+            quality->prepareToPlay(44100,257);
+            check(quality->getActiveOversampling()==2,"2x must be active on host prepare");
+            quality->requestOversampling(3);
+            check(quality->getRequestedOversampling()==2,"invalid quality request must be rejected");
+            quality->releaseResources();
+        }
+        auto* spatialParam=processor.parameters.getParameter("spatialWidth");
+        check(spatialParam && std::abs(spatialParam->convertFrom0to1(spatialParam->getDefaultValue()))<.0001f,"V12 spatial Width defaults to zero");
+        {
+            auto old=processor.parameters.copyState();
+            old.setProperty("skellMasterStateVersion",10,nullptr);
+            old.setProperty("skellMasterOversampling",8,nullptr);
+            old.setProperty("skellMasterDepthWidth",1,nullptr);
+            for(int i=0;i<old.getNumChildren();++i) {
+                auto child=old.getChild(i);
+                if(child.getProperty("id").toString()=="width") child.setProperty("value",145.f,nullptr);
+            }
+            auto xml=old.createXml(); juce::MemoryBlock blob;
+            juce::AudioProcessor::copyXmlToBinary(*xml,blob);
+            SkellyMasterAudioProcessor legacy; legacy.setStateInformation(blob.getData(),static_cast<int>(blob.getSize()));
+            check(!legacy.usesDepthWidth(),"V10 state must retain its old Width law");
+            check(!legacy.usesAnalogSauce(),"old state must retain original Sauce");
+            check(!legacy.usesCompressionMakeup(),"old sessions preserve uncompensated compression");
+            check(!legacy.usesImmersiveWidth(),"legacy spatial width law preserved");
+            check(!legacy.usesEfficientDepth() && !legacy.usesAdaptiveCompression(),
+                  "legacy state must preserve both old DSP responses");
+            check(legacy.getRequestedOversampling()==4,"legacy sessions must remain 4x");
+            check(legacy.parameters.getRawParameterValue("spatialWidth")->load()==0.f,"old states must not activate spatial Width");
+            check(std::abs(legacy.parameters.getRawParameterValue("width")->load()-145.f)<.01f,"V10 Width value survives migration");
+            juce::MemoryBlock saved; legacy.getStateInformation(saved);
+            SkellyMasterAudioProcessor roundtrip; roundtrip.setStateInformation(saved.getData(),static_cast<int>(saved.getSize()));
+            check(!roundtrip.usesDepthWidth(),"V10 Width law survives V13 resave");
+            check(!roundtrip.usesAnalogSauce(),"legacy Sauce survives V13 resave");
+            check(!roundtrip.usesCompressionMakeup(),"legacy makeup off survives resave");
+            check(!roundtrip.usesEfficientDepth() && !roundtrip.usesAdaptiveCompression(),
+                  "V15 resave must not silently upgrade old DSP");
+        }
+        check(std::abs(skelly::detail::ceilingOffsetToDb(0.0)+1.0)<1e-9,
+              "zero ceiling adjustment must preserve the -1 dBTP target before safety margin");
+        juce::Button* skinButton=nullptr;
+        for (int childIndex=0;childIndex<editor.getNumChildComponents();++childIndex) {
+            auto* child=editor.getChildComponent(childIndex);
+            if(child && child->getComponentID()=="skellcore-theme-skull")
+                skinButton=dynamic_cast<juce::Button*>(child);
+        }
+        check(skinButton && static_cast<bool>(skinButton->onClick),
+              "left skull must have functional SkellCore skin callback");
+        const auto originalSkin=editor.selectedSkin();
+        skinButton->onClick();
+        check(editor.selectedSkin()==skellcore::ui::nextSkin(originalSkin),
+              "skull click advances shared SkellCore theme");
+        for(int remaining=0;remaining<3;++remaining) skinButton->onClick();
+        check(editor.selectedSkin()==originalSkin,
+              "four skull clicks return to the original palette");
         editor.setVisible(true); // Offscreen component has no native desktop peer.
 
         // Visual coverage: compact min/default, intermediate, design, large.
@@ -100,7 +340,7 @@ int main() {
             const int height=juce::roundToInt(width * 760.0 / 1200.0);
             editor.setSize(width,height);
             const auto screen=editor.getLocalBounds();
-            int sliderCount=0, buttonCount=0;
+            int sliderCount=0, buttonCount=0, presetCount=0;
             std::vector<juce::Rectangle<int>> interactive;
             for (int i=0;i<editor.getNumChildComponents();++i) {
                 const auto* component=editor.getChildComponent(i);
@@ -111,9 +351,12 @@ int main() {
                     ++sliderCount; interactive.push_back(box);
                 } else if (dynamic_cast<const juce::TextButton*>(component) != nullptr) {
                     ++buttonCount; interactive.push_back(box);
+                } else if (dynamic_cast<const juce::ComboBox*>(component) != nullptr) {
+                    ++presetCount; interactive.push_back(box);
                 }
             }
-            check(sliderCount==10 && buttonCount==2, "missing mastering controls");
+            check(sliderCount==11 && buttonCount==7 && presetCount==1,
+                  "missing mastering controls, monitor buttons or preset dropdown");
             for (size_t i=0;i<interactive.size();++i)
                 for (size_t j=i+1;j<interactive.size();++j)
                     check(!interactive[i].intersects(interactive[j]),
@@ -131,24 +374,355 @@ int main() {
             if (width==620 || width==702 || width==1200)
                 saveSnapshot(rendered,width,height);
             checkRendered(rendered);
+            if (width==1200) {
+                // A new mastering instance must show completely unlit
+                // gain-reduction digits and LEDs: the chassis frame itself
+                // remains visible, but no fake GR is reported at idle.
+                int illuminatedPixels=0;
+                for(int yy=165;yy<202;yy+=2)
+                    for(int xx=984;xx<1130;xx+=2) {
+                        const auto c=rendered.getPixelAt(xx,yy);
+                        if(c.getGreen()>130 && c.getGreen()>c.getRed()+28
+                            && c.getGreen()>c.getBlue()+20) ++illuminatedPixels;
+                    }
+                for(int yy=229;yy<245;yy+=2)
+                    for(int xx=978;xx<1145;xx+=2) {
+                        const auto c=rendered.getPixelAt(xx,yy);
+                        if(c.getGreen()>130 && c.getGreen()>c.getRed()+28
+                            && c.getGreen()>c.getBlue()+20) ++illuminatedPixels;
+                    }
+                check(illuminatedPixels==0,
+                    "idle gain-reduction display/LEDs must remain completely dark");
+            }
             std::cout << "PASS: JUCE UI render, bounds, contrast " << width
                       << "x" << height << "\n";
         }
 
         juce::Slider* input=nullptr;
+        juce::Slider* clipper=nullptr;
+        juce::ComboBox* preset=nullptr;
+        juce::TextButton* peak=nullptr;
+        juce::TextButton* truePeak=nullptr;
+        juce::TextButton* clear=nullptr;
         juce::TextButton* bypass=nullptr;
         juce::TextButton* reset=nullptr;
+        juce::TextButton* fiveBand=nullptr;
         for (int i=0;i<editor.getNumChildComponents();++i) {
             auto* component=editor.getChildComponent(i);
             if (auto* slider=dynamic_cast<juce::Slider*>(component)) {
                 if (slider->getTooltip().startsWith("INPUT -")) input=slider;
+                if (slider->getComponentID()=="utility-clipper") clipper=slider;
             }
+            if (auto* combo=dynamic_cast<juce::ComboBox*>(component))
+                if(combo->getComponentID()=="skell-master-preset") preset=combo;
             if (auto* button=dynamic_cast<juce::TextButton*>(component)) {
                 if (button->getButtonText()=="BYPASS") bypass=button;
                 if (button->getButtonText()=="RESET") reset=button;
+                if (button->getComponentID()=="utility-five-band") fiveBand=button;
+                check(button->getButtonText()!="SAVE" && button->getButtonText()!="LOAD","preset commands belong only in preset menu");
+                if (button->getButtonText()=="PEAK") peak=button;
+                if (button->getButtonText()=="TRUE") truePeak=button;
+                if (button->getButtonText()=="CLEAR") clear=button;
             }
         }
-        check(input && bypass && reset, "cannot locate UI controls");
+        check(input && bypass && reset && clipper && peak && truePeak && clear && preset && fiveBand,
+              "cannot locate actual hardware monitor controls");
+        // A mouse click on ANY part of the visible preset bar must reach
+        // the ComboBox (not its overlaid child text label). Repeat at
+        // the minimum and medium resize sizes, including the arrow edge.
+        for(const int width : {620,702,1200}) {
+            editor.setSize(width,juce::roundToInt(width*760.0/1200.0));
+            const auto bounds=preset->getBounds();
+            check(fiveBand->getButtonText()=="SKELL MAGIC" && fiveBand->getBounds().getCentreX()<width/4 && fiveBand->getY()>editor.getHeight()*0.14 && fiveBand->getBottom()<editor.getHeight()*0.21,"MAGIC toggle in upper-left monitoring box");
+            check(editor.getComponentAt(fiveBand->getBounds().getCentre())==fiveBand,"five-band hit area unobstructed");
+            const int middleY=bounds.getCentreY();
+            for(const int xx : {bounds.getX()+3,bounds.getCentreX(),
+                                bounds.getRight()-5})
+                check(editor.getComponentAt(xx,middleY)==preset,
+                      "preset dropdown text or arrow intercepts native mouse clicks");
+            for(auto* monitor : {peak,truePeak,clear}) {
+                const auto local=monitor->getBounds().getCentre();
+                check(editor.getComponentAt(local)==monitor,
+                      "small-size PEAK/TRUE/CLEAR button hit area is obstructed");
+            }
+        }
+        // The approved bottom-control coordinates must not drift during polish.
+        editor.setSize(1200,760);
+        check(clipper->getBounds()==juce::Rectangle<int>(371,685,178,68),"restore approved CLIP placement");
+        for(int i=0;i<editor.getNumChildComponents();++i) {
+            auto* control=editor.getChildComponent(i);
+            if(control->getComponentID()=="utility-output") check(control->getBounds()==juce::Rectangle<int>(647,685,199,68),"restore approved OUTPUT placement");
+            if(control->getComponentID()=="utility-ceiling") check(control->getBounds()==juce::Rectangle<int>(929,685,181,68),"restore approved CEILING placement");
+        }
+        // JUCE's combo popup should not have its item states mutated by
+        // the 30Hz timer while the user clicks a menu entry.
+        editor.setSize(1200,760);
+
+        // A true hardware rotary has a motionless bezel, barrel, lighting
+        // and machined scale. The ivory pointer extends to 0.94 * face radius
+        // (face = 0.755 * outer radius). The 3.35px shadow, its (0.7,1.0)
+        // offset and raster antialiasing reach beyond 0.80 at this size.
+        // Test the fixed retaining-ring annulus outside that shadow
+        // safely outside that moving geometry, then separately verify that
+        // the pointer itself changes. Never suppress actual hardware motion.
+        editor.setSize(1200,760);
+        const auto rotaryBounds=input->getLookAndFeel().getSliderLayout(*input).sliderBounds;
+        const float knobCx=static_cast<float>(input->getX()+rotaryBounds.getX())
+            +rotaryBounds.getWidth()*0.5f;
+        const float knobCy=static_cast<float>(input->getY()+rotaryBounds.getY())
+            +rotaryBounds.getHeight()*0.5f;
+        const float knobRadius=juce::jmin(static_cast<float>(rotaryBounds.getWidth()),
+                                         static_cast<float>(rotaryBounds.getHeight()))*0.431f;
+        const auto renderPosition=[&](double value) {
+            input->setValue(value,juce::sendNotificationSync);
+            juce::Image screenshot(juce::Image::ARGB,1200,760,true);
+            {
+                juce::Graphics g(screenshot);
+                paintDetachedTree(editor,g);
+            }
+            return screenshot;
+        };
+        const auto lowKnob=renderPosition(-18.0);
+        const auto zeroKnob=renderPosition(0.0);
+        const auto highKnob=renderPosition(18.0);
+        for(const auto& entry : std::array<std::pair<const char*,juce::Image>,3> {{
+                {"knob-low.png",lowKnob},{"knob-zero.png",zeroKnob},{"knob-high.png",highKnob}}}) {
+            auto output=juce::File::getCurrentWorkingDirectory().getChildFile("ui-snapshots")
+                .getChildFile(entry.first).createOutputStream();
+            check(output && output->openedOk(),"cannot save rotary regression evidence");
+            check(juce::PNGImageFormat().writeImageToStream(entry.second,*output),
+                  "cannot encode rotary regression evidence");
+        }
+        int movingPointerPixels=0, fixedRingPixels=0;
+        for(int y=juce::roundToInt(knobCy-knobRadius);
+                y<juce::roundToInt(knobCy+knobRadius);++y)
+            for(int x=juce::roundToInt(knobCx-knobRadius);
+                    x<juce::roundToInt(knobCx+knobRadius);++x) {
+                const float dx=x+0.5f-knobCx,dy=y+0.5f-knobCy;
+                const float radial=std::sqrt(dx*dx+dy*dy)/knobRadius;
+                const auto a=lowKnob.getPixelAt(x,y).getARGB();
+                const auto b=zeroKnob.getPixelAt(x,y).getARGB();
+                const auto c=highKnob.getPixelAt(x,y).getARGB();
+                if(radial>=0.86f && radial<=0.90f) {
+                    ++fixedRingPixels;
+                    if(a!=b || b!=c)
+                        std::cerr<<"Fixed rotary mismatch at "<<x<<","<<y
+                            <<" radius="<<radial<<" center="<<knobCx<<","<<knobCy
+                            <<" colors="<<a<<","<<b<<","<<c<<"\n";
+                    check(a==b && b==c,
+                          "machined knob bezel/knurl/lighting moved during rotation");
+                }
+                if(radial>=0.20f && radial<=0.62f && (a!=b || b!=c))
+                    ++movingPointerPixels;
+            }
+        check(fixedRingPixels>100 && movingPointerPixels>20,
+              "rotary pointer did not move independently of the fixed metal");
+        std::cout << "PASS: physical knob ring stationary; ivory pointer moves at min/zero/max\n";
+        // The final screenshot left INPUT at +18dB; this is an intentional
+        // custom edit, NOT a fresh unmodified startup. Assert the new
+        // immediate feedback, then return to neutral before preset tests.
+        check(static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "rotating neutral INPUT to +18 must mark CUSTOM immediately");
+        input->setValue(0.0,juce::sendNotificationSync);
+        juce::Thread::sleep(55);
+        juce::Timer::callPendingTimersSynchronously();
+        check(!static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "returning neutral INPUT to 0 must clear its edited marker");
+
+        // Monitoring toggles and CLEAR must never change mix/audio parameters.
+        check(static_cast<bool>(peak->onClick) && static_cast<bool>(truePeak->onClick)
+              && static_cast<bool>(clear->onClick),
+              "monitor buttons must have working actions");
+        const float beforeDrive=processor.parameters.getRawParameterValue("drive")->load();
+        peak->onClick();
+        truePeak->onClick();
+        clear->onClick();
+        check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-beforeDrive)<.001f,
+              "passive output monitoring modified audio");
+        check(preset->getNumItems()==5
+              && preset->getItemId(0)==1 && preset->getItemId(4)==5,
+              "preset menu must contain only the five core presets");
+        check(preset->getSelectedId()==0 && preset->getText().isEmpty()
+              && !static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "restored neutral INPUT and preset ID0 must be unmodified");
+        check(processor.usesReferenceClip(),"fresh instance must enable new CLIP sound");
+        check(processor.usesChainOrderedClip(),
+              "fresh instance must place Soft Clip Pro before L2-style limiter");
+        check(processor.usesRefinedControlCurves(),
+              "fresh v8 instances must use the refined compressor controls");
+        // Reproduce a timer tick before ComboBox's asynchronous notification.
+        preset->setSelectedId(2,juce::sendNotificationAsync);
+        juce::Thread::sleep(50);
+        juce::Timer::callPendingTimersSynchronously();
+        check(preset->getSelectedId()==2,
+              "timer must preserve a pending user preset selection");
+        preset->onChange();
+        check(processor.getFactoryPresetId()==2,
+              "asynchronous preset selection must reach the processor");
+        preset->setSelectedId(2,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("drive")->load()-15.0f)<.12f,
+              "WARM factory preset must apply its real DSP drive setting");
+        preset->setSelectedId(3,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("transients")->load()-22.0f)<.12f,
+              "PUNCH factory preset must apply its real DSP transient setting");
+        preset->setSelectedId(1,juce::sendNotificationSync);
+        check(preset->getSelectedId()==1 && preset->getText()=="DEFAULT"
+              && processor.getFactoryPresetId()==1,
+              "existing factory ID1 must be named DEFAULT without renumbering");
+        check(std::abs(processor.parameters.getRawParameterValue("drive")->load())<.12f,
+              "DEFAULT factory preset must restore zero drive");
+        // Exercise *every* original published factory value, not only a
+        // handful of characteristic knobs. Factory5 includes the owner's
+        // approved full-song calibration. IDs and other factories stay stable.
+        static constexpr float frozenOriginals[5][11]={
+            {0,0,0,0,0,0,0,0,0,0,0},
+            {0,15,18,10,0,0,12,0,0,0,0},
+            {0,8,12,7,0,0,0,22,0,0,0},
+            {0,10,24,18,0,0,8,8,0,0,12},
+            {5,8,20,11,-1,3,12,0,0,3,35}
+        };
+        const char* frozenKnobs[]={
+            "input","drive","glue","dynamics","lows","highs",
+            "sauce","transients","output","ceiling","clipper"
+        };
+        for(int oldId=1;oldId<=5;++oldId) {
+            preset->setSelectedId(oldId,juce::sendNotificationSync);
+            check(processor.getFactoryPresetId()==oldId &&
+                  preset->getSelectedId()==oldId,
+                  "published factory identity or selector ID was renumbered");
+            for(int k=0;k<11;++k)
+                check(std::abs(
+                    processor.parameters.getRawParameterValue(frozenKnobs[k])->load()
+                    -frozenOriginals[oldId-1][k])<.12f,
+                    "published old factory control setting changed");
+            check((processor.parameters.getRawParameterValue("deuceMatch")->load()>=.5f)
+                  ==(oldId==5),
+                  "published Deuce Match factory state changed");
+        }
+        // User-reference-matched starting point: deliberately uses only the
+        // existing 11 stable APVTS parameter IDs; old presets stay unchanged.
+        preset->setSelectedId(5,juce::sendNotificationSync);
+        check(preset->getText()=="SKELL MASTER",
+              "reference preset label must be visible in the real selector");
+        const struct {const char* id; float expected;} matched[]={
+            {"input",5.0f},{"drive",8.0f},{"glue",20.0f},
+            {"dynamics",11.0f},{"lows",-1.0f},{"highs",3.0f},
+            {"sauce",12.0f},{"transients",0.0f},{"output",0.0f},
+            {"ceiling",3.0f},{"clipper",35.0f}
+        };
+        for (const auto& value : matched)
+            check(std::abs(processor.parameters.getRawParameterValue(value.id)->load()
+                           -value.expected)<.12f,
+                  "SKELL MASTER factory parameter snapshot is incorrect");
+        check(processor.parameters.getRawParameterValue("deuceMatch")->load()>=0.5f,
+              "SKELL MASTER must enable the real Deuce DSP stages");
+        check(processor.usesReferenceCalibration(),
+              "selecting SKELL MASTER must enable the current reference calibration");
+        {
+            auto legacy=processor.parameters.copyState();
+            legacy.setProperty("skellMasterStateVersion",8,nullptr);
+            legacy.setProperty("skellMasterFactoryPreset",5,nullptr);
+            legacy.setProperty("skellMasterClipAlgorithm",1,nullptr);
+            legacy.setProperty("skellMasterClipPlacement",1,nullptr);
+            legacy.setProperty("skellMasterRefinedControlCurves",1,nullptr);
+            legacy.setProperty("skellMasterReferenceCalibration",1,nullptr);
+            auto xml=legacy.createXml();
+            juce::MemoryBlock blob;
+            juce::AudioProcessor::copyXmlToBinary(*xml,blob);
+            SkellyMasterAudioProcessor oldSession;
+            oldSession.setStateInformation(blob.getData(),static_cast<int>(blob.getSize()));
+            check(!oldSession.usesReferenceCalibration(),
+                  "v8 host states must retain their previous limiter recovery");
+            legacy.setProperty("skellMasterStateVersion",9,nullptr);
+            legacy.setProperty("skellMasterReferenceCalibration",0,nullptr);
+            xml=legacy.createXml();
+            juce::AudioProcessor::copyXmlToBinary(*xml,blob);
+            SkellyMasterAudioProcessor explicitLegacy;
+            explicitLegacy.setStateInformation(blob.getData(),static_cast<int>(blob.getSize()));
+            oldSession.prepareToPlay(44100,256);
+            explicitLegacy.prepareToPlay(44100,256);
+            juce::AudioBuffer<float> a(2,256),b(2,256);
+            juce::MidiBuffer midi;
+            for(int block=0;block<96;++block) {
+                for(int i=0;i<256;++i) {
+                    const int n=block*256+i;
+                    const float sample=static_cast<float>(
+                        .9*std::sin(n*2.0*juce::MathConstants<double>::pi*61.0/44100.0)
+                        *(n%4410<900 ? 1.0 : .12));
+                    a.setSample(0,i,sample); a.setSample(1,i,sample*.63f);
+                    b.setSample(0,i,sample); b.setSample(1,i,sample*.63f);
+                }
+                oldSession.processBlock(a,midi);
+                explicitLegacy.processBlock(b,midi);
+                for(int c=0;c<2;++c)
+                    for(int i=0;i<256;++i)
+                        check(a.getSample(c,i)==b.getSample(c,i),
+                              "v8 migration changed legacy reference audio");
+            }
+            std::cout<<"PASS: v8 reference calibration migration preserves exact audio\n";
+        }
+        // v7 projects knew ID6, but never IDs7..9; malformed v7 ID9
+        // must saturate to ID6 without enabling an unintended new factory.
+        auto oldV7=processor.parameters.copyState();
+        oldV7.setProperty("skellMasterStateVersion",7,nullptr);
+        oldV7.setProperty("skellMasterFactoryPreset",9,nullptr);
+        auto oldV7Xml=oldV7.createXml();
+        check(static_cast<bool>(oldV7Xml),"legacy v7 XML exists");
+        juce::MemoryBlock oldV7Blob;
+        if(oldV7Xml)juce::AudioProcessor::copyXmlToBinary(*oldV7Xml,oldV7Blob);
+        SkellyMasterAudioProcessor v7Restored;
+        v7Restored.setStateInformation(oldV7Blob.getData(),
+                                    static_cast<int>(oldV7Blob.getSize()));
+        check(v7Restored.getFactoryPresetId()==6
+              && !v7Restored.usesRefinedControlCurves(),
+              "old v7 states must cap identities and keep the old 100% compressor DSP");
+        preset->setSelectedId(5,juce::sendNotificationSync);
+        // v8 intentionally recalibrates only the primary factory #5 to the
+        // owner's five-plugin reference. The old 14%/2dB assertions became
+        // stale when this factory was explicitly updated and hid later tests.
+        check(processor.getFactoryPresetId()==5 &&
+              std::abs(processor.parameters.getRawParameterValue("clipper")->load()-35.0f)<.12f
+              && std::abs(processor.parameters.getRawParameterValue("highs")->load()-3.0f)<.12f
+              && std::abs(processor.parameters.getRawParameterValue("ceiling")->load()-3.0f)<.12f,
+              "selecting factory #5 must restore current reference CLIP35/HIGHS3/CEILING3");
+        // Editing factory #5 now creates a variant of the recalibrated sound.
+        clipper->setValue(43.0,juce::sendNotificationSync);
+        check(static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "published factory * must update immediately without a 30Hz timer");
+        juce::Thread::sleep(70);
+        juce::Timer::callPendingTimersSynchronously();
+        check(static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "edited factory should display modified status");
+        check(processor.getFactoryPresetId()==5,
+              "customization must preserve saved base factory identity");
+        check(preset->getSelectedId()==0,
+              "editing a preset must allow choosing that same preset again");
+        preset->setSelectedId(5,juce::sendNotificationSync);
+        check(preset->getSelectedId()==5 && processor.getFactoryPresetId()==5,
+              "reselecting SKELL MASTER must restore the same selected identity");
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-35.0f)<.12f,
+              "reselecting SKELL MASTER must restore SKELL MASTER 35% clip setting");
+        check(!static_cast<bool>(preset->getProperties().getWithDefault(
+                  "skellMasterPresetModified",false)),
+              "reapplying a factory must clear edited status");
+        for (const auto& value : matched)
+            check(std::abs(processor.parameters.getRawParameterValue(value.id)->load()
+                           -value.expected)<.12f,
+                  "reselecting SKELL MASTER must restore the measured SKELL MASTER settings");
+        preset->setSelectedId(1,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("input")->load())<.12f &&
+              std::abs(processor.parameters.getRawParameterValue("highs")->load())<.12f &&
+              std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f &&
+              processor.parameters.getRawParameterValue("deuceMatch")->load()<0.5f,
+              "SKELL MASTER must not alter original DEFAULT factory sound or leave Deuce stages enabled");
+        clipper->setValue(43.0,juce::sendNotificationSync);
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load()-43.0f)<.12f,
+              "clipper knob must automate real DSP parameter");
         input->setValue(4.0, juce::sendNotificationSync);
         check(std::abs(processor.parameters.getRawParameterValue("input")->load()-4.0f)<.12f,
               "input slider automation attachment failed");
@@ -157,18 +731,211 @@ int main() {
               "bypass button automation attachment failed");
         check(static_cast<bool>(reset->onClick), "reset callback missing");
         reset->onClick();
+        check(preset->getSelectedId()==0
+              && processor.getFactoryPresetId()==0
+              && preset->getItemText(0)=="DEFAULT",
+              "reset must show DEFAULT without changing legacy startup ID0 or DSP");
         check(std::abs(processor.parameters.getRawParameterValue("input")->load())<.12f,
               "reset did not restore input default");
         check(processor.parameters.getRawParameterValue("bypass")->load()<.5f,
               "reset did not restore bypass default");
-        std::cout << "PASS: input slider, bypass, reset and automation bindings\n";
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f,
+              "reset did not restore clipper default");
+        check(processor.parameters.getRawParameterValue("deuceMatch")->load()<.5f,
+              "reset did not disable Deuce Match mode");
+
+        // Regression: RESET must clear hidden legacy choices too. Previously
+        // DEFAULT showed zero knobs but kept the old post-limiter CLIP mode,
+        // making the next CLIP automation sound different from a fresh v8.
+        processor.setReferenceClipEnabled(false);
+        processor.setRefinedControlCurvesEnabled(false);
+        check(!processor.usesReferenceClip() && !processor.usesRefinedControlCurves(),
+              "legacy CLIP / compressor mode test precondition failed");
+        reset->onClick();
+        check(processor.getFactoryPresetId()==0 && preset->getSelectedId()==0
+              && processor.usesReferenceClip()
+              && processor.usesChainOrderedClip()
+              && processor.usesRefinedControlCurves(),
+              "RESET must restore fresh v8 CLIP placement and compressor response");
+        check(std::abs(processor.parameters.getRawParameterValue("clipper")->load())<.12f
+              && processor.parameters.getRawParameterValue("deuceMatch")->load()<.5f,
+              "RESET must remain neutral after restoring hidden DSP modes");
+        juce::MemoryBlock neutralResetState;
+        processor.getStateInformation(neutralResetState);
+        SkellyMasterAudioProcessor restoredNeutralReset;
+        restoredNeutralReset.setStateInformation(
+            neutralResetState.getData(),static_cast<int>(neutralResetState.getSize()));
+        check(restoredNeutralReset.getFactoryPresetId()==0
+              && restoredNeutralReset.usesReferenceClip()
+              && restoredNeutralReset.usesChainOrderedClip()
+              && restoredNeutralReset.usesRefinedControlCurves(),
+              "DEFAULT reset modes must survive the real host state format");
+
+        // Host project state must preserve the named factory identity as well as its real DSP mode.
+        preset->setSelectedId(5,juce::sendNotificationSync);
+        check(processor.getFactoryPresetId()==5,
+              "selecting SKELL MASTER must store its non-automatable factory identity");
+        juce::MemoryBlock savedState;
+        processor.getStateInformation(savedState);
+        SkellyMasterAudioProcessor restoredState;
+        restoredState.setStateInformation(savedState.getData(),
+                                          static_cast<int>(savedState.getSize()));
+        check(restoredState.parameters.getRawParameterValue("deuceMatch")->load()>=0.5f,
+              "Deuce Match did not survive host state save/reload");
+        check(restoredState.getFactoryPresetId()==5,
+              "factory preset identity did not survive host state save/reload");
+        check(restoredState.usesReferenceCalibration(),
+              "current reference calibration must survive host state save/reload");
+        check(restoredState.usesReferenceClip(),
+              "clip algorithm state did not survive save/reload");
+        check(restoredState.usesChainOrderedClip(),
+              "v7 chain placement did not survive state save/reload");
+        check(restoredState.parameters.getRawParameterValue("bypass")->load()<0.5f,
+              "SKELL MASTER factory state unexpectedly restored bypass");
+        for (const auto& value : matched)
+            check(std::abs(restoredState.parameters.getRawParameterValue(value.id)->load()
+                           -value.expected)<.12f,
+                  "SKELL MASTER parameter value did not survive host state save/reload");
+        {
+            SkellyMasterAudioProcessorEditor restoredEditor(restoredState);
+            juce::ComboBox* restoredPreset=nullptr;
+            for(int i=0;i<restoredEditor.getNumChildComponents();++i)
+                if(auto* combo=dynamic_cast<juce::ComboBox*>(restoredEditor.getChildComponent(i)))
+                    if(combo->getComponentID()=="skell-master-preset") restoredPreset=combo;
+            check(restoredPreset && restoredPreset->getSelectedId()==5,
+                  "restored editor did not display the saved SKELL MASTER factory name");
+        }
+
+        // v6 hosted sessions published a REFERENCE CLIP sound *after* the
+        // mastering limiter. Recalling those states must keep the old clip
+        // order even if the knob is at 35% or higher.
+        auto v6State=processor.parameters.copyState();
+        v6State.setProperty("skellMasterStateVersion",6,nullptr);
+        v6State.setProperty("skellMasterClipAlgorithm",1,nullptr);
+        v6State.removeProperty("skellMasterClipPlacement",nullptr);
+        auto v6Xml=v6State.createXml();
+        check(static_cast<bool>(v6Xml),"v6 reference clip host XML exists");
+        juce::MemoryBlock v6Blob;
+        if(v6Xml)juce::AudioProcessor::copyXmlToBinary(*v6Xml,v6Blob);
+        SkellyMasterAudioProcessor oldV6;
+        oldV6.setStateInformation(v6Blob.getData(),static_cast<int>(v6Blob.getSize()));
+        check(oldV6.usesReferenceClip() && !oldV6.usesChainOrderedClip(),
+              "v6 Reference CLIP must keep post-limiter topology");
+        {
+            SkellyMasterAudioProcessorEditor oldV6Editor(oldV6);
+            juce::ComboBox* v6Menu=nullptr;
+            for(int i=0;i<oldV6Editor.getNumChildComponents();++i)
+                if(auto* combo=dynamic_cast<juce::ComboBox*>(oldV6Editor.getChildComponent(i)))
+                    if(combo->getComponentID()=="skell-master-preset") v6Menu=combo;
+            check(v6Menu!=nullptr,"v6 mode switching menu must be accessible");
+            if(v6Menu) {
+                check(v6Menu->getNumItems()==5
+                      && oldV6.usesReferenceClip() && !oldV6.usesChainOrderedClip(),
+                      "opening the simplified menu must retain v6 clip topology");
+            }
+        }
+
+        // Legacy v4 sessions predate the non-automatable factory identity and must restore neutral SELECT.
+        auto legacyState=processor.parameters.copyState();
+        for(int index=legacyState.getNumChildren()-1;index>=0;--index)
+            if(legacyState.getChild(index).getProperty("id").toString()=="deuceMatch")
+                legacyState.removeChild(index,nullptr);
+        legacyState.setProperty("skellMasterStateVersion",4,nullptr);
+        legacyState.removeProperty("skellMasterFactoryPreset",nullptr);
+        auto legacyXml=legacyState.createXml();
+        check(static_cast<bool>(legacyXml),"legacy host state XML must be created");
+        juce::MemoryBlock legacyBlob;
+        if(legacyXml)juce::AudioProcessor::copyXmlToBinary(*legacyXml,legacyBlob);
+        SkellyMasterAudioProcessor restoredLegacyState;
+        restoredLegacyState.setFactoryPresetId(5);
+        restoredLegacyState.setStateInformation(legacyBlob.getData(),static_cast<int>(legacyBlob.getSize()));
+        check(restoredLegacyState.parameters.getRawParameterValue("deuceMatch")->load()<0.5f,
+              "legacy project without Deuce Match must default to OFF");
+        check(restoredLegacyState.getFactoryPresetId()==0,
+              "legacy host state without factory identity must restore SELECT");
+        check(!restoredLegacyState.usesReferenceClip()
+              && !restoredLegacyState.usesChainOrderedClip()
+              && !restoredLegacyState.usesRefinedControlCurves(),
+              "v1-5 project must retain CLIP, topology, and old compressor response");
+        // A hostile/old v6 state with an impossible factory identity 6
+        // must keep the historic saturation clamp at 5. Only v7 can save
+        // the new reference factory 6.
+        auto oldBadFactory=processor.parameters.copyState();
+        oldBadFactory.setProperty("skellMasterStateVersion",6,nullptr);
+        oldBadFactory.setProperty("skellMasterFactoryPreset",6,nullptr);
+        auto badFactoryXml=oldBadFactory.createXml();
+        check(static_cast<bool>(badFactoryXml),"old bad-factory XML created");
+        juce::MemoryBlock oldBadBlob;
+        if(badFactoryXml)juce::AudioProcessor::copyXmlToBinary(*badFactoryXml,oldBadBlob);
+        SkellyMasterAudioProcessor migratedOldFactory;
+        migratedOldFactory.setStateInformation(oldBadBlob.getData(),
+                     static_cast<int>(oldBadBlob.getSize()));
+        check(migratedOldFactory.getFactoryPresetId()==5,
+              "pre-v7 malformed factory ID6 must not enable the new preset");
+
+        // XML numeric properties are text after deserialization; clamp invalid positive IDs.
+        auto malformedFactoryState=processor.parameters.copyState();
+        malformedFactoryState.setProperty("skellMasterStateVersion",5,nullptr);
+        malformedFactoryState.setProperty("skellMasterFactoryPreset",juce::String("99"),nullptr);
+        auto malformedFactoryXml=malformedFactoryState.createXml();
+        check(static_cast<bool>(malformedFactoryXml),"malformed factory state XML must be created");
+        juce::MemoryBlock malformedFactoryBlob;
+        if(malformedFactoryXml)juce::AudioProcessor::copyXmlToBinary(*malformedFactoryXml,malformedFactoryBlob);
+        SkellyMasterAudioProcessor restoredMalformedFactoryState;
+        restoredMalformedFactoryState.setStateInformation(malformedFactoryBlob.getData(),
+            static_cast<int>(malformedFactoryBlob.getSize()));
+        check(restoredMalformedFactoryState.getFactoryPresetId()==5,
+              "out-of-range serialized factory identity must clamp to the last valid preset");
+
+        // A numeric prefix followed by junk used to parse as factory ID 5,
+        // displaying SKELL MASTER while the saved Deuce Match mode was OFF.
+        auto suffixFactoryState=processor.parameters.copyState();
+        suffixFactoryState.setProperty("skellMasterStateVersion",5,nullptr);
+        suffixFactoryState.setProperty("skellMasterFactoryPreset",juce::String("5junk"),nullptr);
+        for(int index=0;index<suffixFactoryState.getNumChildren();++index) {
+            auto child=suffixFactoryState.getChild(index);
+            if(child.getProperty("id").toString()=="deuceMatch") {
+                child.setProperty("value",0.0f,nullptr);
+                break;
+            }
+        }
+        auto suffixFactoryXml=suffixFactoryState.createXml();
+        check(static_cast<bool>(suffixFactoryXml),"suffix factory state XML must be created");
+        juce::MemoryBlock suffixFactoryBlob;
+        if(suffixFactoryXml)juce::AudioProcessor::copyXmlToBinary(*suffixFactoryXml,suffixFactoryBlob);
+        SkellyMasterAudioProcessor restoredSuffixFactoryState;
+        restoredSuffixFactoryState.setStateInformation(suffixFactoryBlob.getData(),
+            static_cast<int>(suffixFactoryBlob.getSize()));
+        check(restoredSuffixFactoryState.getFactoryPresetId()==0,
+              "malformed numeric-prefix factory identity must restore neutral SELECT");
+        check(restoredSuffixFactoryState.parameters.getRawParameterValue("deuceMatch")->load()<0.5f,
+              "malformed factory identity must not imply Deuce Match is enabled");
+
+        processor.parameters.getParameter("deuceMatch")->setValueNotifyingHost(0.0f);
+        std::cout << "PASS: true-peak safety, Deuce Match state recall, factory identity, clipper, bypass and automation bindings\n";
 
         // Host-like audio checks exercise the actual JUCE wrapper + 4x resampler.
+        // Explicitly isolate the test state: earlier UI cases leave the
+        // ceiling at +3 and BYPASS modified. A hardcoded -1dB sample ceiling
+        // cannot be asserted against those unrelated preceding selections.
+        auto* ceilingParameter=processor.parameters.getParameter("ceiling");
+        check(ceilingParameter!=nullptr,"audio fixture requires ceiling parameter");
+        ceilingParameter->setValueNotifyingHost(
+            ceilingParameter->convertTo0to1(0.0f));
+        processor.parameters.getParameter("bypass")->setValueNotifyingHost(0.0f);
+        processor.parameters.getParameter("deuceMatch")->setValueNotifyingHost(1.0f);
+        check(std::abs(processor.parameters.getRawParameterValue("ceiling")->load())<0.01f
+              && processor.parameters.getRawParameterValue("bypass")->load()<0.5f
+              && processor.parameters.getRawParameterValue("deuceMatch")->load()>=0.5f,
+              "host audio fixture must enter active mastering at -1dB target");
         for (const int sampleRate : {44100, 48000, 96000}) {
             processor.prepareToPlay(static_cast<double>(sampleRate),512);
             const auto latency=processor.getLatencySamples();
-            check(latency>0 && latency<sampleRate/30,
+            check(latency>=32 && latency<sampleRate/30,
                   "reported plugin latency outside reasonable range");
+            skelly::StereoTruePeakMonitor outputTruePeak;
+            outputTruePeak.reset();
+            double maxOutputTruePeak=0.0;
             for (int blockSize : {1, 32, 256, 511, 512}) {
                 juce::AudioBuffer<float> buffer(2, blockSize);
                 juce::MidiBuffer midi;
@@ -190,8 +957,14 @@ int main() {
                             check(std::abs(out)<=ceiling+margin,
                                   "host processor violated sample peak ceiling");
                         }
+                    for (int i=0;i<blockSize;++i)
+                        maxOutputTruePeak=std::max(maxOutputTruePeak,
+                            static_cast<double>(outputTruePeak.process(
+                                buffer.getSample(0,i),buffer.getSample(1,i))));
                 }
             }
+            check(maxOutputTruePeak<=std::pow(10.0,-1.25/20.0)+3.0e-4,
+                  "host processor exceeded the -1.25 dBTP safety regression ceiling");
             // Stress input sanitization at the actual JUCE oversampler boundary.
             // An invalid host frame must not poison the persistent filter
             // state, and the following normal programme must recover.

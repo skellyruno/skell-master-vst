@@ -1,0 +1,42 @@
+name: One-time Quick4 local source handoff
+
+# Development dependencies only. This NEVER generates screenshots on CI.
+# Captures pinned JUCE / SkellCore source for a reproducible local build.
+on:
+  push:
+    branches: [ui/white-readouts-asset-kit-20261111]
+    paths:
+      - '.github/workflows/one-time-quick4-source-handoff.yml'
+  workflow_dispatch:
+
+jobs:
+  source-handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v6
+      - name: Get pinned JUCE 8.0.12 source
+        run: git clone --depth 1 --branch 8.0.12 https://github.com/juce-framework/JUCE.git /tmp/quick4-juce
+      - name: Get pinned SkellCore source
+        shell: bash
+        run: |
+          git clone --filter=blob:none https://github.com/skellyruno/skellcore-vst-template.git /tmp/quick4-skellcore
+          git -C /tmp/quick4-skellcore checkout 1292336c095cde53ac17a9d6c8f0ec2042b08273
+      - name: Pack source-only local Quick4 handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p local-dev-source/JUCE local-dev-source/skellcore-vst-template local-dev-source/skell-master-vst
+          tar --exclude='.git' -C /tmp/quick4-juce -cf - . | tar -C local-dev-source/JUCE -xf -
+          tar --exclude='.git' -C /tmp/quick4-skellcore -cf - . | tar -C local-dev-source/skellcore-vst-template -xf -
+          tar --exclude='.git' -C . -cf - CMakeLists.txt Source tests .github README.md AGENTS.md | tar -C local-dev-source/skell-master-vst -xf -
+          printf 'source_commit=%s\n' "$(git rev-parse HEAD)" > local-dev-source/SOURCE_MANIFEST.txt
+          printf 'JUCE=8.0.12\nSkellCore=1292336c095cde53ac17a9d6c8f0ec2042b08273\n' >> local-dev-source/SOURCE_MANIFEST.txt
+          tar -czf quick4-local-source.tar.gz -C local-dev-source .
+          ls -lh quick4-local-source.tar.gz
+      - uses: actions/upload-artifact@v6
+        with:
+          name: SkellyMaster-Quick4-Local-Sources
+          path: quick4-local-source.tar.gz
+          retention-days: 14
+          if-no-files-found: error
