@@ -90,7 +90,7 @@ private:
     };
     PresetSelector presetSelector;
     bool presetMenuOpen=false;
-    juce::TextButton fiveBandButton {"5 BAND"};
+    juce::TextButton fiveBandButton {"MAGIC"};
     std::unique_ptr<juce::FileChooser> presetChooser;
     int displayedFactory=0;
     std::array<juce::TextButton,3> monitorButtons {juce::TextButton("PEAK"), juce::TextButton("TRUE"), juce::TextButton("CLEAR")};

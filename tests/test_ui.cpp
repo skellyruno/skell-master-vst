@@ -433,7 +433,7 @@ int main() {
         for(const int width : {620,702,1200}) {
             editor.setSize(width,juce::roundToInt(width*760.0/1200.0));
             const auto bounds=preset->getBounds();
-            check(fiveBand->getBounds().getCentreX()<width/4 && fiveBand->getY()>editor.getHeight()*0.90,"five-band toggle in lower-left utility deck");
+            check(fiveBand->getButtonText()=="MAGIC" && fiveBand->getBounds().getCentreX()<width/4 && fiveBand->getY()>editor.getHeight()*0.14 && fiveBand->getBottom()<editor.getHeight()*0.21,"MAGIC toggle in upper-left monitoring box");
             check(editor.getComponentAt(fiveBand->getBounds().getCentre())==fiveBand,"five-band hit area unobstructed");
             const int middleY=bounds.getCentreY();
             for(const int xx : {bounds.getX()+3,bounds.getCentreX(),

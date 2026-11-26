@@ -700,7 +700,7 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     refreshQualityDisplay();
     fiveBandButton.setComponentID("utility-five-band");
     fiveBandButton.setClickingTogglesState(true);
-    fiveBandButton.setTooltip("Optional five-band creative mode: Sauce above 20%, Drive above 20% and Width use shared multiband enhancement. Original factory sound remains protected.");
+    fiveBandButton.setTooltip("MAGIC: optional five-band enhancement. Sauce and Drive above 20%, plus Width, use shared multiband processing. Original factory sound remains protected.");
     fiveBandButton.setToggleState(processor.usesFiveBandEnhancement(),juce::dontSendNotification);
     fiveBandButton.onClick=[this]{ processor.setFiveBandEnhancementEnabled(fiveBandButton.getToggleState()); refreshPresetDisplay(); };
     addAndMakeVisible(fiveBandButton);
@@ -1303,7 +1303,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     for(float x : {60.0f,249.0f})
         for(float y : {121.0f,273.0f}) hw::screw(g,x,y,0.88f);
     font(g,18,true);g.setColour(hw::gold);
-    text(g,"SKELLY MASTER",65,125,182,26);
+    // MAGIC occupies the former duplicate branding line in this panel.
     font(g,12,true);g.setColour(hw::parchment);
     text(g,"QUALITY / OVERSAMPLING",61,151,189,15);
     hw::divider(g,63,191,247,191);
@@ -1342,17 +1342,14 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     themeInset(g,{13,673,1174,80},skin,true);
     for(float x : {29.0f,1172.0f})
         for(float y : {685.0f,741.0f}) hw::screw(g,x,y,0.90f);
-    hw::divider(g,267,685,267,744);
-    hw::divider(g,553,685,553,744);
-    hw::divider(g,850,685,850,744);
+    hw::divider(g,389,685,389,744);
+    hw::divider(g,755,685,755,744);
     hw::divider(g,1121,685,1121,744);
-    font(g,16,true);g.setColour(hw::gold);
-    text(g,"MULTIBAND",48,681,205,18,juce::Justification::centred);
-    font(g,14,true);g.setColour(hw::gold);
-    text(g,"CLIP",294,710,85,21,juce::Justification::centredLeft);
+    // Redistribute all three utility controls across the freed deck.
     font(g,15,true);g.setColour(hw::gold);
-    text(g,"OUTPUT",566,710,84,21,juce::Justification::centredLeft);
-    text(g,"CEILING",852,710,88,21,juce::Justification::centredLeft);
+    text(g,"CLIP",62,710,88,21,juce::Justification::centredLeft);
+    text(g,"OUTPUT",423,710,88,21,juce::Justification::centredLeft);
+    text(g,"CEILING",789,710,92,21,juce::Justification::centredLeft);
     font(g,16,true);g.setColour(hw::gold);
     text(g,"M-01",1125,705,41,24);
 
@@ -1434,17 +1431,17 @@ void SkellyMasterAudioProcessorEditor::resized() {
         place(knobs[static_cast<size_t>(i)],cellX+15,rowY+5,247,118);
     }
     place(qualityButton,63,167,184,23);
-    place(fiveBandButton,48,704,201,34);
+    place(fiveBandButton,63,122,184,28);
     place(bypass,887,29,125,38);
     place(reset,1024,29,126,38);
     place(presetSelector,976,228,170,26);
-    place(knobs[10],371,685,178,68);
+    place(knobs[10],156,685,204,68);
     // Every compact button occupies the full available monitor row;
     // fixed 2px insets at min size preserve legibility and hit targets.
     for(int i=0;i<3;++i)
         place(monitorButtons[static_cast<size_t>(i)],63+i*62,215,60,30);
-    place(knobs[8],647,685,199,68);
-    place(knobs[9],929,685,181,68);
+    place(knobs[8],518,685,208,68);
+    place(knobs[9],886,685,210,68);
     place(skullHitTarget,57,10,82,72);
 }
 
