@@ -1513,7 +1513,7 @@ void SkellyMasterAudioProcessorEditor::showPresetMenu() {
     const auto safe=juce::Component::SafePointer<SkellyMasterAudioProcessorEditor>(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&presetSelector)
                            .withMinimumWidth(180),
-        [safe,files,count](int id) {
+        [safe,files,count,saveId,browseId,firstUserId](int id) {
             if(safe==nullptr) return;
             safe->presetMenuOpen=false;
             safe->presetSelector.hidePopup();
