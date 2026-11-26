@@ -15,7 +15,7 @@ endif()
 # The UI uses the exact shared SkellCore skull palette and skin state.
 FetchContent_Declare(SkellCoreShared
     GIT_REPOSITORY https://github.com/skellyruno/skellcore-vst-template.git
-    GIT_TAG 1292336c095cde53ac17a9d6c8f0ec2042b08273
+    GIT_TAG 0f69a453b4c1d383638e24dd3019d41624446d4f
     SOURCE_SUBDIR SkellCore
     GIT_SHALLOW FALSE)
 set(SKELLCORE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -81,8 +81,8 @@ target_compile_definitions(SkellyMaster PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0)
 target_compile_definitions(SkellyMaster PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0
     SKELLY_MASTER_HEADER_ASSETS=${SKELLY_MASTER_HEADER_ASSETS})
-target_link_libraries(SkellyMaster PRIVATE
-    SkellyMasterPhotoAssets SkellCore::UI
+target_link_libraries(SkellyMaster PUBLIC SkellCore::DSP
+    PRIVATE SkellyMasterPhotoAssets SkellCore::UI
     juce::juce_audio_utils juce::juce_audio_processors
     juce::juce_dsp juce::juce_gui_extra)
 
@@ -90,12 +90,14 @@ target_link_libraries(SkellyMaster PRIVATE
 enable_testing()
 add_executable(SkellyDSPTests tests/test_mastering.cpp)
 target_compile_features(SkellyDSPTests PRIVATE cxx_std_17)
+target_link_libraries(SkellyDSPTests PRIVATE SkellCore::DSP)
 add_test(NAME SkellyDSPTests COMMAND SkellyDSPTests)
 
 # Legacy diagnostic: confirms why the old sample-peak-only guard could not
 # certify intersample true-peak compliance. Production now uses the guard below.
 add_executable(SkellyTruePeakGapTests tests/test_true_peak_gap.cpp)
 target_compile_features(SkellyTruePeakGapTests PRIVATE cxx_std_17)
+target_link_libraries(SkellyTruePeakGapTests PRIVATE SkellCore::DSP)
 add_test(NAME SkellyTruePeakGapTests COMMAND SkellyTruePeakGapTests)
 
 # Production final true-peak guard: 257-tap / 4-phase Kaiser reconstruction,
@@ -103,17 +105,20 @@ add_test(NAME SkellyTruePeakGapTests COMMAND SkellyTruePeakGapTests)
 # and finite recovery. Legacy factories retain the original sample-peak limiter.
 add_executable(SkellyTruePeakGuardTests tests/test_true_peak_guard.cpp)
 target_compile_features(SkellyTruePeakGuardTests PRIVATE cxx_std_17)
+target_link_libraries(SkellyTruePeakGuardTests PRIVATE SkellCore::DSP)
 add_test(NAME SkellyTruePeakGuardTests COMMAND SkellyTruePeakGuardTests)
 
 # Deuce Match uses this five-band stage when its appended host parameter is enabled.
 add_executable(SkellyFiveBandColorTests tests/test_five_band_color.cpp)
 target_compile_features(SkellyFiveBandColorTests PRIVATE cxx_std_17)
+target_link_libraries(SkellyFiveBandColorTests PRIVATE SkellCore::DSP)
 add_test(NAME SkellyFiveBandColorTests COMMAND SkellyFiveBandColorTests)
 
 # Reference chain's +2dB / 5kHz post-limiter presence is used only by the
 # opt-in Deuce Match mode; zero mix remains exact dry for all legacy presets.
 add_executable(SkellyPostLimiterPresenceTests tests/test_post_limiter_presence.cpp)
 target_compile_features(SkellyPostLimiterPresenceTests PRIVATE cxx_std_17)
+target_link_libraries(SkellyPostLimiterPresenceTests PRIVATE SkellCore::DSP)
 add_test(NAME SkellyPostLimiterPresenceTests COMMAND SkellyPostLimiterPresenceTests)
 
 # Real JUCE editor + processor smoke tests on the Windows runner. Renders
@@ -141,6 +146,7 @@ if(WIN32)
     juce_add_console_app(SkellyVST3HostAudioTests PRODUCT_NAME "Skell Master VST3 Audio Test")
     target_sources(SkellyVST3HostAudioTests PRIVATE tests/test_vst3_host_audio.cpp)
     target_compile_features(SkellyVST3HostAudioTests PRIVATE cxx_std_17)
+target_link_libraries(SkellyVST3HostAudioTests PRIVATE SkellCore::DSP)
     target_compile_definitions(SkellyVST3HostAudioTests PRIVATE
         JUCE_PLUGINHOST_VST3=1 JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0)
@@ -171,6 +177,7 @@ if(UNIX AND NOT APPLE)
     target_sources(SkellyVST3HostAudioTestsLinux PRIVATE
         tests/test_vst3_host_audio.cpp)
     target_compile_features(SkellyVST3HostAudioTestsLinux PRIVATE cxx_std_17)
+target_link_libraries(SkellyVST3HostAudioTestsLinux PRIVATE SkellCore::DSP)
     target_compile_definitions(SkellyVST3HostAudioTestsLinux PRIVATE
         JUCE_PLUGINHOST_VST3=1 JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0)

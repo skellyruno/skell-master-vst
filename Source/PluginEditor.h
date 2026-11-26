@@ -81,6 +81,7 @@ private:
     juce::TextButton bypass { "BYPASS" }, reset { "RESET" }, qualityButton { "4x" };
     juce::ComboBox presetSelector;
     juce::TextButton savePresetButton {"SAVE"}, loadPresetButton {"LOAD"};
+    juce::TextButton fiveBandButton {"5 BAND"};
     std::unique_ptr<juce::FileChooser> presetChooser;
     int displayedFactory=0;
     std::array<juce::TextButton,3> monitorButtons {juce::TextButton("PEAK"), juce::TextButton("TRUE"), juce::TextButton("CLEAR")};

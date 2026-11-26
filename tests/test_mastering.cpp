@@ -465,6 +465,38 @@ int main() {
     }
     std::cout<<"PASS: V17 immersive Width nine rates, neutral, mono, anti-phase, mid and bass bounds\n";
 
+    // Optional shared five-band engine preserves factory ranges even
+    // when explicitly enabled, while high controls exercise real DSP.
+    for(double sr:{88200.,176400.,384000.,768000.}) {
+        auto a=std::make_unique<MasteringEngine>(), b=std::make_unique<MasteringEngine>();
+        const int delay=static_cast<int>(std::ceil(sr*.0015));
+        a->prepare(sr,2,delay); b->prepare(sr,2,delay);
+        MasterParameters old; old.inputDb=5.;old.drive=.08;old.glue=.20;old.dynamics=.11;
+        old.lowsDb=-1.;old.highsDb=3.;old.sauce=.12;old.clipper=.35;
+        old.deuceMatch=true;old.referenceClip=true;old.clipBeforeLimiter=true;
+        old.referenceCalibration=true;old.enhancedSauce=true;old.analogSauce=true;
+        old.immersiveWidth=true;old.efficientDepth=true;old.adaptiveCompression=true;old.compressionMakeup=true;
+        auto creative=old;creative.fiveBandEnhancement=true;
+        a->setParameters(old);b->setParameters(creative);
+        for(int i=0;i<static_cast<int>(sr*.15);++i) {
+            const auto x=fixtureFrame(i);
+            const auto y=a->processFrame(x.left,x.right),z=b->processFrame(x.left,x.right);
+            require(y.left==z.left&&y.right==z.right,"five-band selected reference factory exact");
+        }
+        old.sauce=1.;old.drive=.8;old.spatialWidth=1.;
+        creative=old;creative.fiveBandEnhancement=true;
+        a->setParameters(old);b->setParameters(creative);
+        double difference=0.;
+        for(int i=0;i<static_cast<int>(sr*.25);++i) {
+            const auto x=fixtureFrame(i);
+            const auto y=a->processFrame(x.left,x.right),z=b->processFrame(x.left,x.right);
+            require(std::isfinite(z.left)&&std::isfinite(z.right),"creative full engine finite");
+            difference+=std::abs(y.left-z.left)+std::abs(y.right-z.right);
+        }
+        require(difference>1.e-3,"creative path must process audio");
+    }
+    std::cout<<"PASS: shared five-band factory null and active engine four rates\n";
+
     // Exact production detector window against an independent scan,
     // including bypass history, ties, reset, nonfinite input and clipped
     // finite values. Every output is a maximum of the same 33 floats.

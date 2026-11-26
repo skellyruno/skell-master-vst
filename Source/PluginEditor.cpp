@@ -697,6 +697,12 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     };
     addAndMakeVisible(qualityButton);
     refreshQualityDisplay();
+    fiveBandButton.setComponentID("skell-monitor-five-band");
+    fiveBandButton.setClickingTogglesState(true);
+    fiveBandButton.setTooltip("Optional five-band creative mode: Sauce above 20%, Drive above 20% and Width use shared multiband enhancement. Original factory sound remains protected.");
+    fiveBandButton.setToggleState(processor.usesFiveBandEnhancement(),juce::dontSendNotification);
+    fiveBandButton.onClick=[this]{ processor.setFiveBandEnhancementEnabled(fiveBandButton.getToggleState()); refreshPresetDisplay(); };
+    addAndMakeVisible(fiveBandButton);
     savePresetButton.setComponentID("skell-master-save-preset");
     loadPresetButton.setComponentID("skell-master-load-preset");
     savePresetButton.setTooltip("Save current sound as a named user preset.");
@@ -786,6 +792,7 @@ void SkellyMasterAudioProcessorEditor::resetToDefaults() {
     processor.setAdaptiveCompressionEnabled(true);
     processor.setCompressionMakeupEnabled(true);
     processor.setImmersiveWidthEnabled(true);
+    processor.setFiveBandEnhancementEnabled(false);
     processor.clearUserPresetIdentity();
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     processor.setFactoryPresetId(0);
@@ -824,6 +831,7 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
     processor.setAdaptiveCompressionEnabled(true);
     processor.setCompressionMakeupEnabled(true);
     processor.setImmersiveWidthEnabled(true);
+    processor.setFiveBandEnhancementEnabled(false);
     processor.clearUserPresetIdentity();
     if(presetId>=6) {
         // Fresh opt-in factory sounds use the 4x clip-before-L2 topology.
@@ -866,7 +874,7 @@ void SkellyMasterAudioProcessorEditor::applyFactoryPreset(int presetId) {
 void SkellyMasterAudioProcessorEditor::refreshPresetDisplay() {
     const int factory=processor.getFactoryPresetId();
     const bool hasFactory=factory>=1 && factory<=9;
-    bool modified=factory>=6 || (factory==5 && !processor.usesReferenceCalibration());
+    bool modified=processor.usesFiveBandEnhancement() || factory>=6 || (factory==5 && !processor.usesReferenceCalibration());
     for(int i=0;i<knobCount;++i) {
         const auto* raw=processor.parameters.getRawParameterValue(ids[i]);
         const float expected=hasFactory ? factoryValues[factory-1][i] : 0.0f;
@@ -933,6 +941,8 @@ void SkellyMasterAudioProcessorEditor::refreshQualityDisplay() {
 }
 void SkellyMasterAudioProcessorEditor::timerCallback() {
     refreshQualityDisplay();
+    if(fiveBandButton.getToggleState()!=processor.usesFiveBandEnhancement())
+        fiveBandButton.setToggleState(processor.usesFiveBandEnhancement(),juce::dontSendNotification);
     // A host may restore state while the editor is already open. Keep the
     // non-automatable factory label synchronized without reapplying DSP values.
     const int restoredPreset=processor.getFactoryPresetId();
@@ -1427,6 +1437,7 @@ void SkellyMasterAudioProcessorEditor::resized() {
     place(qualityButton,63,167,184,23);
     place(savePresetButton,48,705,98,32);
     place(loadPresetButton,151,705,98,32);
+    place(fiveBandButton,803,29,76,38);
     place(bypass,887,29,125,38);
     place(reset,1024,29,126,38);
     place(presetSelector,976,228,170,26);

@@ -108,6 +108,9 @@ jobs:
             $makeupWav = Join-Path $env:RUNNER_TEMP "skell-master-makeup-$os.wav"
             & $runner.FullName $plugin.FullName $inputWavPath $makeupWav --factory 1 --oversampling $os --set 'Glue=100' --set 'Dynamics=100' --set 'Input=12'
             if ($LASTEXITCODE -ne 0) { throw "V16 strong compression true-peak stress failed at ${os}x" }
+            $fiveBandWav = Join-Path $env:RUNNER_TEMP "skell-master-five-band-$os.wav"
+            & $runner.FullName $plugin.FullName $inputWavPath $fiveBandWav --factory 1 --oversampling $os --five-band 1 --set 'Drive=100' --set 'Sauce=100' --set 'Spatial Width=100' --set 'Input=12' --set 'Clip=35'
+            if ($LASTEXITCODE -ne 0) { throw "Five-band creative stress failed at ${os}x" }
           }
           & $runner.FullName $plugin.FullName $inputWavPath $dryWavPath --factory 1 --bool 'Bypass=1'
           if ($LASTEXITCODE -ne 0) { throw "Explicit dry bypass render failed" }
@@ -334,6 +337,7 @@ jobs:
           "$runner" "$plugin" "$input" "$RUNNER_TEMP/skell-master-depth-width-sauce.wav" --factory 1 --set 'Spatial Width=100' --set 'Sauce=100' --set 'Input=12'
           for os in 2 4 8; do
             "$runner" "$plugin" "$input" "$RUNNER_TEMP/skell-master-makeup-$os.wav" --factory 1 --oversampling "$os" --set 'Glue=100' --set 'Dynamics=100' --set 'Input=12'
+            "$runner" "$plugin" "$input" "$RUNNER_TEMP/skell-master-five-band-$os.wav" --factory 1 --oversampling "$os" --five-band 1 --set 'Drive=100' --set 'Sauce=100' --set 'Spatial Width=100' --set 'Input=12' --set 'Clip=35'
           done
           # Host native bypass can skip the plugin's 4x polyphase/latency
           # route, so exact PCM hashes are not the right host-level metric.

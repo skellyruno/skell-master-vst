@@ -71,6 +71,8 @@ public:
         referenceCalibrationEnabled.store(enabled,std::memory_order_relaxed);
     }
 
+    bool usesFiveBandEnhancement() const noexcept { return fiveBandEnhancementEnabled.load(std::memory_order_relaxed); }
+    void setFiveBandEnhancementEnabled(bool v) noexcept { fiveBandEnhancementEnabled.store(v,std::memory_order_relaxed); }
     bool usesImmersiveWidth() const noexcept { return immersiveWidthEnabled.load(std::memory_order_relaxed); }
     void setImmersiveWidthEnabled(bool v) noexcept { immersiveWidthEnabled.store(v,std::memory_order_relaxed); }
     bool usesEfficientDepth() const noexcept { return efficientDepthEnabled.load(std::memory_order_relaxed); }
@@ -153,6 +155,7 @@ private:
     std::atomic<bool> adaptiveCompressionEnabled { true };
     std::atomic<bool> compressionMakeupEnabled { true };
     std::atomic<bool> immersiveWidthEnabled { true };
+    std::atomic<bool> fiveBandEnhancementEnabled { false };
     int referenceClipGuardHold = 0;
     int activeChannels = 2;
     int lookaheadSamples = 0;

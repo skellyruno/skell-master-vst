@@ -217,6 +217,23 @@ int main() {
         check(processor.usesAnalogSauce(),"fresh instances use V13 analog Sauce");
         check(processor.usesCompressionMakeup(),"fresh V16 sessions enable partial makeup");
         check(processor.usesImmersiveWidth(),"fresh V17 uses immersive width");
+        check(!processor.usesFiveBandEnhancement(),"fresh five-band mode off");
+        {
+            auto source=std::make_unique<SkellyMasterAudioProcessor>();
+            auto loaded=std::make_unique<SkellyMasterAudioProcessor>();
+            source->setFiveBandEnhancementEnabled(true);
+            juce::MemoryBlock state;
+            source->getStateInformation(state);
+            loaded->setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+            check(loaded->usesFiveBandEnhancement(),"creative mode state roundtrip");
+            auto old=source->parameters.copyState();
+            old.setProperty("skellMasterStateVersion",17,nullptr);
+            old.setProperty("skellMasterFiveBandEnhancement",1,nullptr);
+            auto xml=old.createXml();
+            juce::AudioProcessor::copyXmlToBinary(*xml,state);
+            loaded->setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+            check(!loaded->usesFiveBandEnhancement(),"old state cannot activate new creative mode");
+        }
         {
             auto source=std::make_unique<SkellyMasterAudioProcessor>();
             auto loaded=std::make_unique<SkellyMasterAudioProcessor>();
@@ -226,6 +243,10 @@ int main() {
             source->parameters.getParameter("spatialWidth")->setValueNotifyingHost(.73f);
             check(source->saveUserPreset(file).wasOk(),"save actual user preset");
             check(!source->isUserPresetModified(),"saved user preset clean");
+            source->setFiveBandEnhancementEnabled(true);
+            check(source->isUserPresetModified(),"creative mode marks saved preset");
+            source->setFiveBandEnhancementEnabled(false);
+            check(!source->isUserPresetModified(),"original fingerprint restored");
             source->parameters.getParameter("sauce")->setValueNotifyingHost(.58f);
             check(source->isUserPresetModified(),"knob edit marks saved preset");
             loaded->requestOversampling(8);
@@ -334,7 +355,7 @@ int main() {
                     ++presetCount; interactive.push_back(box);
                 }
             }
-            check(sliderCount==11 && buttonCount==8 && presetCount==1,
+            check(sliderCount==11 && buttonCount==9 && presetCount==1,
                   "missing mastering controls, monitor buttons or preset dropdown");
             for (size_t i=0;i<interactive.size();++i)
                 for (size_t j=i+1;j<interactive.size();++j)

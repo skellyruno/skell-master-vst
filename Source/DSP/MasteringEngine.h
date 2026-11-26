@@ -7,6 +7,7 @@
 #include "PeakWindow.h"
 #include "AnalogSauce.h"
 #include "CompressionMakeup.h"
+#include <SkellCore/experimental/FiveBandEnhancer.h>
 
 // SKELLY MASTER | portable DSP core (C++17, no GUI or host dependencies).
 // State is allocated during prepare(); processFrame() performs no allocation.
@@ -371,6 +372,7 @@ struct MasterParameters {
     double width = 1.0;     // Legacy V10/V11: 0..1.6, 1 neutral
     double spatialWidth = 0.0; // V12: 0..1 creative stereo separation
     bool immersiveWidth = false; // V17 new-session wider midband
+    bool fiveBandEnhancement = false; // opt-in creative mode, never implicit
     bool enhancedSauce = false; // opt-in; old saved states remain exact
     bool analogSauce = false; // V13 parallel coloration above 20% only
     bool depthWidth = false; // V11 creative width, V10 states retain previous widening
@@ -845,6 +847,8 @@ public:
         spatialAmount.prepare(rate, 45, 0);
         spatialSeparation.prepare(rate);
         immersiveWidth.prepare(rate);
+        creativeEnhancer.prepare(rate);
+        creativeBlend.prepare(rate, 35, 0.0);
         sauceEnhanceMix.prepare(rate, 35, 0);
         analogSauceMix.prepare(rate, 45, 0);
         analogColor.prepare(rate);
@@ -931,6 +935,9 @@ public:
         spatialAmount.snap(0.0);
         spatialSeparation.reset();
         immersiveWidth.reset();
+        creativeEnhancer.reset();
+        creativeBlend.snap(0.0);
+        creativeWasActive=false;
         spatialWasActive=false;
         sauceEnhanceMix.snap(0.0);
         analogSauceMix.snap(0.0);
@@ -962,6 +969,7 @@ public:
             spatialWasActive=false;
         }
         immersiveWidthMode=p.immersiveWidth;
+        creativeBlend.setTarget(p.fiveBandEnhancement && !p.bypass ? 1.0 : 0.0);
         adaptiveCompressionMode=p.adaptiveCompression && !p.bypass;
         compressionMakeupMode=p.compressionMakeup && !p.bypass;
         if(!compressionMakeupMode) compressionMakeup.reset();
@@ -1045,6 +1053,7 @@ public:
         const double s = sauceAmt.next(), tr = transientsAmt.next();
         const double widthChange=widthOffset.next();
         const double spatialChange=spatialAmount.next();
+        const double mode=creativeBlend.next();
         const double sauceMix=sauceEnhanceMix.next();
         const double analogMix=analogSauceMix.next();
         const double depthMix=depthWidthMix.next();
@@ -1124,7 +1133,7 @@ public:
         // legacy curve. Above 20% add smooth, bounded high-band enhancement.
         // The same band-limited signal feeds a soft rational shaper at 4x.
         const double extra = detail::clamp((s-0.20)/0.80,0.0,1.0);
-        const double color = sauceMix*extra*extra*(3.0-2.0*extra);
+        const double color = sauceMix*extra*extra*(3.0-2.0*extra)*(1.0-mode);
         if(color>1.e-8) {
             const auto sheen=[](double h) noexcept {
                 return 0.45*h/(1.0+0.75*std::abs(h));
@@ -1146,13 +1155,30 @@ public:
             stereoImager.process(l, r, s-sauceMix*std::max(0.0,s-0.20), widthChange, depthMix, efficientDepthMode);
         // A separate, additive control leaves all old Width automation intact.
         // At zero, skip the new stage entirely and retain the bit-exact path.
-        if(channels==2 && spatialChange>1.e-8) {
-            if(immersiveWidthMode) immersiveWidth.process(l,r,spatialChange);
-            else spatialSeparation.process(l,r,spatialChange);
+        const double legacySpatial=spatialChange*(1.0-mode);
+        if(channels==2 && legacySpatial>1.e-8) {
+            if(immersiveWidthMode) immersiveWidth.process(l,r,legacySpatial);
+            else spatialSeparation.process(l,r,legacySpatial);
             spatialWasActive=true;
         } else if(spatialWasActive) {
             spatialSeparation.reset(); immersiveWidth.reset();
             spatialWasActive=false;
+        }
+
+        // Independently validated SkellCore creative residuals. Crossfade
+        // the previous upper-range Sauce and spatial Width, retaining the
+        // legacy low-range sheen, Drive, Glue, EQ, phase and safety stages.
+        // All factories are neutral for these extra amounts.
+        if(mode>1.e-9) {
+            const double driveExtra=clamp((d-.20)/.80,0.,1.);
+            creativeEnhancer.setAmounts(mode*extra*extra*(3.-2.*extra),
+                                        channels==2 ? mode*spatialChange : 0.,
+                                        mode*.65*driveExtra);
+            creativeEnhancer.process(l,r);
+            creativeWasActive=true;
+        } else if(creativeWasActive) {
+            creativeEnhancer.reset();
+            creativeWasActive=false;
         }
 
         // Deuce Match's five-band coloration approximates the reference's
@@ -1409,6 +1435,9 @@ private:
     bool analogWasActive=false;
     SpatialSeparation spatialSeparation;
     ImmersiveWidth immersiveWidth;
+    skellcore::experimental::FiveBandEnhancer creativeEnhancer;
+    detail::Smoother creativeBlend;
+    bool creativeWasActive=false;
     bool immersiveWidthMode=false;
     bool spatialWasActive=false;
     std::array<double,1025> referenceClipGainTable {};

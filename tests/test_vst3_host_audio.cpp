@@ -221,11 +221,12 @@ static int getFactoryIdentityFromHostState(juce::AudioPluginInstance& instance) 
     return componentXml->getIntAttribute("skellMasterFactoryPreset", -1);
 }
 
-static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, int presetId, int factor=4) {
+static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, int presetId, int factor=4, bool fiveBand=false) {
     std::unique_ptr<juce::XmlElement> wrapper;
     auto componentXml = getComponentStateXml(instance, wrapper);
     componentXml->setAttribute("skellMasterFactoryPreset", presetId);
     componentXml->setAttribute("skellMasterOversampling",factor);
+    componentXml->setAttribute("skellMasterFiveBandEnhancement",fiveBand ? 1 : 0);
 
     juce::MemoryBlock updatedComponentState;
     juce::AudioProcessor::copyXmlToBinary(*componentXml, updatedComponentState);
@@ -246,6 +247,10 @@ static void setFactoryIdentityForHostTest(juce::AudioPluginInstance& instance, i
     std::unique_ptr<juce::XmlElement> restoredWrapper;
     require(getComponentStateXml(instance,restoredWrapper)->getIntAttribute("skellMasterOversampling",0)==factor,
             "VST3 host did not restore requested oversampling");
+    if(fiveBand) {
+        std::unique_ptr<juce::XmlElement> verify;
+        require(getComponentStateXml(instance,verify)->getIntAttribute("skellMasterFiveBandEnhancement",0)==1,"host failed creative mode restore");
+    }
 }
 
 static int applyCommandLineOverrides(juce::AudioPluginInstance& instance,
@@ -292,9 +297,9 @@ static int applyCommandLineOverrides(juce::AudioPluginInstance& instance,
     for (int i = firstOption; i < argc;) {
         const std::string option = argv[i++];
         require((option == "--set" || option == "--bool" ||
-                 option == "--factory" || option=="--oversampling") && i < argc,
-                "Expected --factory 1..9, --set NAME=VALUE, --bool NAME=0|1 or --oversampling 2|4|8");
-        if(option=="--factory" || option=="--oversampling") { ++i; continue; }
+                 option == "--factory" || option=="--oversampling" || option=="--five-band") && i < argc,
+                "Expected --factory 1..9, --set NAME=VALUE, --bool NAME=0|1 or --oversampling 2|4|8 or --five-band 0|1");
+        if(option=="--factory" || option=="--oversampling" || option=="--five-band") { ++i; continue; }
         const std::string assignment = argv[i++];
         const auto separator = assignment.find('=');
         require(separator != std::string::npos && separator > 0
@@ -553,6 +558,7 @@ int main(int argc, char** argv) {
         require(plugin->getLatencySamples()>=32,"VST3 latency omitted the 32-sample true-peak lookahead");
         const int defaultLatency=plugin->getLatencySamples();
         int requestedFactor=4;
+        bool requestedFiveBand=false;
         if(rateMode || externalWav) {
             for(int i=rateMode ? 3 : 4;i<argc;i+=2) {
                 require(i+1<argc,"Incomplete quality/parameter option");
@@ -560,6 +566,10 @@ int main(int argc, char** argv) {
                     const std::string value=argv[i+1];
                     require(value=="2" || value=="4" || value=="8","Oversampling must be 2, 4 or 8");
                     requestedFactor=value[0]-'0';
+                } else if(std::string(argv[i])=="--five-band") {
+                    const std::string value=argv[i+1];
+                    require(value=="0" || value=="1","Five-band mode must be 0 or 1");
+                    requestedFiveBand=value=="1";
                 } else if(rateMode) require(false,"Unknown rate-mode option");
             }
         }
@@ -588,7 +598,7 @@ int main(int argc, char** argv) {
         // in getParameters(). Seed the named SKELL MASTER identity through the
         // real serialized host-state path so the following VST3 roundtrip
         // verifies it separately from the exposed APVTS parameters.
-        setFactoryIdentityForHostTest(*plugin, requestedFactory, requestedFactor);
+        setFactoryIdentityForHostTest(*plugin, requestedFactory, requestedFactor, requestedFiveBand);
         if(requestedFactor!=4) {
             plugin->releaseResources();
             plugin->prepareToPlay(sampleRate,blockSize);
@@ -742,6 +752,7 @@ int main(int argc, char** argv) {
         const bool bypassEnabled = getBoolParameterByName(*plugin, "Bypass");
         std::unique_ptr<juce::XmlElement> finalHostWrapper;
         const auto finalComponent=getComponentStateXml(*plugin,finalHostWrapper);
+        const bool fiveBandGuard=requestedFiveBand && (getNumericParameterByName(*plugin,"Sauce")>20.f || getNumericParameterByName(*plugin,"Drive")>20.f || getNumericParameterByName(*plugin,"Spatial Width")>0.f);
         const bool strongMakeupGuard=finalComponent->getIntAttribute("skellMasterCompressionMakeup",0)==1
             && (getNumericParameterByName(*plugin,"Glue")>30.f || getNumericParameterByName(*plugin,"Dynamics")>30.f);
         const bool creativeDepthGuard=getNumericParameterByName(*plugin,"Spatial Width")>0.f || (finalComponent->getIntAttribute("skellMasterDepthWidth",0)==1
@@ -759,7 +770,7 @@ int main(int argc, char** argv) {
             // true-peak safety even when CLIP=0 and Deuce Match is OFF.
             // Original published factories retain their legacy sample
             // guard for saved-project parity.
-            if (deuceMatchEnabled || referenceClipEnabled || creativeDepthGuard || strongMakeupGuard ||
+            if (deuceMatchEnabled || referenceClipEnabled || creativeDepthGuard || strongMakeupGuard || fiveBandGuard ||
                 (requestedFactory>=7 && requestedFactory<=9)) {
                 // The production guard uses a rate-adaptive 0.5/0.45/0.4dB margin at 44.1/48/96kHz. The hosted
                 // 48-tap monitor must remain 0.1dB below the configured
@@ -781,7 +792,7 @@ int main(int argc, char** argv) {
                  <<" input="<<(externalWav?"private_wav":"synthetic")
                  <<" sample_rate="<<sampleRate
                  <<" frames="<<inputFrames
-                 <<" oversampling="<<requestedFactor
+                 <<" five_band="<<requestedFiveBand<<" oversampling="<<requestedFactor
                  <<" latency_samples="<<reportedLatency
                  <<" sample_peak_dbfs="<<dB(metrics.samplePeak)
                  <<" reconstructed_peak_dbtp="<<dB(metrics.reconstructedPeak)

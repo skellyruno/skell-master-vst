@@ -146,6 +146,7 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     p.width = parameters.getRawParameterValue("width")->load(std::memory_order_relaxed) * 0.01;
     p.spatialWidth = parameters.getRawParameterValue("spatialWidth")->load(std::memory_order_relaxed) * 0.01;
     p.immersiveWidth=usesImmersiveWidth();
+    p.fiveBandEnhancement=usesFiveBandEnhancement();
     p.enhancedSauce = usesEnhancedSauce();
     p.analogSauce = usesAnalogSauce();
     p.depthWidth = usesDepthWidth();
@@ -208,7 +209,8 @@ void SkellyMasterAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     const bool strongMakeup=p.compressionMakeup && (p.glue>.30 || p.dynamics>.30);
     // Makeup fall (80ms) and control smoothing (30ms) have long tails.
     // Keep reconstruction protection active until both have settled.
-    if(strongMakeup && !p.bypass)
+    const bool creativeFiveBand=p.fiveBandEnhancement && (p.sauce>.20 || p.drive>.20 || p.spatialWidth>0.);
+    if((strongMakeup || creativeFiveBand) && !p.bypass)
         referenceClipGuardHold=std::max(referenceClipGuardHold,
             static_cast<int>(std::ceil(getSampleRate()*3.0)));
     else if(creativeDepthGuard && !p.bypass)
@@ -353,8 +355,9 @@ juce::AudioProcessorEditor* SkellyMasterAudioProcessor::createEditor() {
 
 void SkellyMasterAudioProcessor::getStateInformation(juce::MemoryBlock& dest) {
     auto snapshot=parameters.copyState();
-    snapshot.setProperty("skellMasterStateVersion",17,nullptr);
+    snapshot.setProperty("skellMasterStateVersion",18,nullptr);
     snapshot.setProperty("skellMasterImmersiveWidth",usesImmersiveWidth()?1:0,nullptr);
+    snapshot.setProperty("skellMasterFiveBandEnhancement",usesFiveBandEnhancement()?1:0,nullptr);
     {
         const juce::ScopedLock lock(presetIdentityLock);
         snapshot.setProperty("skellMasterUserPresetName",userPresetName,nullptr);
@@ -391,6 +394,8 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
         requestOversampling(previousVersion>=14 && quality=="2" ? 2 :
                             previousVersion>=14 && quality=="8" ? 8 : 4);
         snapshot.setProperty("skellMasterOversampling",getRequestedOversampling(),nullptr);
+        setFiveBandEnhancementEnabled(previousVersion>=18 && snapshot.getProperty("skellMasterFiveBandEnhancement",0).toString()=="1");
+        snapshot.setProperty("skellMasterFiveBandEnhancement",usesFiveBandEnhancement()?1:0,nullptr);
         setImmersiveWidthEnabled(previousVersion>=17 && snapshot.getProperty("skellMasterImmersiveWidth",0).toString()=="1");
         snapshot.setProperty("skellMasterImmersiveWidth",usesImmersiveWidth()?1:0,nullptr);
         setCompressionMakeupEnabled(previousVersion>=16 &&
@@ -535,7 +540,7 @@ void SkellyMasterAudioProcessor::setStateInformation(const void* data, int size)
             spatialState.setProperty("value",0.0f,nullptr);
             snapshot.appendChild(spatialState,nullptr);
         }
-        snapshot.setProperty("skellMasterStateVersion",17,nullptr);
+        snapshot.setProperty("skellMasterStateVersion",18,nullptr);
         parameters.replaceState(snapshot);
         const juce::ScopedLock lock(presetIdentityLock);
         userPresetName=snapshot.getProperty("skellMasterUserPresetName",{}).toString().substring(0,128);
@@ -559,6 +564,8 @@ juce::String SkellyMasterAudioProcessor::presetFingerprint() const {
         << int(usesEnhancedSauce()) << int(usesAnalogSauce()) << int(usesDepthWidth())
         << int(usesEfficientDepth()) << int(usesAdaptiveCompression())
         << int(usesCompressionMakeup()) << int(usesImmersiveWidth());
+    // False adds nothing: existing V17 named-preset fingerprints stay clean.
+    if(usesFiveBandEnhancement()) result << ";fiveband";
     return result; // Oversampling is a separate project/quality preference.
 }
 juce::String SkellyMasterAudioProcessor::getUserPresetName() const {
@@ -604,7 +611,7 @@ juce::Result SkellyMasterAudioProcessor::loadUserPreset(const juce::File& file) 
     auto xml=getXmlFromBinary(bytes.getData(),static_cast<int>(bytes.getSize()));
     if(!xml || !xml->hasTagName(parameters.state.getType()) ||
        xml->getIntAttribute("skellMasterStateVersion",0)<16 ||
-       xml->getIntAttribute("skellMasterStateVersion",0)>17)
+       xml->getIntAttribute("skellMasterStateVersion",0)>18)
         return juce::Result::fail("Unsupported Skell Master preset.");
     const auto tree=juce::ValueTree::fromXml(*xml);
     // Check every known parameter before mutating the current processor.
