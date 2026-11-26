@@ -4,6 +4,7 @@
 #include <SkellCore/SkullTheme.h>
 #include <array>
 #include <memory>
+#include <functional>
 
 // Live UI is JUCE and SkellCore; static artwork remains isolated from audio.
 class SkellyMasterAudioProcessorEditor final : public juce::AudioProcessorEditor,
@@ -47,7 +48,7 @@ private:
     void refreshQualityDisplay();
     void clearMeterHolds();
     void showPresetChooser(bool save);
-    void showLoadMenu();
+    void showPresetMenu();
     void loadPresetFile(const juce::File&);
     void switchSkin();
     static skellcore::ui::SkullSkin loadSkin();
@@ -79,8 +80,16 @@ private:
     std::array<juce::Slider, knobCount> knobs;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, knobCount> attachments;
     juce::TextButton bypass { "BYPASS" }, reset { "RESET" }, qualityButton { "4x" };
-    juce::ComboBox presetSelector;
-    juce::TextButton savePresetButton {"SAVE"}, loadPresetButton {"LOAD"};
+    // Command items live in the popup, never in the five factory IDs.
+    class PresetSelector final : public juce::ComboBox {
+    public:
+        std::function<void()> openMenu;
+        void showPopup() override {
+            if(isEnabled() && openMenu) openMenu();
+        }
+    };
+    PresetSelector presetSelector;
+    bool presetMenuOpen=false;
     juce::TextButton fiveBandButton {"5 BAND"};
     std::unique_ptr<juce::FileChooser> presetChooser;
     int displayedFactory=0;

@@ -673,7 +673,8 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     // ID 0 remains the old neutral state, not a changed factory ID.
     presetSelector.setTextWhenNothingSelected({});
     presetSelector.setJustificationType(juce::Justification::centred);
-    presetSelector.setTooltip("Choose a mastering preset");
+    presetSelector.setTooltip("Choose a factory or saved preset, save the current sound, or load from a file.");
+    presetSelector.openMenu=[this]{ showPresetMenu(); };
     presetSelector.onChange=[this] {
         applyFactoryPreset(presetSelector.getSelectedId());
         refreshPresetDisplay();
@@ -697,19 +698,12 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
     };
     addAndMakeVisible(qualityButton);
     refreshQualityDisplay();
-    fiveBandButton.setComponentID("skell-monitor-five-band");
+    fiveBandButton.setComponentID("utility-five-band");
     fiveBandButton.setClickingTogglesState(true);
     fiveBandButton.setTooltip("Optional five-band creative mode: Sauce above 20%, Drive above 20% and Width use shared multiband enhancement. Original factory sound remains protected.");
     fiveBandButton.setToggleState(processor.usesFiveBandEnhancement(),juce::dontSendNotification);
     fiveBandButton.onClick=[this]{ processor.setFiveBandEnhancementEnabled(fiveBandButton.getToggleState()); refreshPresetDisplay(); };
     addAndMakeVisible(fiveBandButton);
-    savePresetButton.setComponentID("skell-master-save-preset");
-    loadPresetButton.setComponentID("skell-master-load-preset");
-    savePresetButton.setTooltip("Save current sound as a named user preset.");
-    loadPresetButton.setTooltip("Choose a saved preset or browse for a preset file.");
-    savePresetButton.onClick=[this]{ showPresetChooser(true); };
-    loadPresetButton.onClick=[this]{ showLoadMenu(); };
-    addAndMakeVisible(savePresetButton); addAndMakeVisible(loadPresetButton);
     for (int i=0;i<presetSelector.getNumChildComponents();++i)
         if (auto* label=dynamic_cast<juce::Label*>(
                 presetSelector.getChildComponent(i)))
@@ -743,6 +737,11 @@ SkellyMasterAudioProcessorEditor::SkellyMasterAudioProcessorEditor(SkellyMasterA
 
 SkellyMasterAudioProcessorEditor::~SkellyMasterAudioProcessorEditor() {
     stopTimer();
+    presetSelector.openMenu={};
+    if(presetMenuOpen) {
+        presetMenuOpen=false;
+        juce::PopupMenu::dismissAllActiveMenus();
+    }
     presetChooser.reset();
     for (auto& attachment : attachments) attachment.reset();
     bypassAttachment.reset();
@@ -948,7 +947,7 @@ void SkellyMasterAudioProcessorEditor::timerCallback() {
     const int restoredPreset=processor.getFactoryPresetId();
     // ComboBox delivers onChange asynchronously. Do not replace a pending
     // user selection just because the processor still holds the previous ID.
-    if(restoredPreset!=displayedFactory && !presetSelector.isPopupActive()) {
+    if(restoredPreset!=displayedFactory && !presetMenuOpen && !presetSelector.isPopupActive()) {
         displayedFactory=restoredPreset;
         presetSelector.setSelectedId(menuForFactory(restoredPreset),juce::dontSendNotification);
     }
@@ -1348,7 +1347,7 @@ void SkellyMasterAudioProcessorEditor::paintStatic(juce::Graphics& g) {
     hw::divider(g,850,685,850,744);
     hw::divider(g,1121,685,1121,744);
     font(g,16,true);g.setColour(hw::gold);
-    text(g,"USER PRESETS",48,681,205,18,juce::Justification::centred);
+    text(g,"MULTIBAND",48,681,205,18,juce::Justification::centred);
     font(g,14,true);g.setColour(hw::gold);
     text(g,"CLIP",294,710,85,21,juce::Justification::centredLeft);
     font(g,15,true);g.setColour(hw::gold);
@@ -1435,9 +1434,7 @@ void SkellyMasterAudioProcessorEditor::resized() {
         place(knobs[static_cast<size_t>(i)],cellX+15,rowY+5,247,118);
     }
     place(qualityButton,63,167,184,23);
-    place(savePresetButton,48,705,98,32);
-    place(loadPresetButton,151,705,98,32);
-    place(fiveBandButton,803,29,76,38);
+    place(fiveBandButton,48,704,201,34);
     place(bypass,887,29,125,38);
     place(reset,1024,29,126,38);
     place(presetSelector,976,228,170,26);
@@ -1485,21 +1482,49 @@ void SkellyMasterAudioProcessorEditor::loadPresetFile(const juce::File& file) {
     presetSelector.setSelectedId(0,juce::dontSendNotification);
     refreshPresetDisplay(); refreshQualityDisplay();
 }
-void SkellyMasterAudioProcessorEditor::showLoadMenu() {
-    auto files=SkellyMasterAudioProcessor::userPresetDirectory().findChildFiles(juce::File::findFiles,false,"*.skellmasterpreset");
+void SkellyMasterAudioProcessorEditor::showPresetMenu() {
+    if(presetMenuOpen) return;
+    constexpr int saveId=1000, browseId=1001, firstUserId=2000;
+    auto files=SkellyMasterAudioProcessor::userPresetDirectory().findChildFiles(
+        juce::File::findFiles,false,"*.skellmasterpreset");
     files.sort();
-    juce::PopupMenu menu;
-    menu.addSectionHeader("SAVED PRESETS");
     const int count=juce::jmin(256,files.size());
-    for(int i=0;i<count;++i)
-        menu.addItem(i+1,files[i].getFileNameWithoutExtension());
-    if(count==0) menu.addItem(999,"No saved presets",false);
-    menu.addSeparator(); menu.addItem(1000,"Browse...");
+    const auto userName=processor.getUserPresetName();
+    juce::PopupMenu menu, load;
+    menu.addSectionHeader("FACTORY PRESETS");
+    for(int index=0;index<presetSelector.getNumItems();++index) {
+        const int id=presetSelector.getItemId(index);
+        menu.addItem(id,presetSelector.getItemText(index),true,
+                     userName.isEmpty() && processor.getFactoryPresetId()==id);
+    }
+    menu.addSeparator();
+    menu.addItem(saveId,"Save preset...");
+    load.addItem(browseId,"Browse for preset...");
+    load.addSeparator();
+    load.addSectionHeader("SAVED PRESETS");
+    if(count==0) load.addItem(999,"No saved presets",false);
+    for(int n=0;n<count;++n) {
+        const auto name=files[n].getFileNameWithoutExtension();
+        load.addItem(firstUserId+n,name,true,name==userName);
+    }
+    menu.addSubMenu("Load preset",load);
+    menu.setLookAndFeel(&lookAndFeel);
+    presetMenuOpen=true;
     const auto safe=juce::Component::SafePointer<SkellyMasterAudioProcessorEditor>(this);
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&loadPresetButton),
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&presetSelector)
+                           .withMinimumWidth(180),
         [safe,files,count](int id) {
             if(safe==nullptr) return;
-            if(id==1000) safe->showPresetChooser(false);
-            else if(id>0 && id<=count) safe->loadPresetFile(files[id-1]);
+            safe->presetMenuOpen=false;
+            safe->presetSelector.hidePopup();
+            if(id>=1 && id<=5) {
+                // Selecting even the current factory explicitly restores it.
+                safe->applyFactoryPreset(id);
+                safe->presetSelector.setSelectedId(id,juce::dontSendNotification);
+                safe->refreshPresetDisplay();
+            } else if(id==saveId) safe->showPresetChooser(true);
+            else if(id==browseId) safe->showPresetChooser(false);
+            else if(id>=firstUserId && id<firstUserId+count)
+                safe->loadPresetFile(files[id-firstUserId]);
         });
 }

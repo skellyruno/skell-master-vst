@@ -355,7 +355,7 @@ int main() {
                     ++presetCount; interactive.push_back(box);
                 }
             }
-            check(sliderCount==11 && buttonCount==9 && presetCount==1,
+            check(sliderCount==11 && buttonCount==7 && presetCount==1,
                   "missing mastering controls, monitor buttons or preset dropdown");
             for (size_t i=0;i<interactive.size();++i)
                 for (size_t j=i+1;j<interactive.size();++j)
@@ -406,6 +406,7 @@ int main() {
         juce::TextButton* clear=nullptr;
         juce::TextButton* bypass=nullptr;
         juce::TextButton* reset=nullptr;
+        juce::TextButton* fiveBand=nullptr;
         for (int i=0;i<editor.getNumChildComponents();++i) {
             auto* component=editor.getChildComponent(i);
             if (auto* slider=dynamic_cast<juce::Slider*>(component)) {
@@ -417,12 +418,14 @@ int main() {
             if (auto* button=dynamic_cast<juce::TextButton*>(component)) {
                 if (button->getButtonText()=="BYPASS") bypass=button;
                 if (button->getButtonText()=="RESET") reset=button;
+                if (button->getComponentID()=="utility-five-band") fiveBand=button;
+                check(button->getButtonText()!="SAVE" && button->getButtonText()!="LOAD","preset commands belong only in preset menu");
                 if (button->getButtonText()=="PEAK") peak=button;
                 if (button->getButtonText()=="TRUE") truePeak=button;
                 if (button->getButtonText()=="CLEAR") clear=button;
             }
         }
-        check(input && bypass && reset && clipper && peak && truePeak && clear && preset,
+        check(input && bypass && reset && clipper && peak && truePeak && clear && preset && fiveBand,
               "cannot locate actual hardware monitor controls");
         // A mouse click on ANY part of the visible preset bar must reach
         // the ComboBox (not its overlaid child text label). Repeat at
@@ -430,6 +433,8 @@ int main() {
         for(const int width : {620,702,1200}) {
             editor.setSize(width,juce::roundToInt(width*760.0/1200.0));
             const auto bounds=preset->getBounds();
+            check(fiveBand->getBounds().getCentreX()<width/4 && fiveBand->getY()>editor.getHeight()*0.90,"five-band toggle in lower-left utility deck");
+            check(editor.getComponentAt(fiveBand->getBounds().getCentre())==fiveBand,"five-band hit area unobstructed");
             const int middleY=bounds.getCentreY();
             for(const int xx : {bounds.getX()+3,bounds.getCentreX(),
                                 bounds.getRight()-5})

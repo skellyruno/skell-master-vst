@@ -9,7 +9,7 @@
 #include <vector>
 
 namespace {
-constexpr int expectedControls = 21; // 11 knobs, 9 buttons and 1 preset dropdown
+constexpr int expectedControls = 19; // 11 knobs, 7 buttons and 1 preset dropdown
 void setValue(SkellyMasterAudioProcessor& p, const char* id, float plainValue) {
     if (auto* param = p.parameters.getParameter(id))
         param->setValueNotifyingHost(param->convertTo0to1(plainValue));
@@ -72,7 +72,7 @@ juce::StringArray inspect(SkellyMasterAudioProcessorEditor& editor) {
         rectangles.push_back(bounds);
     }
     if (count != expectedControls)
-        issues.add("Expected 11 rotary controls, nine buttons and one preset dropdown, found " + juce::String(count));
+        issues.add("Expected 11 rotary controls, seven buttons and one preset dropdown, found " + juce::String(count));
     return issues;
 }
 } // namespace
